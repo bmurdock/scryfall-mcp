@@ -1,0 +1,39 @@
+{
+  "folders": [
+    {
+      "name": "Scryfall MCP",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "git.enableSmartCommit": true,
+    "git.confirmSync": false,
+    "git.autofetch": true,
+    "explorer.decorations.colors": true,
+    "explorer.decorations.badges": true,
+    "scm.diffDecorations": "all",
+    "git.decorations.enabled": true,
+    "git.enableStatusBarSync": true,
+    "git.showProgress": true,
+    "workbench.colorCustomizations": {
+      "gitDecoration.modifiedResourceForeground": "#e2c08d",
+      "gitDecoration.deletedResourceForeground": "#c74e39",
+      "gitDecoration.untrackedResourceForeground": "#73c991",
+      "gitDecoration.ignoredResourceForeground": "#8c8c8c",
+      "gitDecoration.conflictingResourceForeground": "#e4676b"
+    },
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/.git": false,
+      "**/.DS_Store": true
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "eamodio.gitlens",
+      "ms-vscode.vscode-json",
+      "bradlc.vscode-tailwindcss",
+      "esbenp.prettier-vscode"
+    ]
+  }
+}
