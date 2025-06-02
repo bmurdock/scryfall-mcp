@@ -264,6 +264,12 @@ NODE_ENV=development
 - Wait a moment and try again
 - Check if you're making too many concurrent requests
 
+**"Network error: Unexpected token" or gzip-related errors**
+- This was fixed in v1.0.2 by disabling gzip compression
+- Make sure you're using the latest build: `npm run build`
+- Restart Claude Desktop after rebuilding
+- The server now requests uncompressed responses to avoid parsing issues
+
 **"Card not found"**
 - Verify card name spelling
 - Try using set code + collector number format
@@ -307,13 +313,17 @@ server.clearCaches()
 - Use conventional commit messages
 - Update documentation for new features
 
-## API Rate Limiting
+## API Rate Limiting & Compliance
 
-This server respects Scryfall's API guidelines:
-- Minimum 75ms between requests
-- Exponential backoff on errors
-- Circuit breaker for consecutive failures
-- Bulk data downloads don't count against limits
+This server fully complies with Scryfall's API guidelines:
+- **Rate Limiting**: 100ms minimum between requests (10 requests/second max)
+- **Required Headers**: Proper User-Agent and Accept headers
+- **Caching**: 24+ hour caching for card data, 6 hours for prices
+- **Bulk Data**: Uses daily bulk downloads that don't count against limits
+- **Error Handling**: Respects 429 responses with exponential backoff
+- **Circuit Breaker**: Prevents overloading during API issues
+
+See [SCRYFALL_COMPLIANCE.md](./SCRYFALL_COMPLIANCE.md) for complete compliance details.
 
 ## License
 

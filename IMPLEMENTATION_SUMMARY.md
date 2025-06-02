@@ -21,10 +21,11 @@ This document summarizes the successful implementation of a production-ready Scr
 - **analyze_card**: Comprehensive card analysis templates
 - **build_deck**: Deck building guides with strategy and recommendations
 
-### ✅ 4. Rate Limiting (75ms intervals)
+### ✅ 4. Rate Limiting (100ms intervals - Scryfall Compliant)
 - Queue-based system with exponential backoff
 - Circuit breaker for consecutive failures
 - Respects Scryfall's 429 responses with Retry-After headers
+- Complies with Scryfall's 50-100ms requirement (10 requests/second max)
 
 ### ✅ 5. Intelligent Caching
 - Configurable TTL by data type (30min to 1 week)

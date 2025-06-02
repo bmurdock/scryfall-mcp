@@ -1,4 +1,4 @@
-import { request } from 'undici';
+// HTTP client for Scryfall API
 import {
   ScryfallCard,
   ScryfallSearchResponse,
@@ -48,21 +48,33 @@ export class ScryfallClient {
     await this.rateLimiter.waitForClearance();
 
     try {
-      const response = await request(url, {
+      const response = await fetch(url, {
         headers: {
           ...REQUIRED_HEADERS,
           'User-Agent': this.userAgent
         }
       });
 
-      const data = await response.body.json();
+      // Handle the response body properly
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        // If JSON parsing fails, try to get the raw text for debugging
+        try {
+          const text = await response.text();
+          throw new Error(`Failed to parse JSON response. Raw response: ${text.substring(0, 200)}...`);
+        } catch {
+          throw new Error(`Failed to parse response and unable to get raw text. Error: ${jsonError instanceof Error ? jsonError.message : 'Unknown'}`);
+        }
+      }
 
-      if (response.statusCode >= 400) {
-        this.rateLimiter.recordError(response.statusCode);
+      if (response.status >= 400) {
+        this.rateLimiter.recordError(response.status);
 
-        if (response.statusCode === 429) {
-          const retryAfter = response.headers['retry-after'] as string;
-          await this.rateLimiter.handleRateLimitResponse(retryAfter);
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('retry-after');
+          await this.rateLimiter.handleRateLimitResponse(retryAfter || undefined);
           throw new RateLimitError(
             'Rate limit exceeded',
             retryAfter ? parseInt(retryAfter) : undefined
@@ -71,8 +83,8 @@ export class ScryfallClient {
 
         const error = data as ScryfallError;
         throw new ScryfallAPIError(
-          error.details || `HTTP ${response.statusCode}`,
-          response.statusCode,
+          error.details || `HTTP ${response.status}`,
+          response.status,
           error.code,
           error.details
         );
@@ -313,20 +325,16 @@ export class ScryfallClient {
    */
   async downloadBulkData(downloadUri: string): Promise<ScryfallCard[]> {
     try {
-      const response = await request(downloadUri, {
-        headers: {
-          'Accept-Encoding': 'gzip'
-        }
-      });
+      const response = await fetch(downloadUri);
 
-      if (response.statusCode >= 400) {
+      if (response.status >= 400) {
         throw new ScryfallAPIError(
-          `Failed to download bulk data: HTTP ${response.statusCode}`,
-          response.statusCode
+          `Failed to download bulk data: HTTP ${response.status}`,
+          response.status
         );
       }
 
-      return await response.body.json() as ScryfallCard[];
+      return await response.json() as ScryfallCard[];
     } catch (error) {
       throw new ScryfallAPIError(
         `Bulk data download error: ${error instanceof Error ? error.message : 'Unknown error'}`,

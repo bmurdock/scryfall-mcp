@@ -55,14 +55,14 @@ export const CACHE_DURATIONS = {
 
 // HTTP Client Configuration
 export const REQUIRED_HEADERS = {
-  'User-Agent': 'ScryfallMCPServer/1.0 (contact@example.com)',
-  'Accept': 'application/json',
-  'Accept-Encoding': 'gzip'
+  'User-Agent': 'ScryfallMCPServer/1.0.2 (https://github.com/bmurdock/scryfall-mcp)',
+  'Accept': 'application/json'
+  // Note: Accept-Encoding removed to avoid gzip parsing issues in Node.js
 } as const;
 
-// Rate Limiting Configuration
+// Rate Limiting Configuration (Scryfall requires 50-100ms between requests)
 export const RATE_LIMIT_CONFIG = {
-  minInterval: 75, // 75ms minimum between requests
+  minInterval: 100, // 100ms minimum between requests (10 requests per second max)
   maxRetries: 3,
   backoffMultiplier: 2,
   maxBackoffMs: 5000
