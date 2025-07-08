@@ -1,4 +1,4 @@
-import { ScryfallCard, ScryfallSet, ScryfallSearchResponse } from '../types/scryfall-api.js';
+import { ScryfallCard, ScryfallSet, ScryfallSearchResponse, Legalities } from '../types/scryfall-api.js';
 import { FormattedCard, FormattedSearchResult, FormattedSet } from '../types/mcp-types.js';
 
 /**
@@ -24,7 +24,9 @@ export function formatCard(card: ScryfallCard, includeImage = true): FormattedCa
       tix: card.prices.tix
     },
     legalities: formatLegalities(card.legalities),
-    image_url: includeImage ? getCardImageUrl(card) : undefined
+    image_url: includeImage ? getCardImageUrl(card) : undefined,
+    color_identity: card.color_identity,
+    games: card.games
   };
 }
 
@@ -55,7 +57,7 @@ function getCardImageUrl(card: ScryfallCard): string | undefined {
 /**
  * Formats legalities object to a more readable format
  */
-function formatLegalities(legalities: any): Record<string, string> {
+function formatLegalities(legalities: Legalities): Record<string, string> {
   const formatted: Record<string, string> = {};
   
   // Only include formats where the card is legal or restricted
@@ -73,19 +75,28 @@ function formatLegalities(legalities: any): Record<string, string> {
  */
 export function formatSearchResultsAsText(
   searchResponse: ScryfallSearchResponse,
-  currentPage: number = 1,
-  pageSize: number = 20
+  currentPage = 1,
+  pageSize = 20
 ): string {
-  const { total_cards, has_more, data: cards } = searchResponse;
+  const { total_cards, has_more, data: cards, warnings } = searchResponse;
   
-  let result = `Found ${total_cards} card${total_cards !== 1 ? 's' : ''}`;
+  let result = `Found ${total_cards ?? cards.length} card${(total_cards ?? cards.length) !== 1 ? 's' : ''}`;
   
-  if (has_more) {
+  if (has_more && total_cards) {
     const totalPages = Math.ceil(total_cards / pageSize);
     result += ` (Page ${currentPage} of ${totalPages})`;
   }
   
   result += ':\n\n';
+  
+  // Add warnings if present
+  if (warnings && warnings.length > 0) {
+    result += '⚠️  **Warnings:**\n';
+    warnings.forEach(warning => {
+      result += `- ${warning}\n`;
+    });
+    result += '\n';
+  }
   
   cards.forEach((card, index) => {
     const cardNumber = (currentPage - 1) * pageSize + index + 1;
@@ -94,7 +105,8 @@ export function formatSearchResultsAsText(
   });
   
   if (has_more) {
-    result += `\n... and ${total_cards - cards.length} more cards. Use page parameter to see more results.`;
+    const remainingCount = total_cards ? total_cards - cards.length : 'many';
+    result += `\n... and ${remainingCount} more cards. Use page parameter to see more results.`;
   }
   
   return result;
@@ -145,16 +157,17 @@ function formatCardAsText(card: ScryfallCard, index?: number): string {
  */
 export function formatSearchResultsAsJson(
   searchResponse: ScryfallSearchResponse,
-  currentPage: number = 1,
-  pageSize: number = 20
+  currentPage = 1,
+  pageSize = 20
 ): FormattedSearchResult {
-  const { total_cards, has_more, data: cards } = searchResponse;
-  const totalPages = Math.ceil(total_cards / pageSize);
+  const { total_cards, has_more, data: cards, warnings } = searchResponse;
+  const totalPages = total_cards ? Math.ceil(total_cards / pageSize) : undefined;
   
   return {
-    total_cards,
+    total_cards: total_cards ?? cards.length,
     has_more,
     cards: cards.map(card => formatCard(card)),
+    warnings,
     page_info: {
       current_page: currentPage,
       total_pages: totalPages,
@@ -190,7 +203,7 @@ export function formatCardDetails(card: ScryfallCard, includeImage = true): stri
   
   // Prices
   const prices = Object.entries(formatted.prices)
-    .filter(([_, price]) => price)
+    .filter(([, price]) => price)
     .map(([currency, price]) => `${currency.toUpperCase()}: $${price}`)
     .join(', ');
   
@@ -262,7 +275,7 @@ export function formatSetsAsText(sets: ScryfallSet[]): string {
 /**
  * Formats card prices for display
  */
-export function formatCardPrices(card: ScryfallCard, currency: string = 'usd'): string {
+export function formatCardPrices(card: ScryfallCard, currency = 'usd'): string {
   let result = `# Prices for ${card.name}\n\n`;
   
   const prices = card.prices;

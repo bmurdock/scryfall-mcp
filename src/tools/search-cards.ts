@@ -1,17 +1,17 @@
-import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { ScryfallClient } from '../services/scryfall-client.js';
 import {
   validateSearchCardsParams,
-  validateScryfallQuery
+  validateScryfallQuery,
+  type ValidationResult
 } from '../utils/validators.js';
 import {
   formatSearchResultsAsText,
   formatSearchResultsAsJson
 } from '../utils/formatters.js';
 import {
-  SearchCardsParams,
   ScryfallAPIError,
-  ValidationError
+  ValidationError,
+  SearchCardsParams
 } from '../types/mcp-types.js';
 
 /**
@@ -54,8 +54,57 @@ export class SearchCardsTool {
       },
       order: {
         type: 'string',
-        enum: ['name', 'released', 'cmc', 'power', 'toughness', 'artist'],
+        enum: ['name', 'released', 'cmc', 'power', 'toughness', 'artist', 'set', 'rarity', 'color', 'usd', 'eur', 'tix', 'edhrec', 'penny', 'review'],
         description: 'Sort order for results'
+      },
+      unique: {
+        type: 'string',
+        enum: ['cards', 'art', 'prints'],
+        description: 'Strategy for omitting similar cards',
+        default: 'cards'
+      },
+      direction: {
+        type: 'string',
+        enum: ['asc', 'desc', 'auto'],
+        description: 'Sort direction',
+        default: 'auto'
+      },
+      include_multilingual: {
+        type: 'boolean',
+        description: 'Include cards in all languages',
+        default: false
+      },
+      include_variations: {
+        type: 'boolean',
+        description: 'Include rare card variants',
+        default: false
+      },
+      price_range: {
+        type: 'object',
+        properties: {
+          min: {
+            type: 'number',
+            minimum: 0,
+            description: 'Minimum price'
+          },
+          max: {
+            type: 'number',
+            minimum: 0,
+            description: 'Maximum price'
+          },
+          currency: {
+            type: 'string',
+            enum: ['usd', 'eur', 'tix'],
+            default: 'usd',
+            description: 'Currency for price filtering'
+          }
+        },
+        description: 'Price filtering constraints'
+      },
+      arena_only: {
+        type: 'boolean',
+        description: 'Only return cards available in Arena',
+        default: false
       }
     },
     required: ['query']
@@ -68,20 +117,47 @@ export class SearchCardsTool {
       // Validate parameters
       const params = validateSearchCardsParams(args);
 
-      // Validate Scryfall query syntax
-      validateScryfallQuery(params.query);
+      // Enhanced Scryfall query validation
+      const validationResult = await validateScryfallQuery(params.query);
+      
+      // If validation fails, return detailed error information
+      if (!validationResult.isValid) {
+        return {
+          content: [{
+            type: 'text',
+            text: this.formatValidationErrors(validationResult)
+          }],
+          isError: true
+        };
+      }
+      
+      // If there are warnings, we can still proceed but inform the user
+      if (validationResult.warnings.length > 0) {
+        // Could log warnings or include them in response
+      }
+
+      // Build final query with Arena filtering if requested
+      let finalQuery = params.query;
+      if (params.arena_only) {
+        finalQuery += ' game:arena';
+      }
 
       // Execute search
       const results = await this.scryfallClient.searchCards({
-        query: params.query,
+        query: finalQuery,
         limit: params.limit,
         page: params.page,
         include_extras: params.include_extras,
         order: params.order,
+        unique: params.unique,
+        direction: params.direction,
+        include_multilingual: params.include_multilingual,
+        include_variations: params.include_variations,
+        price_range: params.price_range,
       });
 
       // Handle no results
-      if (results.total_cards === 0) {
+      if (results.total_cards === 0 || results.data.length === 0) {
         return {
           content: [
             {
@@ -128,7 +204,7 @@ export class SearchCardsTool {
         let errorMessage = `Scryfall API error: ${error.message}`;
 
         if (error.status === 404) {
-          errorMessage = `No cards found matching "${(args as any)?.query || 'your query'}". The search query may be invalid or too specific.`;
+          errorMessage = `No cards found matching "${(args as SearchCardsParams)?.query || 'your query'}". The search query may be invalid or too specific.`;
         } else if (error.status === 422) {
           errorMessage = `Invalid search query syntax. Please check your Scryfall search syntax and try again.`;
         } else if (error.status === 429) {
@@ -157,5 +233,67 @@ export class SearchCardsTool {
         isError: true
       };
     }
+  }
+
+  /**
+   * Format validation errors into a user-friendly message
+   */
+  private formatValidationErrors(validationResult: ValidationResult): string {
+    let message = '**Query Validation Issues Found:**\n\n';
+
+    // Format errors
+    if (validationResult.errors.length > 0) {
+      message += '**Errors:**\n';
+      for (const error of validationResult.errors) {
+        if ('code' in error) {
+          // QueryValidationError
+          message += `❌ ${error.message}`;
+          if (error.position !== undefined) {
+            message += ` (at position ${error.position})`;
+          }
+        } else {
+          // ValidationError
+          message += `❌ ${error.message}`;
+          if (error.position) {
+            message += ` (line ${error.position.line}, column ${error.position.column})`;
+          }
+        }
+        message += '\n';
+      }
+      message += '\n';
+    }
+
+    // Format warnings
+    if (validationResult.warnings.length > 0) {
+      message += '**Warnings:**\n';
+      for (const warning of validationResult.warnings) {
+        message += `⚠️ ${warning.message}\n`;
+      }
+      message += '\n';
+    }
+
+    // Format suggestions
+    if (validationResult.suggestions.length > 0) {
+      message += '**Suggestions:**\n';
+      for (const suggestion of validationResult.suggestions) {
+        message += `💡 **${suggestion.description}**\n`;
+        if (suggestion.suggestedQuery) {
+          message += `   Try: \`${suggestion.suggestedQuery}\`\n`;
+        }
+        if (suggestion.impact) {
+          message += `   Impact: ${suggestion.impact}\n`;
+        }
+      }
+      message += '\n';
+    }
+
+    // Add helpful tips
+    message += '**Tips:**\n';
+    message += '• Use operators like `c:red` for color, `t:creature` for type, `f:modern` for format\n';
+    message += '• Combine with boolean logic: `c:red AND t:creature`\n';
+    message += '• Use quotes for exact phrases: `o:"enters the battlefield"`\n';
+    message += '• Use comparison operators: `cmc>=3`, `pow<=2`\n';
+
+    return message;
   }
 }

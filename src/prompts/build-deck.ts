@@ -18,7 +18,7 @@ export class BuildDeckPrompt {
     },
     {
       name: 'format',
-      description: 'Magic format for the deck (standard, modern, legacy, vintage, commander, pioneer)',
+      description: 'Magic format for the deck (standard, modern, legacy, vintage, commander, pioneer, brawl, standardbrawl)',
       required: true
     },
     {
@@ -116,13 +116,13 @@ Please create a comprehensive deck building guide covering:
 - Mana curve considerations
 
 ### 5. Complete Decklist Suggestion
-Provide a sample ${format === 'commander' ? '100' : '60'}-card decklist including:
-- Mainboard (${format === 'commander' ? '99 cards + commander' : '60 cards'})
-${format !== 'commander' ? '- Sideboard (15 cards)' : ''}
+Provide a sample ${['commander', 'brawl'].includes(format) ? '100' : format === 'standardbrawl' ? '60' : '60'}-card decklist including:
+- Mainboard (${['commander', 'brawl'].includes(format) ? '99 cards + commander' : format === 'standardbrawl' ? '59 cards + commander' : '60 cards'})
+${!['commander', 'brawl', 'standardbrawl'].includes(format) ? '- Sideboard (15 cards)' : ''}
 - Specific card quantities and reasoning
 
-### 6. Sideboard Strategy ${format === 'commander' ? '(N/A for Commander)' : ''}
-${format !== 'commander' ? `
+### 6. Sideboard Strategy ${['commander', 'brawl', 'standardbrawl'].includes(format) ? '(N/A for Singleton Formats)' : ''}
+${!['commander', 'brawl', 'standardbrawl'].includes(format) ? `
 - Key matchups to sideboard against
 - Sideboard card recommendations
 - Sideboarding guide for common matchups
@@ -170,6 +170,16 @@ ${format === 'commander' ? `
 - Multiplayer dynamics
 - Casual vs competitive builds
 - Social contract considerations
+` : ''}
+
+${['brawl', 'standardbrawl'].includes(format) ? `
+## Brawl-Specific Considerations
+- Arena meta and digital considerations
+- Singleton deck construction constraints
+- Commander color identity restrictions
+- ${format === 'brawl' ? 'Historic card pool (100 cards)' : 'Standard card pool (60 cards)'}
+- Arena-only card availability requirement
+- Best-of-one gameplay optimization
 ` : ''}
 
 Please structure the guide with clear sections and provide actionable advice for deck builders at the ${competitiveLevel} level.`;

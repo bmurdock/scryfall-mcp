@@ -30,5 +30,27 @@
     "**/node_modules": true,
     "**/bower_components": true,
     "**/*.code-search": true
+  },
+  "mcp": {
+    "inputs": [],
+    "servers": {
+      "mcp-server-time": {
+        "command": "python",
+        "args": [
+          "-m",
+          "mcp_server_time",
+          "--local-timezone=America/Los_Angeles"
+        ],
+        "env": {}
+      },
+      "serena": {
+        "command": "uvx",
+        "args": [
+          "--from",
+          "git+https://github.com/oraios/serena",
+          "serena-mcp-server"
+        ]
+      }
+    }
   }
 }

@@ -6,7 +6,8 @@ import {
 import { formatCardDetails } from '../utils/formatters.js';
 import { 
   ScryfallAPIError, 
-  ValidationError 
+  ValidationError,
+  GetCardParams
 } from '../types/mcp-types.js';
 
 /**
@@ -96,7 +97,7 @@ export class GetCardTool {
         let errorMessage = `Scryfall API error: ${error.message}`;
         
         if (error.status === 404) {
-          errorMessage = `Card not found: "${(args as any)?.identifier ?? 'unknown'}". Check the card name, set code, or ID.`;
+          errorMessage = `Card not found: "${(args as GetCardParams)?.identifier ?? 'unknown'}". Check the card name, set code, or ID.`;
         } else if (error.status === 422) {
           errorMessage = `Invalid card identifier format. Use card name, "SET/NUMBER", or Scryfall UUID.`;
         } else if (error.status === 429) {

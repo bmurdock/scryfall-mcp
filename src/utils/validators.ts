@@ -99,9 +99,18 @@ export function validateSearchSetsParams(params: unknown) {
 }
 
 /**
- * Validates Scryfall search query syntax
+ * Enhanced Scryfall query validation with intelligent error messages and suggestions
  */
-export function validateScryfallQuery(query: string): void {
+export async function validateScryfallQuery(query: string): Promise<import('../validation/unified-types.js').ValidationResult> {
+  const { EnhancedScryfallValidator } = await import('../validation/enhanced-validator.js');
+  const validator = new EnhancedScryfallValidator();
+  return await validator.validate(query);
+}
+
+/**
+ * Synchronous Scryfall query validation for backward compatibility
+ */
+export function validateScryfallQuerySync(query: string): void {
   if (!query || query.trim().length === 0) {
     throw new ValidationError('Search query cannot be empty');
   }
@@ -124,6 +133,14 @@ export function validateScryfallQuery(query: string): void {
     throw new ValidationError('Consecutive boolean operators are not allowed');
   }
 }
+
+// Re-export validation types for external use
+export type { 
+  ValidationResult, 
+  ValidationError as EnhancedValidationError, 
+  QuerySuggestion,
+  ValidationContext 
+} from '../validation/unified-types.js';
 
 /**
  * Validates card identifier format

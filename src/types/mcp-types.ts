@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MagicFormat } from './scryfall-api.js';
 
 // Tool Parameter Schemas
 export const SearchCardsParamsSchema = z.object({
@@ -7,7 +8,17 @@ export const SearchCardsParamsSchema = z.object({
   page: z.number().int().min(1).optional().default(1),
   format: z.enum(['json', 'text']).optional().default('text'),
   include_extras: z.boolean().optional().default(false),
-  order: z.enum(['name', 'released', 'cmc', 'power', 'toughness', 'artist']).optional()
+  order: z.enum(['name', 'released', 'cmc', 'power', 'toughness', 'artist', 'set', 'rarity', 'color', 'usd', 'eur', 'tix', 'edhrec', 'penny', 'review']).optional(),
+  unique: z.enum(['cards', 'art', 'prints']).optional().default('cards'),
+  direction: z.enum(['asc', 'desc', 'auto']).optional().default('auto'),
+  include_multilingual: z.boolean().optional().default(false),
+  include_variations: z.boolean().optional().default(false),
+  price_range: z.object({
+    min: z.number().min(0).optional(),
+    max: z.number().min(0).optional(),
+    currency: z.enum(['usd', 'eur', 'tix']).optional().default('usd')
+  }).optional(),
+  arena_only: z.boolean().optional().default(false)
 });
 
 export const GetCardParamsSchema = z.object({
@@ -18,16 +29,39 @@ export const GetCardParamsSchema = z.object({
   include_image: z.boolean().optional().default(true)
 });
 
+// TypeScript interfaces derived from Zod schemas (defined later in file)
+
+// Batch Card Analysis Parameters
+export interface BatchCardAnalysisParams {
+  card_list: string[];
+  analysis_type: 'legality' | 'prices' | 'synergy' | 'composition' | 'comprehensive';
+  format?: MagicFormat;
+  currency?: 'usd' | 'eur' | 'tix';
+  include_images?: boolean;
+  include_suggestions?: boolean;
+  group_by?: string;
+}
+
 export const GetCardPricesParamsSchema = z.object({
-  card_id: z.string().uuid('Invalid card ID format'),
+  card_identifier: z.string().min(1, 'Card identifier cannot be empty'),
   currency: z.enum(['usd', 'eur', 'tix']).optional().default('usd'),
-  format: z.enum(['paper', 'mtgo', 'arena']).optional().default('paper'),
+  format_context: z.enum(['standard', 'modern', 'legacy', 'vintage', 'commander', 'pioneer']).optional(),
+  include_alternatives: z.boolean().optional().default(false),
   include_history: z.boolean().optional().default(false)
 });
 
 export const RandomCardParamsSchema = z.object({
   query: z.string().optional(),
-  format: z.enum(['standard', 'modern', 'legacy', 'vintage', 'commander']).optional()
+  format: z.enum(['standard', 'modern', 'legacy', 'vintage', 'commander', 'pioneer']).optional(),
+  archetype: z.enum(['aggro', 'control', 'combo', 'midrange', 'ramp', 'tribal']).optional(),
+  price_range: z.object({
+    min: z.number().min(0).optional(),
+    max: z.number().min(0).optional(),
+    currency: z.enum(['usd', 'eur', 'tix']).optional().default('usd')
+  }).optional(),
+  exclude_reprints: z.boolean().optional().default(false),
+  similar_to: z.string().optional(),
+  rarity_preference: z.enum(['common', 'uncommon', 'rare', 'mythic']).optional()
 });
 
 export const SearchSetsParamsSchema = z.object({
@@ -74,7 +108,12 @@ export interface ToolDefinition {
   description: string;
   inputSchema: {
     type: 'object';
-    properties: Record<string, any>;
+    properties: Record<string, {
+      type: string;
+      description?: string;
+      enum?: string[];
+      default?: unknown;
+    }>;
     required?: string[];
   };
 }
@@ -149,15 +188,18 @@ export interface FormattedCard {
   };
   legalities: Record<string, string>;
   image_url?: string;
+  color_identity?: string[];
+  games?: string[];
 }
 
 export interface FormattedSearchResult {
   total_cards: number;
   has_more: boolean;
   cards: FormattedCard[];
+  warnings?: string[];
   page_info?: {
     current_page: number;
-    total_pages: number;
+    total_pages?: number;
     next_page?: string;
   };
 }

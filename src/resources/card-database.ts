@@ -1,6 +1,6 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { CacheService } from '../services/cache-service.js';
-import { ScryfallCard, BulkDataInfo } from '../types/scryfall-api.js';
+import { ScryfallCard } from '../types/scryfall-api.js';
 import { ScryfallAPIError } from '../types/mcp-types.js';
 
 /**

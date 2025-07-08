@@ -4,7 +4,7 @@ import { CacheEntry, CACHE_DURATIONS } from '../types/mcp-types.js';
  * In-memory cache service with TTL support
  */
 export class CacheService {
-  private cache = new Map<string, CacheEntry<any>>();
+  private cache = new Map<string, CacheEntry<unknown>>();
   private cleanupInterval: NodeJS.Timeout;
 
   constructor(private cleanupIntervalMs: number = 5 * 60 * 1000) { // 5 minutes
@@ -85,7 +85,6 @@ export class CacheService {
     oldestEntry: number | null;
     newestEntry: number | null;
   } {
-    const now = Date.now();
     let oldestTimestamp: number | null = null;
     let newestTimestamp: number | null = null;
     let totalSize = 0;
@@ -218,7 +217,7 @@ export class CacheService {
   /**
    * Exports cache data for persistence (if needed)
    */
-  export(): Array<{ key: string; entry: CacheEntry<any> }> {
+  export(): Array<{ key: string; entry: CacheEntry<unknown> }> {
     return Array.from(this.cache.entries()).map(([key, entry]) => ({
       key,
       entry
@@ -228,7 +227,7 @@ export class CacheService {
   /**
    * Imports cache data from persistence (if needed)
    */
-  import(data: Array<{ key: string; entry: CacheEntry<any> }>): void {
+  import(data: Array<{ key: string; entry: CacheEntry<unknown> }>): void {
     const now = Date.now();
     
     data.forEach(({ key, entry }) => {
@@ -252,21 +251,39 @@ export class CacheService {
   /**
    * Creates a cache key for search queries
    */
-  static createSearchKey(query: string, page: number = 1, limit: number = 20): string {
-    return `search:${query}:${page}:${limit}`;
+  static createSearchKey(
+    query: string,
+    page = 1,
+    limit = 20,
+    unique?: string,
+    direction?: string,
+    include_multilingual?: boolean,
+    include_variations?: boolean,
+    price_range?: { min?: number; max?: number; currency?: string }
+  ): string {
+    const params = [query, page, limit];
+    if (unique && unique !== 'cards') params.push(`unique:${unique}`);
+    if (direction && direction !== 'auto') params.push(`dir:${direction}`);
+    if (include_multilingual) params.push('multilingual');
+    if (include_variations) params.push('variations');
+    if (price_range) {
+      const priceStr = `price:${price_range.min || 0}-${price_range.max || 'inf'}:${price_range.currency || 'usd'}`;
+      params.push(priceStr);
+    }
+    return `search:${params.join(':')}`;
   }
 
   /**
    * Creates a cache key for card details
    */
-  static createCardKey(identifier: string, set?: string, lang: string = 'en'): string {
+  static createCardKey(identifier: string, set?: string, lang = 'en'): string {
     return `card:${identifier}:${set || 'any'}:${lang}`;
   }
 
   /**
    * Creates a cache key for card prices
    */
-  static createPriceKey(cardId: string, currency: string = 'usd'): string {
+  static createPriceKey(cardId: string, currency = 'usd'): string {
     return `price:${cardId}:${currency}`;
   }
 

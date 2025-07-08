@@ -4,7 +4,8 @@ import {
   ScryfallSearchResponse,
   ScryfallSet,
   ScryfallError,
-  BulkDataInfo
+  BulkDataInfo,
+  ScryfallListResponse
 } from '../types/scryfall-api.js';
 import {
   REQUIRED_HEADERS,
@@ -34,7 +35,7 @@ export class ScryfallClient {
   /**
    * Makes a rate-limited HTTP request to Scryfall API
    */
-  private async makeRequest(url: string): Promise<any> {
+  private async makeRequest<T = unknown>(url: string): Promise<T> {
     // Check circuit breaker
     if (this.rateLimiter.isCircuitOpen()) {
       throw new ScryfallAPIError(
@@ -116,11 +117,25 @@ export class ScryfallClient {
     page?: number;
     include_extras?: boolean;
     order?: string;
+    unique?: string;
+    direction?: string;
+    include_multilingual?: boolean;
+    include_variations?: boolean;
+    price_range?: {
+      min?: number;
+      max?: number;
+      currency?: string;
+    };
   }): Promise<ScryfallSearchResponse> {
     const cacheKey = CacheService.createSearchKey(
       params.query,
       params.page || 1,
-      params.limit || 20
+      params.limit || 20,
+      params.unique,
+      params.direction,
+      params.include_multilingual,
+      params.include_variations,
+      params.price_range
     );
 
     // Check cache first
@@ -130,7 +145,20 @@ export class ScryfallClient {
     }
 
     const url = new URL(`${this.baseUrl}/cards/search`);
-    url.searchParams.set('q', params.query);
+
+    // Build query with price filtering if specified
+    let query = params.query;
+    if (params.price_range) {
+      const currency = params.price_range.currency || 'usd';
+      if (params.price_range.min !== undefined) {
+        query += ` ${currency}>=${params.price_range.min}`;
+      }
+      if (params.price_range.max !== undefined) {
+        query += ` ${currency}<=${params.price_range.max}`;
+      }
+    }
+
+    url.searchParams.set('q', query);
 
     if (params.limit) {
       url.searchParams.set('page_size', params.limit.toString());
@@ -141,11 +169,23 @@ export class ScryfallClient {
     if (params.include_extras) {
       url.searchParams.set('include_extras', 'true');
     }
+    if (params.include_multilingual) {
+      url.searchParams.set('include_multilingual', 'true');
+    }
+    if (params.include_variations) {
+      url.searchParams.set('include_variations', 'true');
+    }
     if (params.order) {
       url.searchParams.set('order', params.order);
     }
+    if (params.unique && params.unique !== 'cards') {
+      url.searchParams.set('unique', params.unique);
+    }
+    if (params.direction && params.direction !== 'auto') {
+      url.searchParams.set('dir', params.direction);
+    }
 
-    const data = await this.makeRequest(url.toString());
+    const data = await this.makeRequest<ScryfallSearchResponse>(url.toString());
 
     // Cache the result
     this.cache.setWithType(cacheKey, data, 'card_search');
@@ -199,7 +239,7 @@ export class ScryfallClient {
       url.searchParams.set('lang', params.lang);
     }
 
-    const data = await this.makeRequest(url.toString());
+    const data = await this.makeRequest<ScryfallCard>(url.toString());
 
     // Cache the result
     this.cache.setWithType(cacheKey, data, 'card_details');
@@ -210,7 +250,7 @@ export class ScryfallClient {
   /**
    * Gets card prices by Scryfall ID
    */
-  async getCardPrices(cardId: string, currency: string = 'usd'): Promise<ScryfallCard> {
+  async getCardPrices(cardId: string, currency = 'usd'): Promise<ScryfallCard> {
     const cacheKey = CacheService.createPriceKey(cardId, currency);
 
     // Check cache first
@@ -220,7 +260,7 @@ export class ScryfallClient {
     }
 
     const url = new URL(`${this.baseUrl}/cards/${cardId}`);
-    const data = await this.makeRequest(url.toString());
+    const data = await this.makeRequest<ScryfallCard>(url.toString());
 
     // Cache with shorter TTL for price data
     this.cache.setWithType(cacheKey, data, 'card_prices');
@@ -238,7 +278,7 @@ export class ScryfallClient {
     }
 
     // Don't cache random cards as they should be different each time
-    return this.makeRequest(url.toString());
+    return this.makeRequest<ScryfallCard>(url.toString());
   }
 
   /**
@@ -262,9 +302,9 @@ export class ScryfallClient {
 
     // Note: Scryfall doesn't support query/type filtering on sets endpoint
     // We'll filter client-side if needed
-    const data = await this.makeRequest(url.toString());
+    const data = await this.makeRequest<ScryfallListResponse<ScryfallSet>>(url.toString());
 
-    let sets = data.data as ScryfallSet[];
+    let sets = data.data;
 
     // Apply client-side filtering
     if (params?.query) {
@@ -312,7 +352,7 @@ export class ScryfallClient {
     }
 
     const url = `${this.baseUrl}/bulk-data`;
-    const data = await this.makeRequest(url);
+    const data = await this.makeRequest<ScryfallListResponse<BulkDataInfo>>(url);
 
     // Cache bulk data info
     this.cache.setWithType(cacheKey, data, 'bulk_data');

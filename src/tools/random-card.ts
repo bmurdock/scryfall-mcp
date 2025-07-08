@@ -22,8 +22,49 @@ export class RandomCardTool {
       },
       format: {
         type: 'string',
-        enum: ['standard', 'modern', 'legacy', 'vintage', 'commander'],
+        enum: ['standard', 'modern', 'legacy', 'vintage', 'commander', 'pioneer'],
         description: 'Magic format to filter by legality'
+      },
+      archetype: {
+        type: 'string',
+        enum: ['aggro', 'control', 'combo', 'midrange', 'ramp', 'tribal'],
+        description: 'Deck archetype preference'
+      },
+      price_range: {
+        type: 'object',
+        properties: {
+          min: {
+            type: 'number',
+            minimum: 0,
+            description: 'Minimum price'
+          },
+          max: {
+            type: 'number',
+            minimum: 0,
+            description: 'Maximum price'
+          },
+          currency: {
+            type: 'string',
+            enum: ['usd', 'eur', 'tix'],
+            default: 'usd',
+            description: 'Currency for price filtering'
+          }
+        },
+        description: 'Price constraints for random selection'
+      },
+      exclude_reprints: {
+        type: 'boolean',
+        default: false,
+        description: 'Exclude heavily reprinted cards'
+      },
+      similar_to: {
+        type: 'string',
+        description: 'Find cards similar to this card'
+      },
+      rarity_preference: {
+        type: 'string',
+        enum: ['common', 'uncommon', 'rare', 'mythic'],
+        description: 'Preferred rarity level'
       }
     },
     required: []
@@ -31,18 +72,86 @@ export class RandomCardTool {
 
   constructor(private readonly scryfallClient: ScryfallClient) {}
 
+  /**
+   * Build enhanced query with all filtering parameters
+   */
+  private buildEnhancedQuery(params: any): string {
+    const queryParts: string[] = [];
+
+    // Add base query if provided
+    if (params.query) {
+      queryParts.push(params.query);
+    }
+
+    // Add format filter
+    if (params.format) {
+      queryParts.push(`legal:${params.format}`);
+    }
+
+    // Add archetype-specific filters
+    if (params.archetype) {
+      queryParts.push(this.getArchetypeFilter(params.archetype));
+    }
+
+    // Add price range filter
+    if (params.price_range) {
+      const currency = params.price_range.currency || 'usd';
+      if (params.price_range.min !== undefined) {
+        queryParts.push(`${currency}>=${params.price_range.min}`);
+      }
+      if (params.price_range.max !== undefined) {
+        queryParts.push(`${currency}<=${params.price_range.max}`);
+      }
+    }
+
+    // Add rarity preference
+    if (params.rarity_preference) {
+      queryParts.push(`r:${params.rarity_preference}`);
+    }
+
+    // Add reprint exclusion (prefer first printings)
+    if (params.exclude_reprints) {
+      queryParts.push('is:firstprint');
+    }
+
+    // Add similarity filter
+    if (params.similar_to) {
+      // This is a simplified similarity - in practice, you'd want to analyze the target card
+      queryParts.push(`"${params.similar_to}"`);
+    }
+
+    return queryParts.join(' ');
+  }
+
+  /**
+   * Get archetype-specific search filters
+   */
+  private getArchetypeFilter(archetype: string): string {
+    switch (archetype) {
+      case 'aggro':
+        return '(t:creature pow>=2) OR (o:"haste" OR o:"first strike")';
+      case 'control':
+        return '(o:counter OR o:destroy OR o:exile OR o:"draw cards")';
+      case 'combo':
+        return '(o:"infinite" OR o:"win the game" OR o:"each opponent")';
+      case 'midrange':
+        return '(t:creature cmc>=3 cmc<=5) OR (t:planeswalker)';
+      case 'ramp':
+        return '(o:"add mana" OR o:"search for a land" OR t:land)';
+      case 'tribal':
+        return '(o:"choose a creature type" OR o:"creatures you control")';
+      default:
+        return '';
+    }
+  }
+
   async execute(args: unknown) {
     try {
       // Validate parameters
       const params = validateRandomCardParams(args);
 
-      // Build query with format filter if specified
-      let query = params.query || '';
-      
-      if (params.format) {
-        const formatQuery = `legal:${params.format}`;
-        query = query ? `${query} ${formatQuery}` : formatQuery;
-      }
+      // Build enhanced query with all filters
+      const query = this.buildEnhancedQuery(params);
 
       // Execute random card lookup
       const card = await this.scryfallClient.getRandomCard(query || undefined);
@@ -52,11 +161,29 @@ export class RandomCardTool {
 
       // Add context about the randomization
       let contextNote = '\n\n---\n*This is a randomly selected card';
-      if (params.format) {
-        contextNote += ` that is legal in ${params.format}`;
+
+      const filters = [];
+      if (params.format) filters.push(`legal in ${params.format}`);
+      if (params.archetype) filters.push(`${params.archetype} archetype`);
+      if (params.rarity_preference) filters.push(`${params.rarity_preference} rarity`);
+      if (params.price_range) {
+        const currency = params.price_range.currency || 'usd';
+        let priceDesc = `${currency.toUpperCase()} price`;
+        if (params.price_range.min && params.price_range.max) {
+          priceDesc += ` between ${params.price_range.min}-${params.price_range.max}`;
+        } else if (params.price_range.min) {
+          priceDesc += ` above ${params.price_range.min}`;
+        } else if (params.price_range.max) {
+          priceDesc += ` below ${params.price_range.max}`;
+        }
+        filters.push(priceDesc);
       }
-      if (params.query) {
-        contextNote += ` matching the query "${params.query}"`;
+      if (params.exclude_reprints) filters.push('first printing only');
+      if (params.similar_to) filters.push(`similar to "${params.similar_to}"`);
+      if (params.query) filters.push(`matching "${params.query}"`);
+
+      if (filters.length > 0) {
+        contextNote += ` with filters: ${filters.join(', ')}`;
       }
       contextNote += '.*';
 

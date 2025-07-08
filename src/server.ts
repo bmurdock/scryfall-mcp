@@ -17,6 +17,12 @@ import { GetCardTool } from './tools/get-card.js';
 import { GetCardPricesTool } from './tools/get-card-prices.js';
 import { RandomCardTool } from './tools/random-card.js';
 import { SearchSetsTool } from './tools/search-sets.js';
+import { QueryRulesTool } from './tools/query-rules.js';
+import { SearchFormatStaplesTool } from './tools/search-format-staples.js';
+import { SearchAlternativesTool } from './tools/search-alternatives.js';
+import { FindSynergisticCardsTool } from './tools/find-synergistic-cards.js';
+import { BatchCardAnalysisTool } from './tools/batch-card-analysis.js';
+import { ValidateBrawlCommanderTool } from './tools/validate-brawl-commander.js';
 
 // Resources
 import { CardDatabaseResource } from './resources/card-database.js';
@@ -50,6 +56,12 @@ export class ScryfallMCPServer {
     this.tools.set('get_card_prices', new GetCardPricesTool(this.scryfallClient));
     this.tools.set('random_card', new RandomCardTool(this.scryfallClient));
     this.tools.set('search_sets', new SearchSetsTool(this.scryfallClient));
+    this.tools.set('query_rules', new QueryRulesTool());
+    this.tools.set('search_format_staples', new SearchFormatStaplesTool(this.scryfallClient));
+    this.tools.set('search_alternatives', new SearchAlternativesTool(this.scryfallClient));
+    this.tools.set('find_synergistic_cards', new FindSynergisticCardsTool(this.scryfallClient));
+    this.tools.set('batch_card_analysis', new BatchCardAnalysisTool(this.scryfallClient));
+    this.tools.set('validate_brawl_commander', new ValidateBrawlCommanderTool(this.scryfallClient));
 
     // Initialize resources
     this.resources = new Map();

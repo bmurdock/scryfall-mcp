@@ -1,5 +1,6 @@
 // Scryfall API Response Types
 export interface ScryfallCard {
+  object: 'card';
   id: string;
   oracle_id: string;
   multiverse_ids?: number[];
@@ -78,6 +79,7 @@ export interface CardFace {
   type_line: string;
   oracle_text?: string;
   colors?: Color[];
+  color_indicator?: Color[];
   power?: string;
   toughness?: string;
   loyalty?: string;
@@ -111,6 +113,7 @@ export interface Legalities {
   penny: Legality;
   commander: Legality;
   oathbreaker: Legality;
+  standardbrawl: Legality;
   brawl: Legality;
   historicbrawl: Legality;
   alchemy: Legality;
@@ -161,7 +164,7 @@ export interface Preview {
 // Search Response Types
 export interface ScryfallSearchResponse {
   object: 'list';
-  total_cards: number;
+  total_cards?: number;
   has_more: boolean;
   next_page?: string;
   data: ScryfallCard[];
@@ -229,6 +232,14 @@ export type SetType =
   | 'treasure_chest' | 'commander' | 'planechase' | 'archenemy' | 'vanguard' 
   | 'funny' | 'starter' | 'box' | 'promo' | 'token' | 'memorabilia' | 'minigame';
 
+// Array of all set types for use in tool schemas
+export const SET_TYPES: SetType[] = [
+  'core', 'expansion', 'masters', 'alchemy', 'masterpiece', 'arsenal',
+  'from_the_vault', 'spellbook', 'premium_deck', 'duel_deck', 'draft_innovation',
+  'treasure_chest', 'commander', 'planechase', 'archenemy', 'vanguard',
+  'funny', 'starter', 'box', 'promo', 'token', 'memorabilia', 'minigame'
+];
+
 // Error Response Types
 export interface ScryfallError {
   object: 'error';
@@ -255,3 +266,16 @@ export interface BulkDataInfo {
 
 export type BulkDataType = 
   | 'oracle_cards' | 'unique_artwork' | 'default_cards' | 'all_cards' | 'rulings';
+
+// Magic: The Gathering Formats (derived from Legalities interface)
+export type MagicFormat = keyof Legalities;
+
+// Generic List Response
+export interface ScryfallListResponse<T> {
+  object: 'list';
+  data: T[];
+  has_more?: boolean;
+  next_page?: string;
+  total_cards?: number;
+  warnings?: string[];
+}

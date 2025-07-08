@@ -11,15 +11,14 @@ import {
  */
 export class GetCardPricesTool {
   readonly name = 'get_card_prices';
-  readonly description = 'Get current price information for a Magic: The Gathering card by Scryfall ID';
-  
+  readonly description = 'Get current price information for a Magic: The Gathering card by name, set/number, or Scryfall ID';
+
   readonly inputSchema = {
     type: 'object' as const,
     properties: {
-      card_id: {
+      card_identifier: {
         type: 'string',
-        description: 'Scryfall UUID of the card',
-        pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        description: 'Card name, set/number, or Scryfall ID'
       },
       currency: {
         type: 'string',
@@ -27,11 +26,15 @@ export class GetCardPricesTool {
         description: 'Currency type for prices',
         default: 'usd'
       },
-      format: {
+      format_context: {
         type: 'string',
-        enum: ['paper', 'mtgo', 'arena'],
-        description: 'Game format for pricing context',
-        default: 'paper'
+        enum: ['standard', 'modern', 'legacy', 'vintage', 'commander', 'pioneer'],
+        description: 'Show price relevance for specific format'
+      },
+      include_alternatives: {
+        type: 'boolean',
+        description: 'Include budget alternatives and upgrades',
+        default: false
       },
       include_history: {
         type: 'boolean',
@@ -39,41 +42,124 @@ export class GetCardPricesTool {
         default: false
       }
     },
-    required: ['card_id']
+    required: ['card_identifier']
   };
 
   constructor(private readonly scryfallClient: ScryfallClient) {}
+
+  /**
+   * Get budget alternatives and upgrades for a card
+   */
+  private async getAlternatives(card: any, currency: string, format?: string): Promise<string> {
+    try {
+      const currentPrice = parseFloat((card.prices as any)[currency] || '0');
+      if (currentPrice === 0) {
+        return '\n\n**Alternatives:** Price data not available for comparison.';
+      }
+
+      // Search for similar cards with different price ranges
+      const cheaperQuery = `t:${card.type_line.split(' ')[0]} cmc:${card.cmc} ${currency}<${currentPrice}`;
+      const expensiveQuery = `t:${card.type_line.split(' ')[0]} cmc:${card.cmc} ${currency}>${currentPrice}`;
+
+      let alternatives = '\n\n**Alternatives:**';
+
+      // Get cheaper alternatives
+      try {
+        const cheaperResults = await this.scryfallClient.searchCards({
+          query: cheaperQuery + (format ? ` f:${format}` : ''),
+          limit: 3
+        });
+
+        if (cheaperResults.data.length > 0) {
+          alternatives += '\n\n*Budget Options:*';
+          for (const alt of cheaperResults.data.slice(0, 3)) {
+            const price = (alt.prices as any)[currency] || 'N/A';
+            alternatives += `\n- ${alt.name}: ${currency.toUpperCase()} ${price}`;
+          }
+        }
+      } catch (error) {
+        // Ignore search errors for alternatives
+      }
+
+      // Get more expensive alternatives (upgrades)
+      try {
+        const expensiveResults = await this.scryfallClient.searchCards({
+          query: expensiveQuery + (format ? ` f:${format}` : ''),
+          limit: 3
+        });
+
+        if (expensiveResults.data.length > 0) {
+          alternatives += '\n\n*Upgrade Options:*';
+          for (const alt of expensiveResults.data.slice(0, 3)) {
+            const price = (alt.prices as any)[currency] || 'N/A';
+            alternatives += `\n- ${alt.name}: ${currency.toUpperCase()} ${price}`;
+          }
+        }
+      } catch (error) {
+        // Ignore search errors for alternatives
+      }
+
+      return alternatives;
+    } catch (error) {
+      return '\n\n**Alternatives:** Unable to find alternatives at this time.';
+    }
+  }
 
   async execute(args: unknown) {
     try {
       // Validate parameters
       const params = validateGetCardPricesParams(args);
 
-      // Execute price lookup
-      const card = await this.scryfallClient.getCardPrices(params.card_id, params.currency);
+      // First, resolve the card identifier to get the card
+      let card;
+      try {
+        card = await this.scryfallClient.getCard({ identifier: params.card_identifier });
+      } catch (error) {
+        if (error instanceof ScryfallAPIError && error.status === 404) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Card not found: "${params.card_identifier}". Please check the card name, set code, or ID.`
+              }
+            ],
+            isError: true
+          };
+        }
+        throw error;
+      }
 
       // Format price information
-      const responseText = formatCardPrices(card, params.currency);
+      let responseText = formatCardPrices(card, params.currency);
 
       // Add format context if specified
-      let contextNote = '';
-      if (params.format !== 'paper') {
-        if (params.format === 'mtgo' && params.currency !== 'tix') {
-          contextNote = '\n\nNote: For MTGO, consider using currency "tix" for more relevant pricing.';
-        } else if (params.format === 'arena') {
-          contextNote = '\n\nNote: Arena uses gems/gold, not traditional currency. Prices shown are for paper/MTGO reference.';
+      if (params.format_context) {
+        const legality = card.legalities[params.format_context];
+        responseText += `\n\n**${params.format_context.toUpperCase()} Legality:** ${legality || 'Unknown'}`;
+
+        if (legality === 'legal') {
+          responseText += ` - This card is legal in ${params.format_context}`;
+        } else if (legality === 'banned') {
+          responseText += ` - This card is banned in ${params.format_context}`;
+        } else if (legality === 'restricted') {
+          responseText += ` - This card is restricted in ${params.format_context}`;
         }
       }
 
+      // Add alternatives if requested
+      if (params.include_alternatives) {
+        responseText += await this.getAlternatives(card, params.currency, params.format_context);
+      }
+
       if (params.include_history) {
-        contextNote += '\n\nNote: Price history is not available through the Scryfall API.';
+        responseText += '\n\nNote: Price history is not available through the Scryfall API.';
       }
 
       return {
         content: [
           {
             type: 'text',
-            text: responseText + contextNote
+            text: responseText
           }
         ]
       };
@@ -96,9 +182,9 @@ export class GetCardPricesTool {
         let errorMessage = `Scryfall API error: ${error.message}`;
         
         if (error.status === 404) {
-          errorMessage = `Card not found with ID: "${(args as any)?.card_id ?? 'unknown'}". Verify the Scryfall UUID is correct.`;
+          errorMessage = `Card not found: "${(args as any)?.card_identifier ?? 'unknown'}". Check the card name, set code, or ID.`;
         } else if (error.status === 422) {
-          errorMessage = `Invalid card ID format. Must be a valid Scryfall UUID.`;
+          errorMessage = `Invalid card identifier format. Use card name, "SET/NUMBER", or Scryfall UUID.`;
         } else if (error.status === 429) {
           errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
         }

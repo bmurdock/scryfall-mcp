@@ -8,6 +8,7 @@ import {
   ScryfallAPIError, 
   ValidationError 
 } from '../types/mcp-types.js';
+import { SET_TYPES } from '../types/scryfall-api.js';
 
 /**
  * MCP Tool for searching Magic: The Gathering sets
@@ -25,8 +26,8 @@ export class SearchSetsTool {
       },
       type: {
         type: 'string',
-        enum: ['core', 'expansion', 'masters', 'commander', 'draft_innovation', 'funny'],
-        description: 'Filter by set type'
+        enum: SET_TYPES,
+        description: 'Filter by set type. Common types: core (yearly core sets), expansion (rotational sets), masters (reprint sets), commander (preconstructed Commander decks), promo (promotional cards), token (tokens and emblems)'
       },
       released_after: {
         type: 'string',
