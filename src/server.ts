@@ -23,6 +23,7 @@ import { SearchAlternativesTool } from './tools/search-alternatives.js';
 import { FindSynergisticCardsTool } from './tools/find-synergistic-cards.js';
 import { BatchCardAnalysisTool } from './tools/batch-card-analysis.js';
 import { ValidateBrawlCommanderTool } from './tools/validate-brawl-commander.js';
+import { BuildScryfallQueryTool } from './tools/build-scryfall-query.js';
 
 // Resources
 import { CardDatabaseResource } from './resources/card-database.js';
@@ -62,6 +63,7 @@ export class ScryfallMCPServer {
     this.tools.set('find_synergistic_cards', new FindSynergisticCardsTool(this.scryfallClient));
     this.tools.set('batch_card_analysis', new BatchCardAnalysisTool(this.scryfallClient));
     this.tools.set('validate_brawl_commander', new ValidateBrawlCommanderTool(this.scryfallClient));
+    this.tools.set('build_scryfall_query', new BuildScryfallQueryTool(this.scryfallClient));
 
     // Initialize resources
     this.resources = new Map();

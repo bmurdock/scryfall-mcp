@@ -23,6 +23,7 @@ describe('Scryfall MCP Server', () => {
     expect(status.tools).toContain('get_card_prices');
     expect(status.tools).toContain('random_card');
     expect(status.tools).toContain('search_sets');
+    expect(status.tools).toContain('build_scryfall_query');
   });
 
   it('should have correct resources', () => {

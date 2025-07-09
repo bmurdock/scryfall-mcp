@@ -5,6 +5,14 @@ A comprehensive Model Context Protocol (MCP) server that integrates with the Scr
 ## Features
 
 ### 🔧 MCP Tools
+
+#### Enhanced Search Tools
+- **build_scryfall_query**: Convert natural language requests into optimized Scryfall search queries
+  - Input: Natural language description, format preferences, optimization strategy
+  - Output: Optimized Scryfall query with explanation and alternatives
+  - Example: "red creatures under $5 for aggressive decks" → "c:r t:creature usd<=5 pow>=2 cmc<=3"
+
+#### Core Search Tools
 - **search_cards**: Search for cards using Scryfall's powerful search syntax
 - **get_card**: Get detailed information about specific cards
 - **get_card_prices**: Retrieve current price data for cards
@@ -105,6 +113,52 @@ Add the following to your Claude Desktop configuration file:
 Replace `/absolute/path/to/scryfall-mcp` with the actual path to your installation.
 
 ## Tool Usage Examples
+
+### Natural Language Query Building
+
+Convert natural language to Scryfall syntax:
+
+```javascript
+// Convert natural language to optimized Scryfall query
+{
+  "tool": "build_scryfall_query",
+  "arguments": {
+    "natural_query": "blue counterspells in modern under $20",
+    "optimize_for": "precision"
+  }
+}
+```
+
+Generate budget-friendly queries:
+
+```javascript
+// Budget-focused query generation
+{
+  "tool": "build_scryfall_query",
+  "arguments": {
+    "natural_query": "aggressive red creatures for standard",
+    "optimize_for": "budget",
+    "price_budget": {
+      "max": 5,
+      "currency": "usd"
+    }
+  }
+}
+```
+
+Discover interesting cards:
+
+```javascript
+// Discovery-optimized search
+{
+  "tool": "build_scryfall_query",
+  "arguments": {
+    "natural_query": "legendary artifacts that produce mana",
+    "format": "commander",
+    "optimize_for": "discovery"
+  }
+}
+```
 
 ### Search Cards
 ```javascript

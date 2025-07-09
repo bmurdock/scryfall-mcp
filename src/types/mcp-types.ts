@@ -78,6 +78,39 @@ export type GetCardPricesParams = z.infer<typeof GetCardPricesParamsSchema>;
 export type RandomCardParams = z.infer<typeof RandomCardParamsSchema>;
 export type SearchSetsParams = z.infer<typeof SearchSetsParamsSchema>;
 
+// Build Scryfall Query Parameters
+export const BuildQueryParamsSchema = z.object({
+  natural_query: z.string()
+    .min(1, 'Natural query cannot be empty')
+    .max(500, 'Natural query too long (max 500 characters)'),
+
+  format: z.enum([
+    'standard', 'modern', 'legacy', 'vintage', 'commander',
+    'pioneer', 'brawl', 'pauper', 'penny', 'historic', 'alchemy'
+  ]).optional(),
+
+  optimize_for: z.enum(['precision', 'recall', 'discovery', 'budget'])
+    .default('precision'),
+
+  max_results: z.number()
+    .min(1, 'Max results must be at least 1')
+    .max(175, 'Max results cannot exceed 175')
+    .default(20),
+
+  price_budget: z.object({
+    max: z.number().min(0, 'Price budget cannot be negative'),
+    currency: z.enum(['usd', 'eur', 'tix']).default('usd')
+  }).optional(),
+
+  include_alternatives: z.boolean().default(true),
+
+  explain_mapping: z.boolean().default(true),
+
+  test_query: z.boolean().default(true)
+});
+
+export type BuildQueryParams = z.infer<typeof BuildQueryParamsSchema>;
+
 // Cache Configuration
 export const CACHE_DURATIONS = {
   card_search: 30 * 60 * 1000,      // 30 minutes

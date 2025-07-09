@@ -5,6 +5,7 @@ import {
   GetCardPricesParamsSchema,
   RandomCardParamsSchema,
   SearchSetsParamsSchema,
+  BuildQueryParamsSchema,
   ValidationError
 } from '../types/mcp-types.js';
 
@@ -93,6 +94,38 @@ export function validateSearchSetsParams(params: unknown) {
         `Invalid parameter '${firstError.path.join('.')}': ${firstError.message}`,
         firstError.path.join('.')
       );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Validates build query parameters
+ */
+export function validateBuildQueryParams(params: unknown) {
+  try {
+    return BuildQueryParamsSchema.parse(params);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const firstError = error.errors[0];
+      const fieldPath = firstError.path.join('.');
+
+      // Provide helpful error messages for common issues
+      let message = `Invalid parameter '${fieldPath}': ${firstError.message}`;
+
+      if (fieldPath === 'natural_query' && firstError.code === 'too_small') {
+        message = 'Natural query cannot be empty. Please provide a description of what you want to find.';
+      } else if (fieldPath === 'natural_query' && firstError.code === 'too_big') {
+        message = 'Natural query is too long. Please keep it under 500 characters.';
+      } else if (fieldPath === 'format' && firstError.code === 'invalid_enum_value') {
+        message = `Invalid format. Valid formats are: standard, modern, legacy, vintage, commander, pioneer, brawl, pauper, penny, historic, alchemy.`;
+      } else if (fieldPath === 'optimize_for' && firstError.code === 'invalid_enum_value') {
+        message = `Invalid optimization strategy. Valid options are: precision, recall, discovery, budget.`;
+      } else if (fieldPath === 'max_results') {
+        message = 'Max results must be between 1 and 175.';
+      }
+
+      throw new ValidationError(message, fieldPath);
     }
     throw error;
   }
