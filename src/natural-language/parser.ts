@@ -6,7 +6,20 @@
  * search syntax.
  */
 
-import { ParsedQuery, QueryContext, Ambiguity } from './types.js';
+import { 
+  ParsedQuery, 
+  QueryContext, 
+  Ambiguity,
+  LegalityConcept,
+  RoleConcept,
+  StrategyConcept,
+  SetConcept,
+  RarityConcept,
+  TimeConcept,
+  NameConcept,
+  FlavorConcept,
+  ArtistConcept
+} from './types.js';
 import { ColorPatternEngine } from './extractors/color-extractor.js';
 import { ArchetypePatternEngine } from './extractors/archetype-extractor.js';
 import { PricePatternEngine } from './extractors/price-extractor.js';
@@ -187,15 +200,15 @@ export class NaturalLanguageParser {
   /**
    * Placeholder implementations for remaining extractors
    */
-  private extractLegality(text: string) { return []; }
-  private extractDeckRoles(text: string) { return []; }
-  private extractStrategies(text: string) { return []; }
-  private extractSets(text: string) { return []; }
-  private extractRarity(text: string) { return []; }
-  private extractTimeConstraints(text: string) { return []; }
-  private extractNamePatterns(text: string) { return []; }
-  private extractFlavorText(text: string) { return []; }
-  private extractArtist(text: string) { return []; }
+  private extractLegality(_text: string): LegalityConcept[] { return []; }
+  private extractDeckRoles(_text: string): RoleConcept[] { return []; }
+  private extractStrategies(_text: string): StrategyConcept[] { return []; }
+  private extractSets(_text: string): SetConcept[] { return []; }
+  private extractRarity(_text: string): RarityConcept[] { return []; }
+  private extractTimeConstraints(_text: string): TimeConcept[] { return []; }
+  private extractNamePatterns(_text: string): NameConcept[] { return []; }
+  private extractFlavorText(_text: string): FlavorConcept[] { return []; }
+  private extractArtist(_text: string): ArtistConcept[] { return []; }
   
   /**
    * Resolve conflicts between extracted concepts
@@ -262,7 +275,7 @@ export class NaturalLanguageParser {
     if (conceptConfidences.length === 0) return 0;
     
     // Weighted average with bias toward higher confidence concepts
-    return conceptConfidences.reduce((sum, conf, idx) => {
+    return conceptConfidences.reduce((sum, conf) => {
       const weight = Math.pow(conf, 1.5); // Higher confidence gets more weight
       return sum + (conf * weight);
     }, 0) / conceptConfidences.length;
@@ -271,7 +284,7 @@ export class NaturalLanguageParser {
   /**
    * Detect ambiguities in the parsed query
    */
-  private detectAmbiguities(parsed: ParsedQuery, originalText: string): Ambiguity[] {
+  private detectAmbiguities(parsed: ParsedQuery, _originalText: string): Ambiguity[] {
     const ambiguities: Ambiguity[] = [];
     
     // Check for color ambiguities

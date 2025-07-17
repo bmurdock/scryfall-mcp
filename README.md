@@ -33,6 +33,12 @@ A comprehensive Model Context Protocol (MCP) server that integrates with the Scr
 - **Error Handling**: Graceful handling of all API error conditions
 - **Circuit Breaker**: Prevents cascading failures during API outages
 
+### 🔍 Simple Validation System
+- **Lightweight Validation**: Basic query syntax validation with helpful error messages
+- **Essential Checks**: Balanced parentheses, quotes, and common syntax errors
+- **Operator Recognition**: Validates known Scryfall operators with suggestions for typos
+- **Performance Optimized**: Fast validation with minimal overhead
+
 ## Installation
 
 ### Prerequisites
@@ -308,6 +314,148 @@ NODE_ENV=development
 - **Card Prices**: 6 hours
 - **Set Data**: 1 week
 - **Bulk Data**: 24 hours
+
+### Logging Configuration
+
+The server uses **Pino** for high-performance structured logging with comprehensive error tracking and monitoring.
+
+#### Log Levels
+```bash
+# Available log levels (default: info)
+LOG_LEVEL=trace    # Most verbose - all operations
+LOG_LEVEL=debug    # Debug information and performance metrics
+LOG_LEVEL=info     # General information (default)
+LOG_LEVEL=warn     # Warnings and degraded performance
+LOG_LEVEL=error    # Errors only
+LOG_LEVEL=fatal    # Critical errors only
+```
+
+#### Development vs Production Logging
+
+**Development Mode** (`NODE_ENV=development`):
+- Pretty-printed, colorized output
+- Human-readable timestamps
+- Request ID and tool name highlighting
+- Automatic log formatting for readability
+
+**Production Mode** (`NODE_ENV=production`):
+- JSON-structured logs for machine processing
+- Optimized for log aggregation systems
+- Minimal overhead for high-performance scenarios
+- Compatible with ELK Stack, Grafana, and monitoring tools
+
+#### Structured Log Format
+
+All logs include structured context for debugging and monitoring:
+
+```json
+{
+  "level": "info",
+  "time": "2025-01-17T19:32:53.123Z",
+  "pid": 12345,
+  "hostname": "server-01",
+  "service": "scryfall-mcp",
+  "version": "1.0.0",
+  "requestId": "req_1737145973123_abc123def",
+  "toolName": "search_cards",
+  "operation": "tool_execution",
+  "duration": 245,
+  "msg": "Tool execution completed"
+}
+```
+
+#### Request Correlation
+
+Every request gets a unique correlation ID for tracking across operations:
+- Format: `req_{timestamp}_{random}`
+- Tracks tool executions, API calls, and errors
+- Enables end-to-end request tracing
+- Automatic cleanup of old correlation data
+
+### Error Handling & Monitoring
+
+#### Error Classification
+
+The server implements comprehensive error handling with structured error classes:
+
+**Base Error Types:**
+- `MCPError` - Base class with structured logging support
+- `ToolExecutionError` - Tool-specific execution failures
+- `ResourceError` - Resource access failures
+- `PromptError` - Prompt generation failures
+
+**Domain-Specific Errors:**
+- `ScryfallAPIError` - Scryfall API-related errors
+- `RateLimitError` - Rate limiting and throttling
+- `ValidationError` - Input validation failures
+
+#### Error Monitoring Features
+
+**Automatic Error Tracking:**
+- Error frequency monitoring by type
+- Performance metrics collection
+- Request correlation tracking
+- Circuit breaker pattern for API failures
+
+**Monitoring Data Access:**
+```javascript
+// Get comprehensive monitoring report
+const status = server.getStatus();
+console.log(status.monitoring);
+
+// Output includes:
+// - Error counts by type
+// - Performance metrics (avg response times)
+// - Request correlation data
+// - Health check status
+```
+
+#### Health Check Monitoring
+
+Enhanced health checks with detailed service status:
+
+```bash
+# Health check includes:
+# - Cache service status
+# - Rate limiter status
+# - Scryfall API connectivity
+# - Error monitoring metrics
+# - Performance statistics
+```
+
+#### Production Monitoring Setup
+
+**Recommended Monitoring Stack:**
+
+1. **Log Aggregation**: ELK Stack (Elasticsearch, Logstash, Kibana)
+2. **Metrics**: Grafana with Prometheus
+3. **Error Tracking**: Sentry with structured error context
+4. **Alerting**: Based on error rates and response times
+
+**Key Metrics to Monitor:**
+- Tool execution success/failure rates
+- API response time distributions
+- Error type frequencies
+- Cache hit/miss ratios
+- Rate limiter status
+
+#### Error Recovery Strategies
+
+**Automatic Recovery:**
+- Exponential backoff for API failures
+- Circuit breaker prevents cascading failures
+- Intelligent retry logic with jitter
+- Graceful degradation during outages
+
+**Manual Recovery:**
+```javascript
+// Reset error monitoring
+server.resetRateLimiter();
+server.clearCaches();
+
+// Check system health
+const health = await server.healthCheck();
+```
 
 ## Troubleshooting
 

@@ -12,7 +12,10 @@ import {
   ArchetypeConcept, 
   PriceConcept,
   TypeConcept,
-  FormatConcept
+  FormatConcept,
+  KeywordConcept,
+  ManaCostConcept,
+  StatConcept
 } from './types.js';
 
 /**
@@ -243,7 +246,7 @@ export class ConceptExtractor {
   /**
    * Map keyword concepts to oracle text searches
    */
-  mapKeywords(keywords: any[]): ConceptMapping[] {
+  mapKeywords(keywords: KeywordConcept[]): ConceptMapping[] {
     const mappings: ConceptMapping[] = [];
     
     for (const keyword of keywords) {
@@ -261,7 +264,7 @@ export class ConceptExtractor {
   /**
    * Map mana cost concepts to CMC operators
    */
-  mapManaCost(manaCosts: any[]): ConceptMapping[] {
+  mapManaCost(manaCosts: ManaCostConcept[]): ConceptMapping[] {
     const mappings: ConceptMapping[] = [];
     
     for (const manaCost of manaCosts) {
@@ -302,7 +305,7 @@ export class ConceptExtractor {
   /**
    * Map power/toughness concepts to stat operators
    */
-  mapPowerToughness(stats: any[]): ConceptMapping[] {
+  mapPowerToughness(stats: StatConcept[]): ConceptMapping[] {
     const mappings: ConceptMapping[] = [];
     
     for (const stat of stats) {

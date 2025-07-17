@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 import {
   SearchCardsParamsSchema,
   GetCardParamsSchema,
@@ -6,8 +6,8 @@ import {
   RandomCardParamsSchema,
   SearchSetsParamsSchema,
   BuildQueryParamsSchema,
-  ValidationError
-} from '../types/mcp-types.js';
+  ValidationError,
+} from "../types/mcp-types.js";
 
 /**
  * Validates search cards parameters
@@ -19,8 +19,8 @@ export function validateSearchCardsParams(params: unknown) {
     if (error instanceof z.ZodError) {
       const firstError = error.errors[0];
       throw new ValidationError(
-        `Invalid parameter '${firstError.path.join('.')}': ${firstError.message}`,
-        firstError.path.join('.')
+        `Invalid parameter '${firstError.path.join(".")}': ${firstError.message}`,
+        firstError.path.join(".")
       );
     }
     throw error;
@@ -37,8 +37,8 @@ export function validateGetCardParams(params: unknown) {
     if (error instanceof z.ZodError) {
       const firstError = error.errors[0];
       throw new ValidationError(
-        `Invalid parameter '${firstError.path.join('.')}': ${firstError.message}`,
-        firstError.path.join('.')
+        `Invalid parameter '${firstError.path.join(".")}': ${firstError.message}`,
+        firstError.path.join(".")
       );
     }
     throw error;
@@ -55,8 +55,8 @@ export function validateGetCardPricesParams(params: unknown) {
     if (error instanceof z.ZodError) {
       const firstError = error.errors[0];
       throw new ValidationError(
-        `Invalid parameter '${firstError.path.join('.')}': ${firstError.message}`,
-        firstError.path.join('.')
+        `Invalid parameter '${firstError.path.join(".")}': ${firstError.message}`,
+        firstError.path.join(".")
       );
     }
     throw error;
@@ -73,8 +73,8 @@ export function validateRandomCardParams(params: unknown) {
     if (error instanceof z.ZodError) {
       const firstError = error.errors[0];
       throw new ValidationError(
-        `Invalid parameter '${firstError.path.join('.')}': ${firstError.message}`,
-        firstError.path.join('.')
+        `Invalid parameter '${firstError.path.join(".")}': ${firstError.message}`,
+        firstError.path.join(".")
       );
     }
     throw error;
@@ -91,8 +91,8 @@ export function validateSearchSetsParams(params: unknown) {
     if (error instanceof z.ZodError) {
       const firstError = error.errors[0];
       throw new ValidationError(
-        `Invalid parameter '${firstError.path.join('.')}': ${firstError.message}`,
-        firstError.path.join('.')
+        `Invalid parameter '${firstError.path.join(".")}': ${firstError.message}`,
+        firstError.path.join(".")
       );
     }
     throw error;
@@ -108,21 +108,22 @@ export function validateBuildQueryParams(params: unknown) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       const firstError = error.errors[0];
-      const fieldPath = firstError.path.join('.');
+      const fieldPath = firstError.path.join(".");
 
       // Provide helpful error messages for common issues
       let message = `Invalid parameter '${fieldPath}': ${firstError.message}`;
 
-      if (fieldPath === 'natural_query' && firstError.code === 'too_small') {
-        message = 'Natural query cannot be empty. Please provide a description of what you want to find.';
-      } else if (fieldPath === 'natural_query' && firstError.code === 'too_big') {
-        message = 'Natural query is too long. Please keep it under 500 characters.';
-      } else if (fieldPath === 'format' && firstError.code === 'invalid_enum_value') {
+      if (fieldPath === "natural_query" && firstError.code === "too_small") {
+        message =
+          "Natural query cannot be empty. Please provide a description of what you want to find.";
+      } else if (fieldPath === "natural_query" && firstError.code === "too_big") {
+        message = "Natural query is too long. Please keep it under 500 characters.";
+      } else if (fieldPath === "format" && firstError.code === "invalid_enum_value") {
         message = `Invalid format. Valid formats are: standard, modern, legacy, vintage, commander, pioneer, brawl, pauper, penny, historic, alchemy.`;
-      } else if (fieldPath === 'optimize_for' && firstError.code === 'invalid_enum_value') {
+      } else if (fieldPath === "optimize_for" && firstError.code === "invalid_enum_value") {
         message = `Invalid optimization strategy. Valid options are: precision, recall, discovery, budget.`;
-      } else if (fieldPath === 'max_results') {
-        message = 'Max results must be between 1 and 175.';
+      } else if (fieldPath === "max_results") {
+        message = "Max results must be between 1 and 175.";
       }
 
       throw new ValidationError(message, fieldPath);
@@ -132,12 +133,13 @@ export function validateBuildQueryParams(params: unknown) {
 }
 
 /**
- * Enhanced Scryfall query validation with intelligent error messages and suggestions
+ * Simple Scryfall query validation with basic error messages
  */
-export async function validateScryfallQuery(query: string): Promise<import('../validation/unified-types.js').ValidationResult> {
-  const { EnhancedScryfallValidator } = await import('../validation/enhanced-validator.js');
-  const validator = new EnhancedScryfallValidator();
-  return await validator.validate(query);
+export async function validateScryfallQuery(
+  query: string
+): Promise<import("./query-validator.js").ValidationResult> {
+  const { validateScryfallQueryAsync } = await import("./query-validator.js");
+  return await validateScryfallQueryAsync(query);
 }
 
 /**
@@ -145,42 +147,41 @@ export async function validateScryfallQuery(query: string): Promise<import('../v
  */
 export function validateScryfallQuerySync(query: string): void {
   if (!query || query.trim().length === 0) {
-    throw new ValidationError('Search query cannot be empty');
+    throw new ValidationError("Search query cannot be empty");
   }
 
   // Check for basic syntax errors
   const openParens = (query.match(/\(/g) || []).length;
   const closeParens = (query.match(/\)/g) || []).length;
-  
+
   if (openParens !== closeParens) {
-    throw new ValidationError('Unmatched parentheses in search query');
+    throw new ValidationError("Unmatched parentheses in search query");
   }
 
   // Check for invalid operators at the start
   if (/^(AND|OR|NOT)\s/i.test(query.trim())) {
-    throw new ValidationError('Search query cannot start with a boolean operator');
+    throw new ValidationError("Search query cannot start with a boolean operator");
   }
 
   // Check for consecutive operators
   if (/\b(AND|OR|NOT)\s+(AND|OR|NOT)\b/i.test(query)) {
-    throw new ValidationError('Consecutive boolean operators are not allowed');
+    throw new ValidationError("Consecutive boolean operators are not allowed");
   }
 }
 
 // Re-export validation types for external use
-export type { 
-  ValidationResult, 
-  ValidationError as EnhancedValidationError, 
-  QuerySuggestion,
-  ValidationContext 
-} from '../validation/unified-types.js';
+export type {
+  ValidationResult,
+  ValidationError as EnhancedValidationError,
+  ValidationWarning,
+} from "./query-validator.js";
 
 /**
  * Validates card identifier format
  */
 export function validateCardIdentifier(identifier: string): void {
   if (!identifier || identifier.trim().length === 0) {
-    throw new ValidationError('Card identifier cannot be empty');
+    throw new ValidationError("Card identifier cannot be empty");
   }
 
   // Check if it's a UUID (Scryfall ID)
@@ -197,12 +198,12 @@ export function validateCardIdentifier(identifier: string): void {
 
   // Otherwise, assume it's a card name - validate basic constraints
   if (identifier.length > 200) {
-    throw new ValidationError('Card name is too long (max 200 characters)');
+    throw new ValidationError("Card name is too long (max 200 characters)");
   }
 
   // Check for potentially problematic characters
   if (/[<>{}[\]\\]/.test(identifier)) {
-    throw new ValidationError('Card name contains invalid characters');
+    throw new ValidationError("Card name contains invalid characters");
   }
 }
 
@@ -211,7 +212,7 @@ export function validateCardIdentifier(identifier: string): void {
  */
 export function validateSetCode(setCode: string): void {
   if (!/^[a-z0-9]{3,4}$/i.test(setCode)) {
-    throw new ValidationError('Set code must be 3-4 alphanumeric characters');
+    throw new ValidationError("Set code must be 3-4 alphanumeric characters");
   }
 }
 
@@ -220,11 +221,29 @@ export function validateSetCode(setCode: string): void {
  */
 export function validateLanguageCode(langCode: string): void {
   const validLanguages = [
-    'en', 'es', 'fr', 'de', 'it', 'pt', 'ja', 'ko', 'ru', 'zhs', 'zht', 'he', 'la', 'grc', 'ar', 'sa', 'ph'
+    "en",
+    "es",
+    "fr",
+    "de",
+    "it",
+    "pt",
+    "ja",
+    "ko",
+    "ru",
+    "zhs",
+    "zht",
+    "he",
+    "la",
+    "grc",
+    "ar",
+    "sa",
+    "ph",
   ];
-  
+
   if (!validLanguages.includes(langCode.toLowerCase())) {
-    throw new ValidationError(`Invalid language code. Supported languages: ${validLanguages.join(', ')}`);
+    throw new ValidationError(
+      `Invalid language code. Supported languages: ${validLanguages.join(", ")}`
+    );
   }
 }
 
@@ -234,15 +253,15 @@ export function validateLanguageCode(langCode: string): void {
 export function validateDateString(dateStr: string): void {
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) {
-    throw new ValidationError('Invalid date format. Use ISO 8601 format (YYYY-MM-DD)');
+    throw new ValidationError("Invalid date format. Use ISO 8601 format (YYYY-MM-DD)");
   }
-  
+
   // Check if the date is reasonable (not too far in the past or future)
   const now = new Date();
-  const minDate = new Date('1993-01-01'); // Magic's first release
+  const minDate = new Date("1993-01-01"); // Magic's first release
   const maxDate = new Date(now.getFullYear() + 5, 11, 31); // 5 years in the future
-  
+
   if (date < minDate || date > maxDate) {
-    throw new ValidationError('Date must be between 1993 and 5 years from now');
+    throw new ValidationError("Date must be between 1993 and 5 years from now");
   }
 }

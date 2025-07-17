@@ -5,44 +5,59 @@ import {
   ScryfallSet,
   ScryfallError,
   BulkDataInfo,
-  ScryfallListResponse
-} from '../types/scryfall-api.js';
-import {
-  REQUIRED_HEADERS,
-  ScryfallAPIError,
-  RateLimitError
-} from '../types/mcp-types.js';
-import { RateLimiter } from './rate-limiter.js';
-import { CacheService } from './cache-service.js';
+  ScryfallListResponse,
+} from "../types/scryfall-api.js";
+import { REQUIRED_HEADERS, ScryfallAPIError, RateLimitError } from "../types/mcp-types.js";
+import { RateLimiter } from "./rate-limiter.js";
+import { CacheService } from "./cache-service.js";
+import { mcpLogger } from "./logger.js";
+import { generateRequestId } from "../types/mcp-errors.js";
 
 /**
  * HTTP client for Scryfall API with rate limiting and caching
  */
 export class ScryfallClient {
-  private readonly baseUrl = 'https://api.scryfall.com';
+  private readonly baseUrl = "https://api.scryfall.com";
   private rateLimiter: RateLimiter;
   private cache: CacheService;
 
   constructor(
     rateLimiter?: RateLimiter,
     cache?: CacheService,
-    private userAgent: string = process.env.SCRYFALL_USER_AGENT || REQUIRED_HEADERS['User-Agent']
+    private userAgent: string = process.env.SCRYFALL_USER_AGENT || REQUIRED_HEADERS["User-Agent"]
   ) {
     this.rateLimiter = rateLimiter || new RateLimiter();
     this.cache = cache || new CacheService();
   }
 
   /**
-   * Makes a rate-limited HTTP request to Scryfall API
+   * Makes a rate-limited HTTP request to Scryfall API with structured logging
    */
-  private async makeRequest<T = unknown>(url: string): Promise<T> {
+  private async makeRequest<T = unknown>(url: string, requestId?: string): Promise<T> {
+    const reqId = requestId || generateRequestId();
+    const startTime = Date.now();
+
+    mcpLogger.debug(
+      { requestId: reqId, url, operation: "scryfall_request" },
+      "Scryfall API request started"
+    );
     // Check circuit breaker
     if (this.rateLimiter.isCircuitOpen()) {
-      throw new ScryfallAPIError(
-        'Circuit breaker is open due to consecutive failures',
+      const error = new ScryfallAPIError(
+        "Circuit breaker is open due to consecutive failures",
         503,
-        'circuit_breaker_open'
+        "circuit_breaker_open"
       );
+      mcpLogger.error(
+        {
+          requestId: reqId,
+          url,
+          error,
+          operation: "scryfall_request",
+        },
+        "Circuit breaker is open"
+      );
+      throw error;
     }
 
     // Wait for rate limit clearance
@@ -52,8 +67,8 @@ export class ScryfallClient {
       const response = await fetch(url, {
         headers: {
           ...REQUIRED_HEADERS,
-          'User-Agent': this.userAgent
-        }
+          "User-Agent": this.userAgent,
+        },
       });
 
       // Handle the response body properly
@@ -64,9 +79,15 @@ export class ScryfallClient {
         // If JSON parsing fails, try to get the raw text for debugging
         try {
           const text = await response.text();
-          throw new Error(`Failed to parse JSON response. Raw response: ${text.substring(0, 200)}...`);
+          throw new Error(
+            `Failed to parse JSON response. Raw response: ${text.substring(0, 200)}...`
+          );
         } catch {
-          throw new Error(`Failed to parse response and unable to get raw text. Error: ${jsonError instanceof Error ? jsonError.message : 'Unknown'}`);
+          throw new Error(
+            `Failed to parse response and unable to get raw text. Error: ${
+              jsonError instanceof Error ? jsonError.message : "Unknown"
+            }`
+          );
         }
       }
 
@@ -74,59 +95,107 @@ export class ScryfallClient {
         this.rateLimiter.recordError(response.status);
 
         if (response.status === 429) {
-          const retryAfter = response.headers.get('retry-after');
+          const retryAfter = response.headers.get("retry-after");
           await this.rateLimiter.handleRateLimitResponse(retryAfter || undefined);
-          throw new RateLimitError(
-            'Rate limit exceeded',
+          const rateLimitError = new RateLimitError(
+            "Rate limit exceeded",
             retryAfter ? parseInt(retryAfter) : undefined
           );
+          mcpLogger.warn(
+            {
+              requestId: reqId,
+              url,
+              status: response.status,
+              retryAfter,
+              operation: "scryfall_request",
+            },
+            "Rate limit exceeded"
+          );
+          throw rateLimitError;
         }
 
         const error = data as ScryfallError;
-        throw new ScryfallAPIError(
+        const apiError = new ScryfallAPIError(
           error.details || `HTTP ${response.status}`,
           response.status,
           error.code,
           error.details
         );
+        mcpLogger.error(
+          {
+            requestId: reqId,
+            url,
+            status: response.status,
+            error: apiError,
+            operation: "scryfall_request",
+          },
+          "Scryfall API error"
+        );
+        throw apiError;
       }
 
       this.rateLimiter.recordSuccess();
-      return data;
+      const duration = Date.now() - startTime;
+      mcpLogger.debug(
+        {
+          requestId: reqId,
+          url,
+          status: response.status,
+          duration,
+          operation: "scryfall_request",
+        },
+        "Scryfall API request completed"
+      );
 
+      return data;
     } catch (error) {
       if (error instanceof ScryfallAPIError || error instanceof RateLimitError) {
         throw error;
       }
 
       this.rateLimiter.recordError();
-      throw new ScryfallAPIError(
-        `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      const networkError = new ScryfallAPIError(
+        `Network error: ${error instanceof Error ? error.message : "Unknown error"}`,
         0,
-        'network_error'
+        "network_error"
       );
+      mcpLogger.error(
+        {
+          requestId: reqId,
+          url,
+          error: networkError,
+          originalError: error instanceof Error ? error.message : String(error),
+          operation: "scryfall_request",
+        },
+        "Network error during Scryfall request"
+      );
+      throw networkError;
     }
   }
 
   /**
    * Searches for cards using Scryfall search syntax
    */
-  async searchCards(params: {
-    query: string;
-    limit?: number;
-    page?: number;
-    include_extras?: boolean;
-    order?: string;
-    unique?: string;
-    direction?: string;
-    include_multilingual?: boolean;
-    include_variations?: boolean;
-    price_range?: {
-      min?: number;
-      max?: number;
-      currency?: string;
-    };
-  }): Promise<ScryfallSearchResponse> {
+  async searchCards(
+    params: {
+      query: string;
+      limit?: number;
+      page?: number;
+      include_extras?: boolean;
+      order?: string;
+      unique?: string;
+      direction?: string;
+      include_multilingual?: boolean;
+      include_variations?: boolean;
+      price_range?: {
+        min?: number;
+        max?: number;
+        currency?: string;
+      };
+    },
+    requestId?: string
+  ): Promise<ScryfallSearchResponse> {
+    const reqId = requestId || generateRequestId();
     const cacheKey = CacheService.createSearchKey(
       params.query,
       params.page || 1,
@@ -138,9 +207,18 @@ export class ScryfallClient {
       params.price_range
     );
 
+    mcpLogger.debug(
+      { requestId: reqId, operation: "search_cards", query: params.query },
+      "Card search started"
+    );
+
     // Check cache first
     const cached = this.cache.getWithStats<ScryfallSearchResponse>(cacheKey);
     if (cached) {
+      mcpLogger.debug(
+        { requestId: reqId, operation: "search_cards", cacheHit: true },
+        "Card search cache hit"
+      );
       return cached;
     }
 
@@ -149,7 +227,7 @@ export class ScryfallClient {
     // Build query with price filtering if specified
     let query = params.query;
     if (params.price_range) {
-      const currency = params.price_range.currency || 'usd';
+      const currency = params.price_range.currency || "usd";
       if (params.price_range.min !== undefined) {
         query += ` ${currency}>=${params.price_range.min}`;
       }
@@ -158,37 +236,41 @@ export class ScryfallClient {
       }
     }
 
-    url.searchParams.set('q', query);
+    url.searchParams.set("q", query);
 
     if (params.limit) {
-      url.searchParams.set('page_size', params.limit.toString());
+      url.searchParams.set("page_size", params.limit.toString());
     }
     if (params.page && params.page > 1) {
-      url.searchParams.set('page', params.page.toString());
+      url.searchParams.set("page", params.page.toString());
     }
     if (params.include_extras) {
-      url.searchParams.set('include_extras', 'true');
+      url.searchParams.set("include_extras", "true");
     }
     if (params.include_multilingual) {
-      url.searchParams.set('include_multilingual', 'true');
+      url.searchParams.set("include_multilingual", "true");
     }
     if (params.include_variations) {
-      url.searchParams.set('include_variations', 'true');
+      url.searchParams.set("include_variations", "true");
     }
     if (params.order) {
-      url.searchParams.set('order', params.order);
+      url.searchParams.set("order", params.order);
     }
-    if (params.unique && params.unique !== 'cards') {
-      url.searchParams.set('unique', params.unique);
+    if (params.unique && params.unique !== "cards") {
+      url.searchParams.set("unique", params.unique);
     }
-    if (params.direction && params.direction !== 'auto') {
-      url.searchParams.set('dir', params.direction);
+    if (params.direction && params.direction !== "auto") {
+      url.searchParams.set("dir", params.direction);
     }
 
-    const data = await this.makeRequest<ScryfallSearchResponse>(url.toString());
+    const data = await this.makeRequest<ScryfallSearchResponse>(url.toString(), reqId);
 
     // Cache the result
-    this.cache.setWithType(cacheKey, data, 'card_search');
+    this.cache.setWithType(cacheKey, data, "card_search");
+    mcpLogger.debug(
+      { requestId: reqId, operation: "search_cards", resultCount: data.data?.length },
+      "Card search completed"
+    );
 
     return data;
   }
@@ -200,13 +282,9 @@ export class ScryfallClient {
     identifier: string;
     set?: string;
     lang?: string;
-    face?: 'front' | 'back';
+    face?: "front" | "back";
   }): Promise<ScryfallCard> {
-    const cacheKey = CacheService.createCardKey(
-      params.identifier,
-      params.set,
-      params.lang || 'en'
-    );
+    const cacheKey = CacheService.createCardKey(params.identifier, params.set, params.lang || "en");
 
     // Check cache first
     const cached = this.cache.getWithStats<ScryfallCard>(cacheKey);
@@ -222,27 +300,27 @@ export class ScryfallClient {
       url = new URL(`${this.baseUrl}/cards/${params.identifier}`);
     }
     // Check if identifier is set code + collector number
-    else if (params.identifier.includes('/')) {
-      const [setCode, collectorNumber] = params.identifier.split('/');
+    else if (params.identifier.includes("/")) {
+      const [setCode, collectorNumber] = params.identifier.split("/");
       url = new URL(`${this.baseUrl}/cards/${setCode}/${collectorNumber}`);
     }
     // Otherwise treat as card name
     else {
       url = new URL(`${this.baseUrl}/cards/named`);
-      url.searchParams.set('fuzzy', params.identifier);
+      url.searchParams.set("fuzzy", params.identifier);
       if (params.set) {
-        url.searchParams.set('set', params.set);
+        url.searchParams.set("set", params.set);
       }
     }
 
-    if (params.lang && params.lang !== 'en') {
-      url.searchParams.set('lang', params.lang);
+    if (params.lang && params.lang !== "en") {
+      url.searchParams.set("lang", params.lang);
     }
 
     const data = await this.makeRequest<ScryfallCard>(url.toString());
 
     // Cache the result
-    this.cache.setWithType(cacheKey, data, 'card_details');
+    this.cache.setWithType(cacheKey, data, "card_details");
 
     return data;
   }
@@ -250,7 +328,7 @@ export class ScryfallClient {
   /**
    * Gets card prices by Scryfall ID
    */
-  async getCardPrices(cardId: string, currency = 'usd'): Promise<ScryfallCard> {
+  async getCardPrices(cardId: string, currency = "usd"): Promise<ScryfallCard> {
     const cacheKey = CacheService.createPriceKey(cardId, currency);
 
     // Check cache first
@@ -263,7 +341,7 @@ export class ScryfallClient {
     const data = await this.makeRequest<ScryfallCard>(url.toString());
 
     // Cache with shorter TTL for price data
-    this.cache.setWithType(cacheKey, data, 'card_prices');
+    this.cache.setWithType(cacheKey, data, "card_prices");
 
     return data;
   }
@@ -274,7 +352,7 @@ export class ScryfallClient {
   async getRandomCard(query?: string): Promise<ScryfallCard> {
     const url = new URL(`${this.baseUrl}/cards/random`);
     if (query) {
-      url.searchParams.set('q', query);
+      url.searchParams.set("q", query);
     }
 
     // Don't cache random cards as they should be different each time
@@ -309,32 +387,27 @@ export class ScryfallClient {
     // Apply client-side filtering
     if (params?.query) {
       const query = params.query.toLowerCase();
-      sets = sets.filter(set =>
-        set.name.toLowerCase().includes(query) ||
-        set.code.toLowerCase().includes(query)
+      sets = sets.filter(
+        (set) => set.name.toLowerCase().includes(query) || set.code.toLowerCase().includes(query)
       );
     }
 
     if (params?.type) {
-      sets = sets.filter(set => set.set_type === params.type);
+      sets = sets.filter((set) => set.set_type === params.type);
     }
 
     if (params?.released_after) {
       const afterDate = new Date(params.released_after);
-      sets = sets.filter(set =>
-        set.released_at && new Date(set.released_at) >= afterDate
-      );
+      sets = sets.filter((set) => set.released_at && new Date(set.released_at) >= afterDate);
     }
 
     if (params?.released_before) {
       const beforeDate = new Date(params.released_before);
-      sets = sets.filter(set =>
-        set.released_at && new Date(set.released_at) <= beforeDate
-      );
+      sets = sets.filter((set) => set.released_at && new Date(set.released_at) <= beforeDate);
     }
 
     // Cache the filtered result
-    this.cache.setWithType(cacheKey, { data: sets }, 'set_data');
+    this.cache.setWithType(cacheKey, { data: sets }, "set_data");
 
     return sets;
   }
@@ -343,7 +416,7 @@ export class ScryfallClient {
    * Gets bulk card data information
    */
   async getBulkDataInfo(): Promise<BulkDataInfo[]> {
-    const cacheKey = CacheService.createBulkKey('info');
+    const cacheKey = CacheService.createBulkKey("info");
 
     // Check cache first
     const cached = this.cache.getWithStats<{ data: BulkDataInfo[] }>(cacheKey);
@@ -355,7 +428,7 @@ export class ScryfallClient {
     const data = await this.makeRequest<ScryfallListResponse<BulkDataInfo>>(url);
 
     // Cache bulk data info
-    this.cache.setWithType(cacheKey, data, 'bulk_data');
+    this.cache.setWithType(cacheKey, data, "bulk_data");
 
     return data.data;
   }
@@ -374,12 +447,12 @@ export class ScryfallClient {
         );
       }
 
-      return await response.json() as ScryfallCard[];
+      return (await response.json()) as ScryfallCard[];
     } catch (error) {
       throw new ScryfallAPIError(
-        `Bulk data download error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Bulk data download error: ${error instanceof Error ? error.message : "Unknown error"}`,
         0,
-        'bulk_download_error'
+        "bulk_download_error"
       );
     }
   }

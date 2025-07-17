@@ -1,6 +1,6 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
-import { formatSearchResultsAsText } from '../utils/formatters.js';
+// Removed unused import
 
 /**
  * MCP Tool for finding cards that synergize with a specific card, theme, or archetype
@@ -151,16 +151,39 @@ export class FindSynergisticCardsTool {
       // Build synergy search queries
       const queries = this.buildSynergyQueries(focusCard, params);
 
-      // Execute searches and combine results
+      // Execute searches with multi-layered strategy
       const allResults: any[] = [];
-      for (const query of queries) {
+      const resultsByLayer: { [key: string]: any[] } = {
+        semantic: [],
+        exact: [],
+        thematic: []
+      };
+
+      for (let i = 0; i < queries.length; i++) {
+        const query = queries[i];
         try {
           const results = await this.scryfallClient.searchCards({
             query,
             limit: Math.ceil(params.limit / queries.length) + 5, // Get extra to account for filtering
             order: 'edhrec'
           });
-          allResults.push(...results.data);
+          
+          // Categorize results by search layer
+          const layerResults = results.data.map(card => ({
+            ...card,
+            _synergy_layer: i < 10 ? 'semantic' : (i < 20 ? 'exact' : 'thematic'), // Rough categorization
+            _synergy_query: query
+          }));
+          
+          if (i < 10) {
+            resultsByLayer.semantic.push(...layerResults);
+          } else if (i < 20) {
+            resultsByLayer.exact.push(...layerResults);
+          } else {
+            resultsByLayer.thematic.push(...layerResults);
+          }
+          
+          allResults.push(...layerResults);
         } catch (error) {
           // Continue with other queries if one fails
           continue;
@@ -207,11 +230,14 @@ export class FindSynergisticCardsTool {
         }
       }
 
-      // Remove duplicates and filter results
+      // Remove duplicates and filter results with layered prioritization
       const uniqueResults = this.filterAndDeduplicateResults(allResults, focusCard, params);
 
+      // Prioritize results by synergy layer (semantic > exact > thematic)
+      const prioritizedResults = this.prioritizeResultsByLayer(uniqueResults);
+
       // Limit results
-      const finalResults = uniqueResults.slice(0, params.limit);
+      const finalResults = prioritizedResults.slice(0, params.limit);
 
       // Format response
       let responseText = `**Synergistic cards for "${params.focus_card}"**`;
@@ -233,7 +259,7 @@ export class FindSynergisticCardsTool {
           has_more: false,
           data: finalResults
         };
-        responseText += formatSearchResultsAsText(mockSearchResponse);
+        responseText += this.formatResultsWithSynergyExplanations(mockSearchResponse, focusCard, params.focus_card);
       }
 
       return {
@@ -270,6 +296,161 @@ export class FindSynergisticCardsTool {
         isError: true
       };
     }
+  }
+
+  /**
+   * Format results with synergy explanations
+   */
+  private formatResultsWithSynergyExplanations(searchResponse: any, focusCard: any, focusCardName: string): string {
+    let output = '';
+    
+    // Group results by synergy layer
+    const resultsByLayer = {
+      semantic: searchResponse.data.filter((card: any) => card._synergy_layer === 'semantic'),
+      exact: searchResponse.data.filter((card: any) => card._synergy_layer === 'exact'), 
+      thematic: searchResponse.data.filter((card: any) => card._synergy_layer === 'thematic')
+    };
+    
+    // Display semantic synergies first (highest priority)
+    if (resultsByLayer.semantic.length > 0) {
+      output += '**🎯 Strategic Synergies:**\n';
+      for (const card of resultsByLayer.semantic.slice(0, 8)) {
+        output += this.formatCardWithSynergyExplanation(card, focusCard, focusCardName);
+      }
+      output += '\n';
+    }
+    
+    // Display exact synergies
+    if (resultsByLayer.exact.length > 0) {
+      output += '**⚡ Mechanical Synergies:**\n';
+      for (const card of resultsByLayer.exact.slice(0, 5)) {
+        output += this.formatCardWithSynergyExplanation(card, focusCard, focusCardName);
+      }
+      output += '\n';
+    }
+    
+    // Display thematic synergies
+    if (resultsByLayer.thematic.length > 0) {
+      output += '**🌟 Thematic Support:**\n';
+      for (const card of resultsByLayer.thematic.slice(0, 5)) {
+        output += this.formatCardWithSynergyExplanation(card, focusCard, focusCardName);
+      }
+    }
+    
+    return output;
+  }
+
+  /**
+   * Format individual card with synergy explanation
+   */
+  private formatCardWithSynergyExplanation(card: any, focusCard: any, focusCardName: string): string {
+    const name = card.name;
+    const manaCost = card.mana_cost || '';
+    const typeLine = card.type_line || '';
+    const oracleText = card.oracle_text || '';
+    const prices = card.prices || {};
+    
+    let output = `• **${name}** ${manaCost}\n`;
+    output += `  ${typeLine}\n`;
+    
+    // Add synergy explanation
+    const synergyExplanation = this.generateSynergyExplanation(card, focusCard, focusCardName);
+    if (synergyExplanation) {
+      output += `  💡 *${synergyExplanation}*\n`;
+    }
+    
+    // Add shortened oracle text
+    if (oracleText.length > 120) {
+      output += `  ${oracleText.substring(0, 120)}...\n`;
+    } else if (oracleText) {
+      output += `  ${oracleText}\n`;
+    }
+    
+    // Add price if available
+    if (prices.usd) {
+      output += `  💰 $${prices.usd}\n`;
+    }
+    
+    output += '\n';
+    return output;
+  }
+
+  /**
+   * Generate synergy explanation for a card
+   */
+  private generateSynergyExplanation(card: any, focusCard: any, focusCardName: string): string {
+    const cardOracle = card.oracle_text?.toLowerCase() || '';
+    const focusOracle = focusCard?.oracle_text?.toLowerCase() || '';
+    const focusName = focusCardName.toLowerCase();
+    
+    // Check for specific synergy patterns
+    
+    // Obeka-specific synergies
+    if (focusName.includes('obeka')) {
+      if (cardOracle.includes('beginning of your upkeep') || cardOracle.includes('at the beginning of your upkeep')) {
+        return 'Triggers during extra upkeep steps created by Obeka';
+      }
+    }
+    
+    // Upkeep synergies
+    if (focusOracle.includes('upkeep') || focusOracle.includes('extra turn')) {
+      if (cardOracle.includes('beginning of your upkeep')) {
+        return 'Benefits from extra upkeep steps';
+      }
+    }
+    
+    // Combat synergies
+    if (focusOracle.includes('combat') || focusOracle.includes('attack')) {
+      if (cardOracle.includes('attacks') || cardOracle.includes('combat damage')) {
+        return 'Synergizes with extra combat steps';
+      }
+    }
+    
+    // Token synergies
+    if (focusOracle.includes('token') || focusOracle.includes('create')) {
+      if (cardOracle.includes('creature enters') || cardOracle.includes('creatures you control')) {
+        return 'Benefits from token generation';
+      }
+    }
+    
+    // ETB synergies
+    if (focusOracle.includes('enters the battlefield')) {
+      if (cardOracle.includes('creature enters') || cardOracle.includes('enters the battlefield')) {
+        return 'Creates ETB synergy chains';
+      }
+    }
+    
+    // Spell synergies
+    if (focusOracle.includes('instant') || focusOracle.includes('sorcery')) {
+      if (cardOracle.includes('prowess') || cardOracle.includes('magecraft') || cardOracle.includes('whenever you cast')) {
+        return 'Triggers from spell casting';
+      }
+    }
+    
+    // Graveyard synergies
+    if (focusOracle.includes('graveyard') || focusOracle.includes('dies')) {
+      if (cardOracle.includes('graveyard') || cardOracle.includes('dies')) {
+        return 'Graveyard value synergy';
+      }
+    }
+    
+    // Sacrifice synergies
+    if (focusOracle.includes('sacrifice')) {
+      if (cardOracle.includes('sacrifice') || cardOracle.includes('dies')) {
+        return 'Sacrifice synergy engine';
+      }
+    }
+    
+    // Generic synergy based on layer
+    if (card._synergy_layer === 'semantic') {
+      return 'Strategic synergy with focus card';
+    } else if (card._synergy_layer === 'exact') {
+      return 'Mechanical synergy match';
+    } else if (card._synergy_layer === 'thematic') {
+      return 'Thematic support card';
+    }
+    
+    return '';
   }
 
   /**
@@ -347,6 +528,10 @@ export class FindSynergisticCardsTool {
     const oracleText = focusCard.oracle_text?.toLowerCase() || '';
     const keywords = this.extractKeywords(oracleText);
 
+    // **NEW: Semantic synergy detection**
+    const semanticQueries = this.getSemanticSynergies(focusCard, baseQuery);
+    queries.push(...semanticQueries);
+
     if (!synergyType || synergyType === 'tribal') {
       // Tribal synergies
       const creatureTypes = this.extractCreatureTypes(types);
@@ -386,6 +571,116 @@ export class FindSynergisticCardsTool {
     }
 
     return queries;
+  }
+
+  /**
+   * Get semantic synergies based on strategic patterns and interactions
+   */
+  private getSemanticSynergies(focusCard: any, baseQuery: string): string[] {
+    const queries: string[] = [];
+    const oracleText = focusCard.oracle_text?.toLowerCase() || '';
+    const name = focusCard.name.toLowerCase();
+
+    // Strategic synergy patterns mapping
+    const synergyPatterns = [
+      // Upkeep/End step synergies
+      {
+        triggers: ['extra upkeep', 'additional upkeep', 'extra turn', 'additional turn', 'upkeep step'],
+        synergizes_with: ['beginning of your upkeep', 'at the beginning of your upkeep', 'during your upkeep']
+      },
+      {
+        triggers: ['extra combat', 'additional combat', 'extra attack', 'additional attack phase'],
+        synergizes_with: ['whenever ~ attacks', 'whenever ~ deals combat damage', 'combat damage to a player']
+      },
+      {
+        triggers: ['extra end step', 'additional end step', 'end step'],
+        synergizes_with: ['at the beginning of your end step', 'at the beginning of the end step']
+      },
+      
+      // Token synergies
+      {
+        triggers: ['create.*token', 'token.*creature', 'populate', 'amass'],
+        synergizes_with: ['whenever a creature enters', 'creature tokens you control', 'token creatures', 'creatures you control']
+      },
+      
+      // ETB/LTB synergies
+      {
+        triggers: ['enters the battlefield', 'enters tapped', 'when.*enters'],
+        synergizes_with: ['whenever a creature enters', 'whenever.*enters the battlefield', 'creature entering']
+      },
+      {
+        triggers: ['leaves the battlefield', 'dies', 'when.*dies'],
+        synergizes_with: ['whenever a creature dies', 'whenever.*leaves the battlefield', 'creature dying']
+      },
+      
+      // Spell synergies
+      {
+        triggers: ['whenever you cast', 'instant or sorcery', 'noncreature spell'],
+        synergizes_with: ['prowess', 'magecraft', 'whenever you cast an instant or sorcery']
+      },
+      
+      // Sacrifice synergies
+      {
+        triggers: ['sacrifice', 'sacrificed', 'sacrifice.*creature'],
+        synergizes_with: ['whenever.*is sacrificed', 'sacrifice.*creature', 'aristocrats']
+      },
+      
+      // Life gain synergies
+      {
+        triggers: ['you gain life', 'whenever you gain life', 'lifelink'],
+        synergizes_with: ['whenever you gain life', 'lifegain', 'lifelink']
+      },
+      
+      // Card draw synergies
+      {
+        triggers: ['draw.*card', 'whenever you draw', 'card draw'],
+        synergizes_with: ['whenever you draw', 'draw additional', 'card advantage']
+      },
+      
+      // Mana synergies
+      {
+        triggers: ['add.*mana', 'mana.*to your mana pool', 'treasure', 'ritual'],
+        synergizes_with: ['x spell', 'costs.*less', 'mana value', 'expensive spell']
+      },
+      
+      // Graveyard synergies
+      {
+        triggers: ['enters your graveyard', 'creature.*graveyard', 'mill'],
+        synergizes_with: ['from your graveyard', 'graveyard.*battlefield', 'flashback', 'unearth']
+      },
+      
+      // +1/+1 counter synergies
+      {
+        triggers: ['\\+1/\\+1 counter', 'put.*counter', 'counter.*creature'],
+        synergizes_with: ['\\+1/\\+1 counter', 'proliferate', 'counter.*creature', 'adapt', 'evolve']
+      }
+    ];
+
+    // Check each pattern
+    for (const pattern of synergyPatterns) {
+      // Check if focus card matches any trigger pattern
+      const matchesTrigger = pattern.triggers.some(trigger => 
+        new RegExp(trigger, 'i').test(oracleText) || new RegExp(trigger, 'i').test(name)
+      );
+      
+      if (matchesTrigger) {
+        // Search for cards that synergize with this pattern
+        for (const synergy of pattern.synergizes_with) {
+          queries.push(`${baseQuery}o:"${synergy}"`);
+        }
+      }
+    }
+
+    // Specific high-synergy card patterns
+    if (name.includes('obeka')) {
+      // Obeka specifically synergizes with upkeep triggers
+      queries.push(`${baseQuery}o:"beginning of your upkeep"`);
+      queries.push(`${baseQuery}o:"at the beginning of your upkeep"`);
+      queries.push(`${baseQuery}o:"during your upkeep"`);
+      queries.push(`${baseQuery}o:"upkeep, "`);
+    }
+
+    return queries.filter(q => q.trim().length > 0);
   }
 
   /**
@@ -489,16 +784,89 @@ export class FindSynergisticCardsTool {
   }
 
   /**
-   * Extract mechanics from oracle text
+   * Extract mechanics from oracle text with improved pattern matching
    */
   private extractMechanics(oracleText: string): string[] {
     const mechanics = [
       'proliferate', 'scry', 'surveil', 'explore', 'adapt', 'amass',
       'convoke', 'delve', 'emerge', 'escape', 'flashback', 'madness',
-      'morph', 'suspend', 'unearth', 'cycling', 'kicker', 'multikicker'
+      'morph', 'suspend', 'unearth', 'cycling', 'kicker', 'multikicker',
+      'cascade', 'storm', 'dredge', 'buyback', 'echo', 'evoke',
+      'splice', 'ripple', 'rebound', 'retrace', 'overload', 'cipher',
+      'populate', 'scavenge', 'unleash', 'detain', 'extort', 'evolve',
+      'bloodrush', 'battalion', 'devotion', 'inspired', 'tribute',
+      'dash', 'exploit', 'manifest', 'bolster', 'support', 'surge',
+      'awaken', 'devoid', 'ingest', 'myriad', 'crew', 'fabricate',
+      'energy', 'revolt', 'improvise', 'aftermath', 'embalm', 'eternalize',
+      'afflict', 'exert', 'explore', 'enrage', 'raid', 'ascend',
+      'assist', 'jump-start', 'mentor', 'undergrowth', 'spectacle',
+      'riot', 'addendum', 'afterlife', 'amass', 'proliferate', 'adapt',
+      'escape', 'mutate', 'companion', 'cycling', 'keyword counter',
+      'foretell', 'boast', 'disturb', 'daybound', 'nightbound',
+      'cleave', 'training', 'channel', 'ninjutsu', 'reconfigure',
+      'compleated', 'casualty', 'connive', 'hideaway', 'blitz',
+      'prototype', 'unearth', 'powerstone', 'enlist', 'domain',
+      'kicker', 'toxic', 'corrupted', 'backup', 'bargain', 'craft'
     ];
     
-    return mechanics.filter(mechanic => oracleText.includes(mechanic));
+    // Enhanced pattern matching for mechanics
+    const foundMechanics: string[] = [];
+    
+    for (const mechanic of mechanics) {
+      // Match mechanic as whole word or followed by a space/number
+      const regex = new RegExp(`\\b${mechanic}(?:\\s|\\d|$)`, 'i');
+      if (regex.test(oracleText)) {
+        foundMechanics.push(mechanic);
+      }
+    }
+    
+    // Additional pattern-based mechanic detection
+    const mechanicPatterns = [
+      { pattern: /\+1\/\+1 counter/i, mechanic: '+1/+1 counters' },
+      { pattern: /enters the battlefield/i, mechanic: 'enters the battlefield' },
+      { pattern: /leaves the battlefield/i, mechanic: 'leaves the battlefield' },
+      { pattern: /sacrifice.*creature/i, mechanic: 'sacrifice creatures' },
+      { pattern: /whenever.*dies/i, mechanic: 'death triggers' },
+      { pattern: /whenever.*attacks/i, mechanic: 'attack triggers' },
+      { pattern: /whenever.*deals damage/i, mechanic: 'damage triggers' },
+      { pattern: /whenever you cast/i, mechanic: 'spell triggers' },
+      { pattern: /draw.*cards?/i, mechanic: 'card draw' },
+      { pattern: /discard.*cards?/i, mechanic: 'discard' },
+      { pattern: /mill.*cards?/i, mechanic: 'mill' },
+      { pattern: /create.*token/i, mechanic: 'token creation' },
+      { pattern: /return.*from.*graveyard/i, mechanic: 'graveyard recursion' },
+      { pattern: /costs.*less/i, mechanic: 'cost reduction' },
+      { pattern: /add.*mana/i, mechanic: 'mana generation' },
+      { pattern: /destroy target/i, mechanic: 'destruction' },
+      { pattern: /exile.*until/i, mechanic: 'temporary exile' },
+      { pattern: /double.*damage/i, mechanic: 'damage doubling' },
+      { pattern: /prevent.*damage/i, mechanic: 'damage prevention' },
+      { pattern: /can't be blocked/i, mechanic: 'evasion' },
+      { pattern: /flying/i, mechanic: 'flying' },
+      { pattern: /trample/i, mechanic: 'trample' },
+      { pattern: /haste/i, mechanic: 'haste' },
+      { pattern: /vigilance/i, mechanic: 'vigilance' },
+      { pattern: /lifelink/i, mechanic: 'lifelink' },
+      { pattern: /deathtouch/i, mechanic: 'deathtouch' },
+      { pattern: /first strike/i, mechanic: 'first strike' },
+      { pattern: /double strike/i, mechanic: 'double strike' },
+      { pattern: /hexproof/i, mechanic: 'hexproof' },
+      { pattern: /indestructible/i, mechanic: 'indestructible' },
+      { pattern: /flash/i, mechanic: 'flash' },
+      { pattern: /prowess/i, mechanic: 'prowess' },
+      { pattern: /menace/i, mechanic: 'menace' },
+      { pattern: /reach/i, mechanic: 'reach' },
+      { pattern: /defender/i, mechanic: 'defender' },
+      { pattern: /ward/i, mechanic: 'ward' }
+    ];
+    
+    for (const { pattern, mechanic } of mechanicPatterns) {
+      if (pattern.test(oracleText) && !foundMechanics.includes(mechanic)) {
+        foundMechanics.push(mechanic);
+      }
+    }
+    
+    return foundMechanics;
   }
 
   /**
@@ -616,6 +984,25 @@ export class FindSynergisticCardsTool {
     }
 
     return queries;
+  }
+
+  /**
+   * Prioritize results by synergy layer
+   */
+  private prioritizeResultsByLayer(results: any[]): any[] {
+    const layerPriority = { semantic: 3, exact: 2, thematic: 1 };
+    
+    return results.sort((a, b) => {
+      const aPriority = layerPriority[a._synergy_layer as keyof typeof layerPriority] || 0;
+      const bPriority = layerPriority[b._synergy_layer as keyof typeof layerPriority] || 0;
+      
+      if (aPriority !== bPriority) {
+        return bPriority - aPriority; // Higher priority first
+      }
+      
+      // Secondary sort by EDHREC ranking (lower rank = more popular)
+      return (a.edhrec_rank || 999999) - (b.edhrec_rank || 999999);
+    });
   }
 
   /**
