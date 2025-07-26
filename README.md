@@ -2,6 +2,10 @@
 
 A comprehensive Model Context Protocol (MCP) server that integrates with the Scryfall API to provide Magic: The Gathering card data and functionality to AI assistants like Claude.
 
+<a href="https://glama.ai/mcp/servers/@bmurdock/scryfall-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@bmurdock/scryfall-mcp/badge" alt="Scryfall Server MCP server" />
+</a>
+
 ## Features
 
 ### 🔧 MCP Tools
