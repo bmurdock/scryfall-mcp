@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { ValidationError } from '../types/mcp-types.js';
+import { mcpLogger } from '../services/logger.js';
 
 /**
  * MCP Tool for searching Magic: The Gathering comprehensive rules
@@ -54,7 +55,7 @@ export class QueryRulesTool {
       this.rulesContent = readFileSync(rulesPath, 'utf-8');
       this.rulesLines = this.rulesContent.split('\n');
     } catch (error) {
-      console.warn('Could not load MTG rules file:', error);
+      mcpLogger.warn({ operation: 'rules_load', error }, 'Could not load MTG rules file');
       this.rulesContent = null;
       this.rulesLines = [];
     }

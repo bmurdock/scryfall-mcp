@@ -15,6 +15,7 @@ import {
 } from './types.js';
 import { ConceptExtractor } from './concept-extractor.js';
 import { ScryfallClient } from '../services/scryfall-client.js';
+import { mcpLogger } from '../services/logger.js';
 
 /**
  * Builds optimized Scryfall queries from natural language concepts
@@ -324,7 +325,7 @@ export class QueryBuilderEngine {
       return { query: adjustedQuery, optimizations };
     } catch (error) {
       // If query fails, log the error and return original
-      console.warn('Query testing failed:', error instanceof Error ? error.message : 'Unknown error');
+      mcpLogger.warn({ operation: 'query_test', error: error instanceof Error ? error.message : String(error) }, 'Query testing failed');
       return { query, optimizations: [] };
     }
   }

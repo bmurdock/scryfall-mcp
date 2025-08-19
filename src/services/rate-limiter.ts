@@ -1,4 +1,5 @@
 import { RATE_LIMIT_CONFIG, RateLimitError } from '../types/mcp-types.js';
+import { EnvValidators } from '../utils/env-parser.js';
 
 interface QueuedRequest {
   resolve: (value: void) => void;
@@ -15,19 +16,26 @@ export class RateLimiter {
   private lastRequestTime = 0;
   private processing = false;
   private consecutiveErrors = 0;
+  private readonly maxQueueSize: number;
+  private activeTimeouts = new Set<NodeJS.Timeout>();
 
   constructor(
-    private minInterval: number = RATE_LIMIT_CONFIG.minInterval,
+    private minInterval: number = EnvValidators.rateLimitMs(process.env.RATE_LIMIT_MS),
     private maxRetries: number = RATE_LIMIT_CONFIG.maxRetries,
     private backoffMultiplier: number = RATE_LIMIT_CONFIG.backoffMultiplier,
     private maxBackoffMs: number = RATE_LIMIT_CONFIG.maxBackoffMs
-  ) {}
+  ) {
+    this.maxQueueSize = EnvValidators.rateLimitQueueMax(process.env.RATE_LIMIT_QUEUE_MAX);
+  }
 
   /**
    * Waits for rate limit clearance before proceeding
    */
   async waitForClearance(): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (this.queue.length >= this.maxQueueSize) {
+        return reject(new RateLimitError('Queue capacity exceeded'));
+      }
       this.queue.push({
         resolve,
         reject,
@@ -44,25 +52,29 @@ export class RateLimiter {
    * Processes the request queue with rate limiting
    */
   private async processQueue(): Promise<void> {
-    if (this.processing || this.queue.length === 0) {
+    // Use atomic check-and-set to prevent race conditions
+    if (this.processing) {
       return;
     }
-
+    
     this.processing = true;
 
-    while (this.queue.length > 0) {
-      const request = this.queue.shift()!;
-      
-      try {
-        await this.enforceRateLimit();
-        request.resolve();
-        this.consecutiveErrors = 0; // Reset error count on success
-      } catch (error) {
-        request.reject(error instanceof Error ? error : new Error('Unknown rate limit error'));
+    try {
+      while (this.queue.length > 0) {
+        const request = this.queue.shift()!;
+        
+        try {
+          await this.enforceRateLimit();
+          request.resolve();
+          this.consecutiveErrors = 0; // Reset error count on success
+        } catch (error) {
+          request.reject(error instanceof Error ? error : new Error('Unknown rate limit error'));
+        }
       }
+    } finally {
+      // Ensure processing flag is always reset
+      this.processing = false;
     }
-
-    this.processing = false;
   }
 
   /**
@@ -153,6 +165,12 @@ export class RateLimiter {
    * Clears the queue and resets state
    */
   reset(): void {
+    // Clear all active timeouts to prevent memory leaks
+    for (const timeout of this.activeTimeouts) {
+      clearTimeout(timeout);
+    }
+    this.activeTimeouts.clear();
+    
     // Reject all pending requests
     while (this.queue.length > 0) {
       const request = this.queue.shift()!;
@@ -165,10 +183,16 @@ export class RateLimiter {
   }
 
   /**
-   * Utility method for sleeping
+   * Utility method for sleeping with timeout tracking
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise(resolve => {
+      const timeout = setTimeout(() => {
+        this.activeTimeouts.delete(timeout);
+        resolve();
+      }, ms);
+      this.activeTimeouts.add(timeout);
+    });
   }
 
   /**

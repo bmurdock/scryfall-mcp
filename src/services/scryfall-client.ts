@@ -12,6 +12,7 @@ import { RateLimiter } from "./rate-limiter.js";
 import { CacheService } from "./cache-service.js";
 import { mcpLogger } from "./logger.js";
 import { generateRequestId } from "../types/mcp-errors.js";
+import { EnvValidators } from "../utils/env-parser.js";
 
 /**
  * HTTP client for Scryfall API with rate limiting and caching
@@ -24,7 +25,7 @@ export class ScryfallClient {
   constructor(
     rateLimiter?: RateLimiter,
     cache?: CacheService,
-    private userAgent: string = process.env.SCRYFALL_USER_AGENT || REQUIRED_HEADERS["User-Agent"]
+    private userAgent: string = EnvValidators.userAgent(process.env.SCRYFALL_USER_AGENT)
   ) {
     this.rateLimiter = rateLimiter || new RateLimiter();
     this.cache = cache || new CacheService();
@@ -64,31 +65,37 @@ export class ScryfallClient {
     await this.rateLimiter.waitForClearance();
 
     try {
+      // Timeout support via AbortController
+      const timeoutMs = EnvValidators.scryfallTimeoutMs(process.env.SCRYFALL_TIMEOUT_MS);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
       const response = await fetch(url, {
         headers: {
           ...REQUIRED_HEADERS,
           "User-Agent": this.userAgent,
         },
-      });
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout));
 
       // Handle the response body properly
       let data;
+      let responseText: string | null = null;
+      
       try {
-        data = await response.json();
+        // First try to get the response text for debugging purposes
+        const clonedResponse = response.clone();
+        responseText = await clonedResponse.text();
+        
+        // Then parse as JSON
+        data = JSON.parse(responseText);
       } catch (jsonError) {
-        // If JSON parsing fails, try to get the raw text for debugging
-        try {
-          const text = await response.text();
-          throw new Error(
-            `Failed to parse JSON response. Raw response: ${text.substring(0, 200)}...`
-          );
-        } catch {
-          throw new Error(
-            `Failed to parse response and unable to get raw text. Error: ${
-              jsonError instanceof Error ? jsonError.message : "Unknown"
-            }`
-          );
-        }
+        const originalError = jsonError instanceof Error ? jsonError.message : "Unknown JSON error";
+        const debugText = responseText ? responseText.substring(0, 200) : "Unable to read response";
+        
+        throw new Error(
+          `Failed to parse JSON response. Original error: ${originalError}. Response preview: ${debugText}...`
+        );
       }
 
       if (response.status >= 400) {
@@ -154,10 +161,11 @@ export class ScryfallClient {
       }
 
       this.rateLimiter.recordError();
+      const isAbort = error instanceof Error && error.name === 'AbortError';
       const networkError = new ScryfallAPIError(
         `Network error: ${error instanceof Error ? error.message : "Unknown error"}`,
         0,
-        "network_error"
+        isAbort ? "timeout" : "network_error"
       );
       mcpLogger.error(
         {
@@ -238,9 +246,7 @@ export class ScryfallClient {
 
     url.searchParams.set("q", query);
 
-    if (params.limit) {
-      url.searchParams.set("page_size", params.limit.toString());
-    }
+    // Note: Scryfall does not support custom page size on search; we slice in formatters
     if (params.page && params.page > 1) {
       url.searchParams.set("page", params.page.toString());
     }
@@ -321,27 +327,6 @@ export class ScryfallClient {
 
     // Cache the result
     this.cache.setWithType(cacheKey, data, "card_details");
-
-    return data;
-  }
-
-  /**
-   * Gets card prices by Scryfall ID
-   */
-  async getCardPrices(cardId: string, currency = "usd"): Promise<ScryfallCard> {
-    const cacheKey = CacheService.createPriceKey(cardId, currency);
-
-    // Check cache first
-    const cached = this.cache.getWithStats<ScryfallCard>(cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    const url = new URL(`${this.baseUrl}/cards/${cardId}`);
-    const data = await this.makeRequest<ScryfallCard>(url.toString());
-
-    // Cache with shorter TTL for price data
-    this.cache.setWithType(cacheKey, data, "card_prices");
 
     return data;
   }
@@ -438,7 +423,16 @@ export class ScryfallClient {
    */
   async downloadBulkData(downloadUri: string): Promise<ScryfallCard[]> {
     try {
-      const response = await fetch(downloadUri);
+      const timeoutMs = EnvValidators.scryfallTimeoutMs(process.env.SCRYFALL_TIMEOUT_MS) * 2; // Double timeout for bulk downloads
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+      const response = await fetch(downloadUri, {
+        headers: {
+          "User-Agent": this.userAgent,
+        },
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout));
 
       if (response.status >= 400) {
         throw new ScryfallAPIError(
@@ -452,23 +446,9 @@ export class ScryfallClient {
       throw new ScryfallAPIError(
         `Bulk data download error: ${error instanceof Error ? error.message : "Unknown error"}`,
         0,
-        "bulk_download_error"
+        (error instanceof Error && error.name === 'AbortError') ? "timeout" : "bulk_download_error"
       );
     }
-  }
-
-  /**
-   * Gets cache statistics
-   */
-  getCacheStats() {
-    return this.cache.getStats();
-  }
-
-  /**
-   * Gets rate limiter status
-   */
-  getRateLimiterStatus() {
-    return this.rateLimiter.getStatus();
   }
 
   /**

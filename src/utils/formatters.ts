@@ -79,6 +79,7 @@ export function formatSearchResultsAsText(
   pageSize = 20
 ): string {
   const { total_cards, has_more, data: cards, warnings } = searchResponse;
+  const displayed = Array.isArray(cards) ? cards.slice(0, Math.max(0, pageSize)) : [];
   
   let result = `Found ${total_cards ?? cards.length} card${(total_cards ?? cards.length) !== 1 ? 's' : ''}`;
   
@@ -98,14 +99,14 @@ export function formatSearchResultsAsText(
     result += '\n';
   }
   
-  cards.forEach((card, index) => {
+  displayed.forEach((card, index) => {
     const cardNumber = (currentPage - 1) * pageSize + index + 1;
     result += formatCardAsText(card, cardNumber);
     result += '\n';
   });
   
-  if (has_more) {
-    const remainingCount = total_cards ? total_cards - cards.length : 'many';
+  if (has_more || (total_cards && total_cards > currentPage * pageSize)) {
+    const remainingCount = total_cards ? Math.max(0, total_cards - currentPage * pageSize) : 'many';
     result += `\n... and ${remainingCount} more cards. Use page parameter to see more results.`;
   }
   
@@ -161,12 +162,13 @@ export function formatSearchResultsAsJson(
   pageSize = 20
 ): FormattedSearchResult {
   const { total_cards, has_more, data: cards, warnings } = searchResponse;
+  const displayed = Array.isArray(cards) ? cards.slice(0, Math.max(0, pageSize)) : [];
   const totalPages = total_cards ? Math.ceil(total_cards / pageSize) : undefined;
   
   return {
     total_cards: total_cards ?? cards.length,
     has_more,
-    cards: cards.map(card => formatCard(card)),
+    cards: displayed.map(card => formatCard(card)),
     warnings,
     page_info: {
       current_page: currentPage,

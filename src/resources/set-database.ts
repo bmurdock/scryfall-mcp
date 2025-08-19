@@ -2,6 +2,9 @@ import { ScryfallClient } from '../services/scryfall-client.js';
 import { CacheService } from '../services/cache-service.js';
 import { ScryfallSet } from '../types/scryfall-api.js';
 import { ScryfallAPIError } from '../types/mcp-types.js';
+import { mcpLogger } from '../services/logger.js';
+import { REQUIRED_HEADERS } from '../types/mcp-types.js';
+import { EnvValidators } from '../utils/env-parser.js';
 
 /**
  * MCP Resource for accessing set database
@@ -92,7 +95,7 @@ export class SetDatabaseResource {
 
     } catch (error) {
       // Log error but don't fail - we can still serve cached data
-      console.warn('Failed to check for set data updates:', error);
+      mcpLogger.warn({ operation: 'set_update_check', error }, 'Failed to check for set data updates');
     }
   }
 
@@ -123,7 +126,7 @@ export class SetDatabaseResource {
       return set;
     } catch (error) {
       // If icon download fails, just return the set without it
-      console.warn(`Failed to download icon for set ${set.code}:`, error);
+      mcpLogger.warn({ operation: 'set_icon_download', setCode: set.code, error }, 'Failed to download set icon');
       return set;
     }
   }
@@ -133,7 +136,16 @@ export class SetDatabaseResource {
    */
   private async downloadIconAsBase64(iconUri: string): Promise<string> {
     try {
-      const response = await fetch(iconUri);
+      const timeoutMs = EnvValidators.scryfallTimeoutMs(process.env.SCRYFALL_TIMEOUT_MS);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      const response = await fetch(iconUri, {
+        headers: {
+          'User-Agent': REQUIRED_HEADERS['User-Agent'],
+          'Accept': 'image/svg+xml',
+        },
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout));
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }

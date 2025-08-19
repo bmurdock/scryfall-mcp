@@ -5,6 +5,7 @@
 
 import pino from "pino";
 import { MCPError } from "../types/mcp-errors.js";
+import { EnvValidators } from "../utils/env-parser.js";
 
 /**
  * Log levels supported by the logger
@@ -47,8 +48,8 @@ export interface ErrorContext extends LogContext {
  * Create Pino logger instance with MCP-specific configuration
  */
 function createLogger() {
-  const isDevelopment = process.env.NODE_ENV === "development";
-  const logLevel = (process.env.LOG_LEVEL as LogLevel) || "info";
+  const isDevelopment = EnvValidators.nodeEnv(process.env.NODE_ENV) === "development";
+  const logLevel = EnvValidators.logLevel(process.env.LOG_LEVEL) as LogLevel;
 
   const baseConfig: pino.LoggerOptions = {
     level: logLevel,
@@ -271,20 +272,32 @@ export class MCPLogger {
    * Sanitize arguments for logging (remove sensitive data)
    */
   private sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
-    if (!args || typeof args !== "object" || args === null) {
-      return args;
-    }
-
-    const sanitized = { ...args };
     const sensitiveKeys = ["password", "token", "secret", "key", "auth", "authorization"];
 
-    for (const key of Object.keys(sanitized)) {
-      if (sensitiveKeys.some((sensitive) => key.toLowerCase().includes(sensitive))) {
-        sanitized[key] = "[REDACTED]";
-      }
-    }
+    const redact = (value: unknown, depth = 0, seen = new WeakSet<object>()): unknown => {
+      if (depth > 4) return "[REDACTED]"; // depth limit
+      if (value === null || value === undefined) return value;
+      if (typeof value !== 'object') return value;
+      if (seen.has(value as object)) return "[REDACTED]";
+      seen.add(value as object);
 
-    return sanitized;
+      if (Array.isArray(value)) {
+        return value.slice(0, 50).map((v) => redact(v, depth + 1, seen)); // breadth limit
+      }
+
+      const obj = value as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if (sensitiveKeys.some((s) => k.toLowerCase().includes(s))) {
+          out[k] = "[REDACTED]";
+        } else {
+          out[k] = redact(v, depth + 1, seen);
+        }
+      }
+      return out;
+    };
+
+    return redact(args) as Record<string, unknown>;
   }
 }
 
@@ -293,39 +306,6 @@ export class MCPLogger {
  */
 export const mcpLogger = new MCPLogger(logger);
 
-/**
- * Utility function to measure execution time
- */
-export function measureTime<T>(
-  operation: string,
-  requestId: string,
-  fn: () => Promise<T>
-): Promise<T> {
-  const startTime = Date.now();
-
-  mcpLogger.debug({ requestId, operation, startTime }, "Operation started");
-
-  return fn().then(
-    (result) => {
-      const duration = Date.now() - startTime;
-      mcpLogger.performance({ requestId, operation, duration }, "Operation completed");
-      return result;
-    },
-    (error) => {
-      const duration = Date.now() - startTime;
-      mcpLogger.error(
-        {
-          requestId,
-          operation,
-          duration,
-          error,
-        },
-        "Operation failed"
-      );
-      throw error;
-    }
-  );
-}
 
 /**
  * Error monitoring and metrics collection utilities

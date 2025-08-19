@@ -4,6 +4,35 @@
  */
 
 /**
+ * Sanitizes a details object to prevent prototype pollution
+ */
+function sanitizeDetails(details?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!details || typeof details !== 'object') {
+    return details;
+  }
+
+  // Create a clean object without prototype
+  const sanitized = Object.create(null);
+  
+  // Copy safe properties
+  for (const [key, value] of Object.entries(details)) {
+    // Skip dangerous prototype pollution keys
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+    
+    // Recursively sanitize nested objects
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      sanitized[key] = sanitizeDetails(value as Record<string, unknown>);
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  
+  return sanitized;
+}
+
+/**
  * Base MCP error class with structured error data
  */
 export class MCPError extends Error {
@@ -14,7 +43,7 @@ export class MCPError extends Error {
     message: string,
     public readonly code: string,
     public readonly statusCode = 500,
-    public readonly details?: Record<string, unknown>,
+    details?: Record<string, unknown>,
     requestId?: string
   ) {
     super(message);
@@ -22,9 +51,14 @@ export class MCPError extends Error {
     this.timestamp = new Date().toISOString();
     this.requestId = requestId;
 
+    // Sanitize details to prevent prototype pollution
+    this.details = sanitizeDetails(details);
+
     // Ensure proper prototype chain for instanceof checks
     Object.setPrototypeOf(this, MCPError.prototype);
   }
+
+  public readonly details?: Record<string, unknown>;
 
   /**
    * Convert error to structured log format
@@ -78,7 +112,7 @@ export class ToolExecutionError extends MCPError {
         message: originalError.message,
         stack: originalError.stack,
       },
-      ...details,
+      ...sanitizeDetails(details),
     };
 
     super(message, "TOOL_EXECUTION_ERROR", 500, errorDetails, requestId);
@@ -105,7 +139,7 @@ export class DetailedValidationError extends MCPError {
       field,
       value: typeof value === "object" ? JSON.stringify(value) : value,
       reason,
-      ...details,
+      ...sanitizeDetails(details),
     };
 
     super(message, "DETAILED_VALIDATION_ERROR", 400, errorDetails, requestId);
@@ -136,7 +170,7 @@ export class ResourceError extends MCPError {
             stack: originalError.stack,
           }
         : undefined,
-      ...details,
+      ...sanitizeDetails(details),
     };
 
     super(message, "RESOURCE_ERROR", 404, errorDetails, requestId);
@@ -167,7 +201,7 @@ export class PromptError extends MCPError {
             stack: originalError.stack,
           }
         : undefined,
-      ...details,
+      ...sanitizeDetails(details),
     };
 
     super(message, "PROMPT_ERROR", 500, errorDetails, requestId);
@@ -190,7 +224,7 @@ export class ConfigurationError extends MCPError {
     const errorDetails = {
       configKey,
       reason,
-      ...details,
+      ...sanitizeDetails(details),
     };
 
     super(message, "CONFIGURATION_ERROR", 500, errorDetails, requestId);
@@ -208,7 +242,7 @@ export class HealthCheckError extends MCPError {
     const errorDetails = {
       service,
       reason,
-      ...details,
+      ...sanitizeDetails(details),
     };
 
     super(message, "HEALTH_CHECK_ERROR", 503, errorDetails, requestId);
@@ -237,14 +271,14 @@ export function wrapError(error: unknown, context: string, requestId?: string): 
       `${context}: ${error.message}`,
       "WRAPPED_ERROR",
       500,
-      {
+      sanitizeDetails({
         originalError: {
           name: error.name,
           message: error.message,
           stack: error.stack,
         },
         context,
-      },
+      }),
       requestId
     );
   }
@@ -253,10 +287,10 @@ export function wrapError(error: unknown, context: string, requestId?: string): 
     `${context}: Unknown error`,
     "UNKNOWN_ERROR",
     500,
-    {
+    sanitizeDetails({
       originalError: String(error),
       context,
-    },
+    }),
     requestId
   );
 }

@@ -6,7 +6,8 @@ import {
 import { formatSetsAsText } from '../utils/formatters.js';
 import { 
   ScryfallAPIError, 
-  ValidationError 
+  ValidationError,
+  RateLimitError 
 } from '../types/mcp-types.js';
 import { SET_TYPES } from '../types/scryfall-api.js';
 
@@ -137,6 +138,14 @@ export class SearchSetsTool {
               text: `Validation error: ${error.message}`
             }
           ],
+          isError: true
+        };
+      }
+
+      if (error instanceof RateLimitError) {
+        const retry = error.retryAfter ? ` Retry after ${error.retryAfter}s.` : '';
+        return {
+          content: [{ type: 'text', text: `Rate limit exceeded.${retry} Please wait and try again.` }],
           isError: true
         };
       }

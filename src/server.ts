@@ -10,7 +10,7 @@ import {
 import { ScryfallClient } from "./services/scryfall-client.js";
 import { RateLimiter } from "./services/rate-limiter.js";
 import { CacheService } from "./services/cache-service.js";
-import { mcpLogger, ErrorMonitor, measureTimeWithMonitoring } from "./services/logger.js";
+import { mcpLogger, ErrorMonitor } from "./services/logger.js";
 import {
   ToolExecutionError,
   ResourceError,
@@ -18,6 +18,7 @@ import {
   generateRequestId,
   wrapError,
 } from "./types/mcp-errors.js";
+import { EnvValidators } from "./utils/env-parser.js";
 
 // Tools
 import { SearchCardsTool } from "./tools/search-cards.js";
@@ -387,24 +388,27 @@ export class ScryfallMCPServer {
       );
     }
 
-    // Test Scryfall client service
-    try {
-      await this.scryfallClient.getRandomCard();
-      mcpLogger.debug(
-        { requestId, service: "scryfallClient" },
-        "Scryfall client health check passed"
-      );
-    } catch (error) {
-      status.services.scryfallClient = "unhealthy";
-      status.status = "unhealthy";
-      mcpLogger.error(
-        {
-          requestId,
-          service: "scryfallClient",
-          error: wrapError(error, "Scryfall client health check", requestId),
-        },
-        "Scryfall client health check failed"
-      );
+    // Test Scryfall client service only on deep check
+    const deepCheck = EnvValidators.healthCheckDeep(process.env.HEALTHCHECK_DEEP);
+    if (deepCheck) {
+      try {
+        await this.scryfallClient.getRandomCard();
+        mcpLogger.debug(
+          { requestId, service: "scryfallClient" },
+          "Scryfall client health check passed"
+        );
+      } catch (error) {
+        status.services.scryfallClient = "unhealthy";
+        status.status = "degraded";
+        mcpLogger.error(
+          {
+            requestId,
+            service: "scryfallClient",
+            error: wrapError(error, "Scryfall client health check", requestId),
+          },
+          "Scryfall client health check failed"
+        );
+      }
     }
 
     const duration = Date.now() - startTime;

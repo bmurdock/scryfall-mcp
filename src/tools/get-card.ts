@@ -3,12 +3,15 @@ import {
   validateGetCardParams, 
   validateCardIdentifier 
 } from '../utils/validators.js';
+import { sanitizeCardIdentifier } from '../utils/query-sanitizer.js';
 import { formatCardDetails } from '../utils/formatters.js';
 import { 
   ScryfallAPIError, 
   ValidationError,
-  GetCardParams
+  GetCardParams,
+  RateLimitError
 } from '../types/mcp-types.js';
+import { generateRequestId } from '../types/mcp-errors.js';
 
 /**
  * MCP Tool for retrieving a single Magic: The Gathering card
@@ -56,12 +59,13 @@ export class GetCardTool {
       // Validate parameters
       const params = validateGetCardParams(args);
       
-      // Validate card identifier format
-      validateCardIdentifier(params.identifier);
+      // Sanitize and validate card identifier
+      const sanitizedIdentifier = sanitizeCardIdentifier(params.identifier);
+      validateCardIdentifier(sanitizedIdentifier);
 
       // Execute card lookup
       const card = await this.scryfallClient.getCard({
-        identifier: params.identifier,
+        identifier: sanitizedIdentifier,
         set: params.set,
         lang: params.lang,
         face: params.face
@@ -93,6 +97,14 @@ export class GetCardTool {
         };
       }
 
+      if (error instanceof RateLimitError) {
+        const retry = error.retryAfter ? ` Retry after ${error.retryAfter}s.` : '';
+        return {
+          content: [{ type: 'text', text: `Rate limit exceeded.${retry} Please wait and try again.` }],
+          isError: true
+        };
+      }
+
       if (error instanceof ScryfallAPIError) {
         let errorMessage = `Scryfall API error: ${error.message}`;
         
@@ -115,16 +127,62 @@ export class GetCardTool {
         };
       }
 
-      // Generic error handling
+      // Generic error handling with enhanced context
+      const errorDetails = this.formatGenericError(error, args as GetCardParams);
       return {
         content: [
           {
             type: 'text',
-            text: `Unexpected error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`
+            text: errorDetails
           }
         ],
         isError: true
       };
     }
+  }
+
+  /**
+   * Format generic errors with enhanced context and debugging information
+   */
+  private formatGenericError(error: unknown, params?: GetCardParams): string {
+    let message = "**Unexpected Error Occurred**\n\n";
+    
+    // Basic error information
+    if (error instanceof Error) {
+      message += `**Error Type:** ${error.constructor.name}\n`;
+      message += `**Message:** ${error.message}\n`;
+      
+      // Include stack trace in development
+      if (process.env.NODE_ENV === 'development' && error.stack) {
+        const stackLines = error.stack.split('\n').slice(0, 5);
+        message += `**Stack Trace:** \n\`\`\`\n${stackLines.join('\n')}\n\`\`\`\n`;
+      }
+    } else {
+      message += `**Error:** ${String(error)}\n`;
+    }
+    
+    // Request context
+    if (params) {
+      message += `\n**Request Context:**\n`;
+      message += `• Identifier: "${params.identifier}"\n`;
+      if (params.set) message += `• Set: ${params.set}\n`;
+      if (params.lang) message += `• Language: ${params.lang}\n`;
+      if (params.face) message += `• Face: ${params.face}\n`;
+      message += `• Include Image: ${params.include_image}\n`;
+    }
+    
+    // Debugging suggestions
+    message += `\n**Troubleshooting Steps:**\n`;
+    message += `1. Verify the card identifier is correct\n`;
+    message += `2. Check if the card exists in the specified set\n`;
+    message += `3. Try using the card's full name or Scryfall ID\n`;
+    message += `4. Verify network connectivity\n`;
+    
+    // Error correlation ID
+    const correlationId = generateRequestId();
+    message += `\n**Error ID:** ${correlationId}\n`;
+    message += `*Please include this ID when reporting the issue.*`;
+    
+    return message;
   }
 }

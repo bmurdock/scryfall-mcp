@@ -1,13 +1,24 @@
 import { CacheEntry, CACHE_DURATIONS } from '../types/mcp-types.js';
+import { EnvValidators } from '../utils/env-parser.js';
 
 /**
- * In-memory cache service with TTL support
+ * In-memory cache service with TTL support and size limits
  */
 export class CacheService {
   private cache = new Map<string, CacheEntry<unknown>>();
   private cleanupInterval: NodeJS.Timeout;
+  private readonly maxSize: number;
+  private readonly maxMemoryBytes: number;
+  private currentMemoryUsage = 0;
 
-  constructor(private cleanupIntervalMs: number = 5 * 60 * 1000) { // 5 minutes
+  constructor(
+    private cleanupIntervalMs: number = 5 * 60 * 1000, // 5 minutes
+    maxSize: number = EnvValidators.cacheMaxSize(process.env.CACHE_MAX_SIZE),
+    maxMemoryMB: number = EnvValidators.cacheMaxMemoryMB(process.env.CACHE_MAX_MEMORY_MB)
+  ) {
+    this.maxSize = maxSize;
+    this.maxMemoryBytes = maxMemoryMB * 1024 * 1024;
+    
     // Start periodic cleanup
     this.cleanupInterval = setInterval(() => {
       this.cleanup();
@@ -34,7 +45,7 @@ export class CacheService {
   }
 
   /**
-   * Sets a value in cache with TTL
+   * Sets a value in cache with TTL and enforces size limits
    */
   set<T>(key: string, value: T, ttl: number): void {
     const entry: CacheEntry<T> = {
@@ -43,7 +54,23 @@ export class CacheService {
       ttl
     };
 
+    // Calculate entry size
+    const entrySize = this.calculateEntrySize(key, entry);
+    
+    // Check if adding this entry would exceed limits
+    if (this.cache.size >= this.maxSize || 
+        this.currentMemoryUsage + entrySize > this.maxMemoryBytes) {
+      this.evictLRU();
+    }
+
+    // Remove existing entry if updating
+    if (this.cache.has(key)) {
+      const existingEntry = this.cache.get(key)!;
+      this.currentMemoryUsage -= this.calculateEntrySize(key, existingEntry);
+    }
+
     this.cache.set(key, entry);
+    this.currentMemoryUsage += entrySize;
   }
 
   /**
@@ -65,6 +92,10 @@ export class CacheService {
    * Deletes a specific key from cache
    */
   delete(key: string): boolean {
+    const entry = this.cache.get(key);
+    if (entry) {
+      this.currentMemoryUsage -= this.calculateEntrySize(key, entry);
+    }
     return this.cache.delete(key);
   }
 
@@ -73,6 +104,7 @@ export class CacheService {
    */
   clear(): void {
     this.cache.clear();
+    this.currentMemoryUsage = 0;
   }
 
   /**
@@ -84,29 +116,33 @@ export class CacheService {
     memoryUsage: number;
     oldestEntry: number | null;
     newestEntry: number | null;
+    maxSize: number;
+    maxMemoryBytes: number;
+    memoryUtilization: number;
+    sizeUtilization: number;
   } {
     let oldestTimestamp: number | null = null;
     let newestTimestamp: number | null = null;
-    let totalSize = 0;
 
-    for (const [key, entry] of this.cache.entries()) {
+    for (const [, entry] of this.cache.entries()) {
       if (oldestTimestamp === null || entry.timestamp < oldestTimestamp) {
         oldestTimestamp = entry.timestamp;
       }
       if (newestTimestamp === null || entry.timestamp > newestTimestamp) {
         newestTimestamp = entry.timestamp;
       }
-      
-      // Rough estimate of memory usage
-      totalSize += JSON.stringify(entry).length + key.length;
     }
 
     return {
       size: this.cache.size,
       hitRate: this.hitRate,
-      memoryUsage: totalSize,
+      memoryUsage: this.currentMemoryUsage,
       oldestEntry: oldestTimestamp,
-      newestEntry: newestTimestamp
+      newestEntry: newestTimestamp,
+      maxSize: this.maxSize,
+      maxMemoryBytes: this.maxMemoryBytes,
+      memoryUtilization: this.maxMemoryBytes > 0 ? this.currentMemoryUsage / this.maxMemoryBytes : 0,
+      sizeUtilization: this.maxSize > 0 ? this.cache.size / this.maxSize : 0
     };
   }
 
@@ -123,7 +159,13 @@ export class CacheService {
       }
     }
 
-    keysToDelete.forEach(key => this.cache.delete(key));
+    keysToDelete.forEach(key => {
+      const entry = this.cache.get(key);
+      if (entry) {
+        this.currentMemoryUsage -= this.calculateEntrySize(key, entry);
+      }
+      this.cache.delete(key);
+    });
   }
 
   /**
@@ -206,37 +248,8 @@ export class CacheService {
   }
 
   /**
-   * Preloads cache with bulk data
+   * Removed legacy persistence helpers (export/import/preload) as unused
    */
-  preload<T>(entries: Array<{ key: string; value: T; ttl?: number }>): void {
-    entries.forEach(({ key, value, ttl = CACHE_DURATIONS.card_details }) => {
-      this.set(key, value, ttl);
-    });
-  }
-
-  /**
-   * Exports cache data for persistence (if needed)
-   */
-  export(): Array<{ key: string; entry: CacheEntry<unknown> }> {
-    return Array.from(this.cache.entries()).map(([key, entry]) => ({
-      key,
-      entry
-    }));
-  }
-
-  /**
-   * Imports cache data from persistence (if needed)
-   */
-  import(data: Array<{ key: string; entry: CacheEntry<unknown> }>): void {
-    const now = Date.now();
-    
-    data.forEach(({ key, entry }) => {
-      // Only import non-expired entries
-      if (now - entry.timestamp <= entry.ttl) {
-        this.cache.set(key, entry);
-      }
-    });
-  }
 
   /**
    * Cleanup on service destruction
@@ -299,5 +312,44 @@ export class CacheService {
    */
   static createBulkKey(type: string): string {
     return `bulk:${type}`;
+  }
+
+  /**
+   * Calculates the approximate size of a cache entry in bytes
+   */
+  private calculateEntrySize(key: string, entry: CacheEntry<unknown>): number {
+    try {
+      // Estimate size by JSON serialization length * 2 (for UTF-16 encoding)
+      const dataSize = JSON.stringify(entry.data).length * 2;
+      const keySize = key.length * 2;
+      const metadataSize = 24; // timestamp (8) + ttl (8) + overhead (8)
+      return dataSize + keySize + metadataSize;
+    } catch {
+      // Fallback for non-serializable data
+      return 1000; // Conservative estimate
+    }
+  }
+
+  /**
+   * Evicts the least recently used entries to make room for new ones
+   */
+  private evictLRU(): void {
+    const entries = Array.from(this.cache.entries());
+    
+    // Sort by timestamp (oldest first)
+    entries.sort(([, a], [, b]) => a.timestamp - b.timestamp);
+    
+    // Remove oldest entries until we're under the limits
+    const targetSize = Math.floor(this.maxSize * 0.8); // Remove 20% when limit reached
+    const targetMemory = Math.floor(this.maxMemoryBytes * 0.8);
+    
+    for (const [key, entry] of entries) {
+      if (this.cache.size <= targetSize && this.currentMemoryUsage <= targetMemory) {
+        break;
+      }
+      
+      this.currentMemoryUsage -= this.calculateEntrySize(key, entry);
+      this.cache.delete(key);
+    }
   }
 }

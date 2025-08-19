@@ -2,6 +2,7 @@ import { ScryfallClient } from '../services/scryfall-client.js';
 import { CacheService } from '../services/cache-service.js';
 import { ScryfallCard } from '../types/scryfall-api.js';
 import { ScryfallAPIError } from '../types/mcp-types.js';
+import { mcpLogger } from '../services/logger.js';
 
 /**
  * MCP Resource for accessing bulk card database
@@ -98,7 +99,7 @@ export class CardDatabaseResource {
 
     } catch (error) {
       // Log error but don't fail - we can still serve cached data
-      console.warn('Failed to check for bulk data updates:', error);
+      mcpLogger.warn({ operation: 'bulk_update_check', error }, 'Failed to check for bulk data updates');
     }
   }
 

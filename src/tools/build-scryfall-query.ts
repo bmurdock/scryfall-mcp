@@ -10,6 +10,7 @@ import { NaturalLanguageParser } from '../natural-language/parser.js';
 import { QueryBuilderEngine } from '../natural-language/query-builder.js';
 import { ConceptExtractor } from '../natural-language/concept-extractor.js';
 import { validateBuildQueryParams } from '../utils/validators.js';
+import { sanitizeQuery } from '../utils/query-sanitizer.js';
 import { 
   ValidationError, 
   ScryfallAPIError,
@@ -102,8 +103,18 @@ export class BuildScryfallQueryTool {
       // Validate input parameters
       const params = validateBuildQueryParams(args);
       
+      // Sanitize natural language input (using a more permissive approach for natural language)
+      const sanitizedQuery = params.natural_query.trim()
+        // eslint-disable-next-line no-control-regex
+        .replace(/[\x00-\x1F\x7F-\x9F]/g, '') // Remove control characters
+        .substring(0, 500); // Enforce max length
+      
+      if (!sanitizedQuery) {
+        throw new ValidationError('Natural query cannot be empty after sanitization');
+      }
+      
       // Parse natural language
-      const parsed = this.parser.parse(params.natural_query, {
+      const parsed = this.parser.parse(sanitizedQuery, {
         targetFormat: params.format,
         optimizationStrategy: params.optimize_for,
         maxResults: params.max_results
@@ -124,10 +135,11 @@ export class BuildScryfallQueryTool {
       
       const buildResult = await this.queryBuilder.build(parsed, buildOptions);
       
-      // Test query if requested
+      // Test query if requested (sanitize the generated query before testing)
       let testResult;
       if (params.test_query) {
-        testResult = await this.testQuery(buildResult.query);
+        const sanitizedTestQuery = sanitizeQuery(buildResult.query);
+        testResult = await this.testQuery(sanitizedTestQuery);
       }
       
       // Format response

@@ -28,7 +28,7 @@ A comprehensive Model Context Protocol (MCP) server that integrates with the Scr
 - **build_deck**: Create deck building guides centered around specific cards
 
 ### ⚡ Performance Features
-- **Rate Limiting**: Respects Scryfall's API limits with 75ms minimum intervals
+- **Rate Limiting**: Respects Scryfall's API limits with 100ms minimum intervals
 - **Intelligent Caching**: Reduces API calls by >70% with configurable TTL
 - **Error Handling**: Graceful handling of all API error conditions
 - **Circuit Breaker**: Prevents cascading failures during API outages
@@ -302,10 +302,14 @@ server.healthCheck()
 ### Environment Variables
 ```bash
 SCRYFALL_USER_AGENT=ScryfallMCPServer/1.0
-CACHE_TTL_HOURS=24
-RATE_LIMIT_MS=75
+RATE_LIMIT_MS=100
 LOG_LEVEL=info
 NODE_ENV=development
+# Optional timeouts and health/deep checks
+SCRYFALL_TIMEOUT_MS=15000
+HEALTHCHECK_DEEP=false
+# Bound the internal rate limiter queue
+RATE_LIMIT_QUEUE_MAX=500
 ```
 
 ### Cache Durations
@@ -536,3 +540,13 @@ MIT License - see LICENSE file for details.
 - [Scryfall](https://scryfall.com/) for providing the excellent Magic: The Gathering API
 - [Model Context Protocol](https://modelcontextprotocol.io/) for the MCP specification
 - The Magic: The Gathering community for inspiration and feedback
+### HTTP Behavior & Headers
+
+- The server sends a descriptive `User-Agent` and `Accept: application/json` on all Scryfall API calls, per Scryfall guidelines.
+- All `fetch` calls have a configurable timeout via `SCRYFALL_TIMEOUT_MS` (default 15000 ms). Aborted requests surface with error code `timeout` in logs.
+- Bulk data and icon downloads also include `User-Agent`; icons set `Accept: image/svg+xml`.
+
+### Search Pagination Notes
+
+- Scryfall’s `/cards/search` endpoint does not support a custom page size. The `limit` parameter in tools controls how many results are displayed from each Scryfall page, client-side.
+- Pagination metadata (like total pages) is computed using Scryfall’s `total_cards` and your requested `limit` for accurate display.
