@@ -199,17 +199,17 @@ export class RateLimiter {
    * Handles 429 responses with Retry-After header
    */
   async handleRateLimitResponse(retryAfter?: string): Promise<void> {
+    this.recordError(429);
+
     let delay = this.getCurrentBackoffDelay();
-    
+
     if (retryAfter) {
-      const retryAfterMs = parseInt(retryAfter) * 1000;
-      if (!isNaN(retryAfterMs)) {
+      const retryAfterMs = parseInt(retryAfter, 10) * 1000;
+      if (!Number.isNaN(retryAfterMs)) {
         delay = Math.max(delay, retryAfterMs);
       }
     }
-    
-    this.recordError(429);
-    
+
     if (delay > 0) {
       await this.sleep(delay);
     }

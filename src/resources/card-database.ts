@@ -126,12 +126,17 @@ export class CardDatabaseResource {
   private filterCardFields(card: ScryfallCard): ScryfallCard {
     // Keep only essential fields for most use cases
     const filtered: Partial<ScryfallCard> = {
+      object: card.object,
       id: card.id,
       oracle_id: card.oracle_id,
       name: card.name,
       lang: card.lang,
       released_at: card.released_at,
+      uri: card.uri,
+      scryfall_uri: card.scryfall_uri,
       layout: card.layout,
+      highres_image: card.highres_image,
+      image_status: card.image_status,
       mana_cost: card.mana_cost,
       cmc: card.cmc,
       type_line: card.type_line,
@@ -146,13 +151,20 @@ export class CardDatabaseResource {
       reserved: card.reserved,
       foil: card.foil,
       nonfoil: card.nonfoil,
+      finishes: card.finishes,
       oversized: card.oversized,
       promo: card.promo,
       reprint: card.reprint,
+      variation: card.variation,
       set_id: card.set_id,
       set: card.set,
       set_name: card.set_name,
       set_type: card.set_type,
+      set_uri: card.set_uri,
+      set_search_uri: card.set_search_uri,
+      scryfall_set_uri: card.scryfall_set_uri,
+      rulings_uri: card.rulings_uri,
+      prints_search_uri: card.prints_search_uri,
       collector_number: card.collector_number,
       digital: card.digital,
       rarity: card.rarity,
@@ -166,6 +178,7 @@ export class CardDatabaseResource {
       edhrec_rank: card.edhrec_rank,
       prices: card.prices,
       image_uris: card.image_uris,
+      related_uris: card.related_uris,
       card_faces: card.card_faces
     };
 

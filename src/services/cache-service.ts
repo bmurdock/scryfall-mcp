@@ -180,7 +180,13 @@ export class CacheService {
    */
   invalidatePattern(pattern: RegExp): number {
     const keysToDelete = this.getKeysMatching(pattern);
-    keysToDelete.forEach(key => this.cache.delete(key));
+    for (const key of keysToDelete) {
+      const entry = this.cache.get(key);
+      if (entry) {
+        this.currentMemoryUsage -= this.calculateEntrySize(key, entry);
+      }
+      this.cache.delete(key);
+    }
     return keysToDelete.length;
   }
 

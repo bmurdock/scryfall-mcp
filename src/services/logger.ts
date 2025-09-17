@@ -73,7 +73,11 @@ function createLogger() {
     },
   };
 
-  // Development configuration with pretty printing
+  // For MCP servers, always output to stderr to avoid interfering with stdio transport
+  // stdout is reserved for JSON-RPC protocol communication
+  const destination = pino.destination({ dest: 2 }); // stderr
+
+  // Development configuration with pretty printing to stderr
   if (isDevelopment) {
     return pino({
       ...baseConfig,
@@ -84,17 +88,14 @@ function createLogger() {
           translateTime: "HH:MM:ss.l Z",
           ignore: "pid,hostname,service,version",
           messageFormat: "{requestId} [{toolName}] {msg}",
-          customPrettifiers: {
-            requestId: (requestId: string) => (requestId ? `[${requestId}]` : ""),
-            toolName: (toolName: string) => (toolName ? `{${toolName}}` : ""),
-          },
+          destination: 2, // stderr
         },
       },
     });
   }
 
-  // Production configuration with JSON output
-  return pino(baseConfig);
+  // Production configuration with JSON output to stderr
+  return pino(baseConfig, destination);
 }
 
 /**
