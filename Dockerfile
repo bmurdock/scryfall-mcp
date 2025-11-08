@@ -29,6 +29,7 @@ RUN npm ci --omit=dev
 
 # Copy built code from builder
 COPY --from=builder /app/dist ./dist
+COPY mtgrules.txt .
 
 # Set environment to production
 ENV NODE_ENV=production
