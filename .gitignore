@@ -79,6 +79,9 @@ web_modules/
 .env.production.local
 .env.local
 
+# Fly.io deployment configuration (user-specific)
+fly.toml
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
@@ -142,3 +145,6 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Claude Code
+.claude/settings.local.json

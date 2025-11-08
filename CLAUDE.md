@@ -17,6 +17,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### MCP Development
 - `npm run inspector` - Launch MCP Inspector for debugging MCP server
 
+### Deployment
+- `npm run deploy` - Deploy to Fly.io (requires Fly CLI)
+- `npm run logs` - View production logs from Fly.io
+
 ## Architecture Overview
 
 This is a **Model Context Protocol (MCP) server** that provides Magic: The Gathering card data through the Scryfall API. The architecture follows a clean separation of concerns:
@@ -30,8 +34,10 @@ This is a **Model Context Protocol (MCP) server** that provides Magic: The Gathe
 - Provides health checks and status monitoring
 
 **Entry Point (`src/index.ts`)**
-- Initializes MCP Server with stdio transport
-- Sets up `ScryfallMCPServer` and connects handlers
+- Express-based HTTP server using Streamable HTTP transport
+- Implements stateless MCP protocol (creates new instance per request)
+- Includes security middleware (CORS, Helmet, rate limiting)
+- Provides `/health` endpoint for monitoring and `/mcp` for MCP protocol
 
 **Core Services (`src/services/`)**
 - `ScryfallClient` - HTTP client with rate limiting and caching
@@ -112,3 +118,55 @@ This server strictly follows Scryfall API guidelines:
 - Cache responses appropriately to reduce load
 
 See `SCRYFALL_COMPLIANCE.md` for complete compliance details.
+
+## Deployment Architecture
+
+### Transport Protocol
+
+This server uses **Streamable HTTP transport** for MCP protocol communication:
+
+- **Protocol**: HTTP/HTTPS with JSON-RPC 2.0
+- **Mode**: Stateless (no sessions, new server instance per request)
+- **Authentication**: None (public API)
+- **Endpoints**:
+  - `POST /mcp` - MCP protocol endpoint
+  - `GET /health` - Health check endpoint
+
+### HTTP Security
+
+**CORS Configuration**:
+- Allows origins: `*` (all origins - public API)
+- Methods: `GET`, `POST`
+- Headers: `Content-Type`, `Authorization`, `MCP-Session-ID`
+
+**Rate Limiting**:
+- HTTP endpoint: 100 requests per 15 minutes per IP
+- Scryfall API: 100ms minimum between requests (shared across all clients)
+
+**Security Headers** (via Helmet.js):
+- HSTS (HTTP Strict Transport Security)
+- Content Security Policy
+- X-Frame-Options
+- X-Content-Type-Options
+
+### Production Deployment (Fly.io)
+
+**Container**: Docker-based deployment
+- Base image: Node 20 Alpine
+- Multi-stage build (builder + production)
+- Production dependencies only
+- Automatic health checks
+
+**Scaling**:
+- Auto-scaling: Scales to zero when idle
+- Single region deployment by default
+- 256MB RAM (expandable to 512MB on free tier)
+- Shared CPU (1x)
+
+**Monitoring**:
+- Health checks every 15 seconds
+- Automatic restart on failures
+- Structured JSON logging
+- Metrics via Fly.io dashboard
+
+See README.md for deployment instructions and configuration.

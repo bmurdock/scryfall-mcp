@@ -1,0 +1,43 @@
+a# fly.toml app configuration file
+# See https://fly.io/docs/reference/configuration for information about how to use this file.
+#
+# IMPORTANT: Change `app` and `primary_region` below when deploying
+# Example public instance: scryfall-mcp.fly.dev (operated by https://github.com/spawnia)
+
+app = "YOUR-APP-NAME"
+primary_region = "YOUR-PRIMARY-REGION"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  LOG_LEVEL = "info"
+  SCRYFALL_USER_AGENT = "ScryfallMCPServer/2.0.0"
+  RATE_LIMIT_MS = "100"
+  SCRYFALL_TIMEOUT_MS = "15000"
+  HEALTHCHECK_DEEP = "false"
+  RATE_LIMIT_QUEUE_MAX = "500"
+  CACHE_MAX_SIZE = "10000"
+  CACHE_MAX_MEMORY_MB = "100"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[http_service.checks]]
+  interval = "15s"
+  timeout = "5s"
+  grace_period = "5s"
+  method = "GET"
+  path = "/health"
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1

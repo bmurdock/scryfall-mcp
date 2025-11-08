@@ -39,49 +39,77 @@ A comprehensive Model Context Protocol (MCP) server that integrates with the Scr
 - **Operator Recognition**: Validates known Scryfall operators with suggestions for typos
 - **Performance Optimized**: Fast validation with minimal overhead
 
-## Installation
-
-### Prerequisites
-- Node.js 18+
-- npm or yarn
-
-### Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/bmurdock/scryfall-mcp.git
-   cd scryfall-mcp
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment** (optional)
-   ```bash
-   cp .env.example .env
-   # Edit .env with your preferences
-   ```
-
-4. **Build the project**
-   ```bash
-   npm run build
-   ```
-
 ## Usage
 
-### Development Mode
+**Connect to Claude Web or Claude Desktop:**
+1. Go to [claude.ai](https://claude.ai) or open Claude Desktop
+2. Go to Settings → Connectors
+3. Click **Add custom connector**
+4. Enter a name like `Scryfall`
+5. Enter the URL of the [public instance](#public-instance) or your own URL
+6. Click **Add**
+7. Start using Scryfall tools!
+
+### Public Instance
+
+A public instance is available at **https://scryfall-mcp.fly.dev/mcp** (operated by [spawnia](https://github.com/spawnia)).
+No authentication required - the server is fully public and free to use.
+
+### Deploy Your Own Instance
+
+**Prerequisites:** [Fly.io account](https://fly.io/) (free tier available)
+
+```bash
+# Install Fly CLI and login
+curl -L https://fly.io/install.sh | sh
+fly auth login
+
+# Clone and setup
+git clone https://github.com/YOUR-USERNAME/scryfall-mcp.git
+cd scryfall-mcp
+npm install
+
+# Configure Fly.io deployment
+cp fly.toml.example fly.toml
+# Edit fly.toml and change app = "YOUR-APP-NAME" to something unique
+
+# Deploy
+fly launch --now
+```
+
+Your server will be available at `https://YOUR-APP-NAME.fly.dev/mcp`
+
+**Configuration:** Customize environment variables in `fly.toml` or use `fly secrets set KEY=value`. See [Fly.io docs](https://fly.io/docs/) for scaling, monitoring, and advanced options.
+
+### Local Development
+
+#### Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/bmurdock/scryfall-mcp.git
+cd scryfall-mcp
+
+# Install dependencies
+npm install
+
+# Configure environment (optional)
+cp .env.example .env
+# Edit .env with your preferences
+```
+
+#### Development Mode
 ```bash
 npm run dev
 ```
 
-### Production Mode
-```bash
-npm start
-```
+Server will start on `http://localhost:3000`
 
-### Testing
+Test endpoints:
+- Health check: `GET http://localhost:3000/health`
+- MCP endpoint: `POST http://localhost:3000/mcp`
+
+#### Testing
 ```bash
 # Run all tests
 npm test
@@ -93,30 +121,10 @@ npm run test:watch
 npm run test:ui
 ```
 
-### MCP Inspector
+#### MCP Inspector
 ```bash
 npm run inspector
 ```
-
-## Claude Desktop Integration
-
-Add the following to your Claude Desktop configuration file:
-
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "scryfall": {
-      "command": "node",
-      "args": ["/absolute/path/to/scryfall-mcp/dist/index.js"]
-    }
-  }
-}
-```
-
-Replace `/absolute/path/to/scryfall-mcp` with the actual path to your installation.
 
 ## Tool Usage Examples
 

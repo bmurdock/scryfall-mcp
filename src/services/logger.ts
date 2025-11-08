@@ -73,9 +73,8 @@ function createLogger() {
     },
   };
 
-  // For MCP servers, always output to stderr to avoid interfering with stdio transport
-  // stdout is reserved for JSON-RPC protocol communication
-  const destination = pino.destination({ dest: 2 }); // stderr
+  // Log to stderr to keep stdout clean for application output
+  const destination = pino.destination({ dest: 2 });
 
   // Development configuration with pretty printing to stderr
   if (isDevelopment) {
