@@ -11,7 +11,7 @@ export function parseEnvInt(envVar: string | undefined, defaultValue: number, mi
   }
 
   const parsed = parseInt(envVar.trim(), 10);
-  
+
   if (isNaN(parsed)) {
     console.warn(`Invalid integer value for environment variable: "${envVar}". Using default: ${defaultValue}`);
     return defaultValue;
@@ -39,7 +39,7 @@ export function parseEnvFloat(envVar: string | undefined, defaultValue: number, 
   }
 
   const parsed = parseFloat(envVar.trim());
-  
+
   if (isNaN(parsed)) {
     console.warn(`Invalid float value for environment variable: "${envVar}". Using default: ${defaultValue}`);
     return defaultValue;
@@ -67,11 +67,11 @@ export function parseEnvBoolean(envVar: string | undefined, defaultValue: boolea
   }
 
   const trimmed = envVar.trim().toLowerCase();
-  
+
   if (trimmed === 'true' || trimmed === '1' || trimmed === 'yes' || trimmed === 'on') {
     return true;
   }
-  
+
   if (trimmed === 'false' || trimmed === '0' || trimmed === 'no' || trimmed === 'off') {
     return false;
   }
@@ -84,8 +84,8 @@ export function parseEnvBoolean(envVar: string | undefined, defaultValue: boolea
  * Safely parses a string from an environment variable with validation
  */
 export function parseEnvString(
-  envVar: string | undefined, 
-  defaultValue: string, 
+  envVar: string | undefined,
+  defaultValue: string,
   allowedValues?: string[],
   minLength?: number,
   maxLength?: number
@@ -123,27 +123,27 @@ export const EnvValidators = {
    */
   rateLimitMs: (value?: string) => parseEnvInt(value, 100, 50, 5000),
   rateLimitQueueMax: (value?: string) => parseEnvInt(value, 500, 10, 50000),
-  
+
   /**
    * Cache configuration
    */
   cacheMaxSize: (value?: string) => parseEnvInt(value, 10000, 100, 1000000),
   cacheMaxMemoryMB: (value?: string) => parseEnvInt(value, 100, 10, 10000),
-  
+
   /**
    * Timeout configuration
    */
   scryfallTimeoutMs: (value?: string) => parseEnvInt(value, 15000, 1000, 300000),
-  
+
   /**
    * Log level configuration
    */
   logLevel: (value?: string) => parseEnvString(
-    value, 
-    'info', 
+    value,
+    'info',
     ['error', 'warn', 'info', 'debug', 'trace']
   ),
-  
+
   /**
    * Node environment
    */
@@ -152,18 +152,18 @@ export const EnvValidators = {
     'development',
     ['development', 'production', 'test']
   ),
-  
+
   /**
    * Health check configuration
    */
   healthCheckDeep: (value?: string) => parseEnvBoolean(value, false),
-  
+
   /**
    * User agent validation
    */
   userAgent: (value?: string) => parseEnvString(
     value,
-    'ScryfallMCPServer/1.0.2',
+    'ScryfallMCPServer/2.0.0',
     undefined,
     5,
     200

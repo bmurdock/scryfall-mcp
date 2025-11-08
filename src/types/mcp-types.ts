@@ -162,7 +162,7 @@ export const CACHE_DURATIONS = {
 
 // HTTP Client Configuration
 export const REQUIRED_HEADERS = {
-  "User-Agent": process.env.SCRYFALL_USER_AGENT || "ScryfallMCPServer/1.0.2",
+  "User-Agent": process.env.SCRYFALL_USER_AGENT || "ScryfallMCPServer/2.0.0",
   Accept: "application/json",
   // Note: Accept-Encoding removed to avoid gzip parsing issues in Node.js
 } as const;

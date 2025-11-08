@@ -308,17 +308,8 @@ server.healthCheck()
 ## Configuration
 
 ### Environment Variables
-```bash
-SCRYFALL_USER_AGENT=ScryfallMCPServer/1.0
-RATE_LIMIT_MS=100
-LOG_LEVEL=info
-NODE_ENV=development
-# Optional timeouts and health/deep checks
-SCRYFALL_TIMEOUT_MS=15000
-HEALTHCHECK_DEEP=false
-# Bound the internal rate limiter queue
-RATE_LIMIT_QUEUE_MAX=500
-```
+
+See [.env.example](.env.example) for a list of all available environment variables.
 
 ### Cache Durations
 - **Card Search**: 30 minutes

@@ -5,7 +5,7 @@ This document outlines how the Scryfall MCP Server complies with Scryfall's API 
 ## ✅ API Requirements Compliance
 
 ### Required Headers
-- **✅ User-Agent**: `ScryfallMCPServer/1.0.2 (https://github.com/bmurdock/scryfall-mcp)`
+- **✅ User-Agent**: `ScryfallMCPServer/2.0.0 (https://github.com/bmurdock/scryfall-mcp)`
 - **✅ Accept**: `application/json`
 - **✅ HTTPS Only**: All requests use HTTPS with TLS 1.2+
 - **✅ UTF-8 Encoding**: All responses handled as UTF-8
