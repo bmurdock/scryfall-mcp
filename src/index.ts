@@ -97,7 +97,7 @@ async function main() {
   app.use((req, res) => {
     res.status(404).json({
       error: 'Not found',
-      message: 'This is an MCP server. Use POST /mcp for MCP requests.',
+      message: 'This is a deployment of the scryfall-mcp server, see https://github.com/bmurdock/scryfall-mcp. Use POST /mcp for MCP requests.',
     });
   });
 
