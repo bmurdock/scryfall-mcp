@@ -1,0 +1,51 @@
+services:
+  scryfall-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scryfall-mcp:latest
+    container_name: scryfall-mcp-server
+
+    # Environment variables (override .env.example defaults)
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - SCRYFALL_USER_AGENT=ScryfallMCPServer/1.0.2-docker
+      - RATE_LIMIT_MS=100
+      - SCRYFALL_TIMEOUT_MS=15000
+      - HEALTHCHECK_DEEP=false
+      - RATE_LIMIT_QUEUE_MAX=500
+      - CACHE_MAX_SIZE=10000
+      - CACHE_MAX_MEMORY_MB=100
+
+    # Alternatively, use env_file for easier management
+    # Uncomment the following line and create a .env.docker file
+    # env_file:
+    #   - .env.docker
+
+    # stdio transport mode - no ports exposed
+    # The container will communicate via stdin/stdout
+
+    # Resource limits (optional but recommended)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Health check disabled for distroless image (no shell/utilities)
+    # Distroless is so minimal it doesn't include health check tools
+    # The restart policy will handle container failures automatically
+    # healthcheck:
+    #   disable: true
+
+# Optional: Define network for isolation
+networks:
+  default:
+    name: scryfall-mcp-network
