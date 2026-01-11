@@ -1,0 +1,74 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# Test artifacts
+coverage/
+.nyc_output/
+
+# Environment files (should be provided at runtime)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation (not needed in image, except README)
+*.md
+!README.md
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+.cache/
+
+# Project-specific exclusions
+.serena/
+.editorconfig
+scryfall-mcp.code-workspace
+test-artifact-fix.js
+3-feature-proposals.md
+AGENTS.md
+EDITORCONFIG_GUIDE.md
+ENHANCEMENT_PROPOSALS.md
+FEATURE_2_IMPLEMENTATION_PLAN.md
+SECURITY_FIXES.md
+CLAUDE.md
+
+# Plan files
+.claude/

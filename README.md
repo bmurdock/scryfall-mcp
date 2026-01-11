@@ -118,6 +118,83 @@ Add the following to your Claude Desktop configuration file:
 
 Replace `/absolute/path/to/scryfall-mcp` with the actual path to your installation.
 
+## Docker Deployment
+
+Deploy the Scryfall MCP Server using Docker for isolated, reproducible environments. The Docker image is optimized with a **2-stage build** using **Google's distroless** base for maximum security and minimal size (**132MB**).
+
+### Quick Start
+
+**Build the image:**
+```bash
+docker build -t scryfall-mcp:latest .
+```
+
+**Run with Docker:**
+```bash
+docker run -d --name scryfall-mcp --restart unless-stopped scryfall-mcp:latest
+```
+
+**Run with Docker Compose (recommended):**
+```bash
+docker-compose up -d
+```
+
+### Integration with Claude Desktop
+
+Add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "scryfall": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--name", "scryfall-mcp-claude-desktop",
+        "-e", "LOG_LEVEL=info",
+        "scryfall-mcp:latest"
+      ]
+    }
+  }
+}
+```
+
+**Config locations:**
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
+
+### Integration with Claude Code
+
+Add to `.claude.json` in your project:
+
+```json
+{
+  "mcpServers": {
+    "scryfall": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--name", "scryfall-mcp-claude-code",
+        "-e", "LOG_LEVEL=info",
+        "scryfall-mcp:latest"
+      ]
+    }
+  }
+}
+```
+
+### Detailed Documentation
+
+For comprehensive Docker documentation including:
+- Architecture details and build stages
+- Environment configuration
+- Troubleshooting guide
+- Best practices
+- Advanced topics (Kubernetes, CI/CD, etc.)
+
+See **[Docker Deployment Guide](docs/docker-deployment.md)**
+
 ## Tool Usage Examples
 
 ### Natural Language Query Building
