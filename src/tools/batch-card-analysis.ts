@@ -1,5 +1,15 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError, ScryfallAPIError, BatchCardAnalysisParams } from '../types/mcp-types.js';
+import { MagicFormat, Prices, ScryfallCard } from '../types/scryfall-api.js';
+
+const getPriceForCurrency = (prices: Prices, currency: string): string | undefined =>
+  prices[currency as keyof Prices];
+
+interface ValidatedBatchCardAnalysisParams extends BatchCardAnalysisParams {
+  analysis_type: BatchCardAnalysisParams['analysis_type'];
+  currency: NonNullable<BatchCardAnalysisParams['currency']>;
+  include_suggestions: boolean;
+}
 
 /**
  * MCP Tool for analyzing multiple cards simultaneously for various metrics
@@ -53,14 +63,7 @@ export class BatchCardAnalysisTool {
   /**
    * Validate parameters
    */
-  private validateParams(args: unknown): {
-    card_list: string[];
-    analysis_type: string;
-    format?: string;
-    currency: string;
-    include_suggestions: boolean;
-    group_by?: string;
-  } {
+  private validateParams(args: unknown): ValidatedBatchCardAnalysisParams {
     if (!args || typeof args !== 'object') {
       throw new ValidationError('Invalid parameters');
     }
@@ -116,7 +119,7 @@ export class BatchCardAnalysisTool {
     return {
       card_list: params.card_list.map((card: string) => card.trim()),
       analysis_type: params.analysis_type,
-      format: params.format,
+      format: params.format as MagicFormat | undefined,
       currency,
       include_suggestions: includeSuggestions,
       group_by: params.group_by
@@ -197,8 +200,8 @@ export class BatchCardAnalysisTool {
   /**
    * Fetch all cards from the card list
    */
-  private async fetchCards(cardList: string[]): Promise<any[]> {
-    const cards: any[] = [];
+  private async fetchCards(cardList: string[]): Promise<ScryfallCard[]> {
+    const cards: ScryfallCard[] = [];
     const notFound: string[] = [];
 
     // Use batch processing for efficiency
@@ -225,7 +228,7 @@ export class BatchCardAnalysisTool {
   /**
    * Analyze format legality
    */
-  private analyzeLegality(cards: any[], format?: string): string {
+  private analyzeLegality(cards: ScryfallCard[], format?: MagicFormat): string {
     let result = `# Legality Analysis\n\n`;
     result += `**Total Cards:** ${cards.length}\n\n`;
 
@@ -257,7 +260,7 @@ export class BatchCardAnalysisTool {
       const formats = ['standard', 'modern', 'legacy', 'vintage', 'commander', 'pioneer'];
       result += `**Format Legality Summary:**\n`;
       
-      for (const fmt of formats) {
+      for (const fmt of formats as MagicFormat[]) {
         const legal = cards.filter(card => card.legalities[fmt] === 'legal').length;
         result += `- ${fmt.charAt(0).toUpperCase() + fmt.slice(1)}: ${legal}/${cards.length} legal\n`;
       }
@@ -269,11 +272,11 @@ export class BatchCardAnalysisTool {
   /**
    * Analyze prices
    */
-  private analyzePrices(cards: any[], currency: string): string {
+  private analyzePrices(cards: ScryfallCard[], currency: string): string {
     let result = `# Price Analysis (${currency.toUpperCase()})\n\n`;
     
-    const cardsWithPrices = cards.filter(card => (card.prices as any)[currency]);
-    const prices = cardsWithPrices.map(card => parseFloat((card.prices as any)[currency]));
+    const cardsWithPrices = cards.filter(card => getPriceForCurrency(card.prices, currency));
+    const prices = cardsWithPrices.map(card => parseFloat(getPriceForCurrency(card.prices, currency) || '0'));
     
     if (prices.length === 0) {
       return result + 'No price data available for the specified currency.\n';
@@ -291,12 +294,12 @@ export class BatchCardAnalysisTool {
     result += `- Cards with Prices: ${cardsWithPrices.length}/${cards.length}\n\n`;
 
     // Price breakdown
-    const expensive = cardsWithPrices.filter(card => parseFloat((card.prices as any)[currency]) >= 10);
+    const expensive = cardsWithPrices.filter(card => parseFloat(getPriceForCurrency(card.prices, currency) || '0') >= 10);
     const moderate = cardsWithPrices.filter(card => {
-      const price = parseFloat((card.prices as any)[currency]);
+      const price = parseFloat(getPriceForCurrency(card.prices, currency) || '0');
       return price >= 1 && price < 10;
     });
-    const budget = cardsWithPrices.filter(card => parseFloat((card.prices as any)[currency]) < 1);
+    const budget = cardsWithPrices.filter(card => parseFloat(getPriceForCurrency(card.prices, currency) || '0') < 1);
 
     result += `**Price Categories:**\n`;
     result += `- Expensive (≥$10): ${expensive.length} cards\n`;
@@ -306,10 +309,10 @@ export class BatchCardAnalysisTool {
     if (expensive.length > 0) {
       result += `**Most Expensive Cards:**\n`;
       expensive
-        .sort((a, b) => parseFloat((b.prices as any)[currency]) - parseFloat((a.prices as any)[currency]))
+        .sort((a, b) => parseFloat(getPriceForCurrency(b.prices, currency) || '0') - parseFloat(getPriceForCurrency(a.prices, currency) || '0'))
         .slice(0, 5)
         .forEach(card => {
-          result += `- ${card.name}: ${currency.toUpperCase()} ${(card.prices as any)[currency]}\n`;
+          result += `- ${card.name}: ${currency.toUpperCase()} ${getPriceForCurrency(card.prices, currency) || 'N/A'}\n`;
         });
     }
 
@@ -319,7 +322,7 @@ export class BatchCardAnalysisTool {
   /**
    * Analyze synergy patterns
    */
-  private analyzeSynergy(cards: any[]): string {
+  private analyzeSynergy(cards: ScryfallCard[]): string {
     let result = `# Synergy Analysis\n\n`;
     
     // Analyze types
@@ -395,7 +398,7 @@ export class BatchCardAnalysisTool {
   /**
    * Analyze deck composition
    */
-  private analyzeComposition(cards: any[]): string {
+  private analyzeComposition(cards: ScryfallCard[]): string {
     let result = `# Composition Analysis\n\n`;
     result += `**Total Cards:** ${cards.length}\n\n`;
 
@@ -456,7 +459,7 @@ export class BatchCardAnalysisTool {
   /**
    * Comprehensive analysis combining all types
    */
-  private analyzeComprehensive(cards: any[], params: any): string {
+  private analyzeComprehensive(cards: ScryfallCard[], params: ValidatedBatchCardAnalysisParams): string {
     let result = `# Comprehensive Analysis\n\n`;
     
     result += this.analyzeLegality(cards, params.format);
@@ -473,21 +476,22 @@ export class BatchCardAnalysisTool {
   /**
    * Generate improvement suggestions
    */
-  private generateSuggestions(cards: any[], params: any): string {
+  private generateSuggestions(cards: ScryfallCard[], params: ValidatedBatchCardAnalysisParams): string {
     let suggestions = `\n\n# Suggestions\n\n`;
 
     // Format-specific suggestions
     if (params.format) {
-      const illegal = cards.filter(card => card.legalities[params.format] !== 'legal');
+      const format = params.format;
+      const illegal = cards.filter(card => card.legalities[format] !== 'legal');
       if (illegal.length > 0) {
         suggestions += `**Format Compliance:**\n`;
-        suggestions += `- Consider replacing ${illegal.length} cards that are not legal in ${params.format}\n`;
+        suggestions += `- Consider replacing ${illegal.length} cards that are not legal in ${format}\n`;
       }
     }
 
     // Price suggestions
     const expensiveCards = cards.filter(card => {
-      const price = parseFloat((card.prices as any)[params.currency] || '0');
+      const price = parseFloat(getPriceForCurrency(card.prices, params.currency || 'usd') || '0');
       return price >= 20;
     });
     

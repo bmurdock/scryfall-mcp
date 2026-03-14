@@ -6,6 +6,10 @@ import {
   ValidationError,
   RateLimitError 
 } from '../types/mcp-types.js';
+import { MagicFormat, Prices, ScryfallCard } from '../types/scryfall-api.js';
+
+const getPriceForCurrency = (prices: Prices, currency: string): string | undefined =>
+  prices[currency as keyof Prices];
 
 /**
  * MCP Tool for retrieving card price information
@@ -51,9 +55,9 @@ export class GetCardPricesTool {
   /**
    * Get budget alternatives and upgrades for a card
    */
-  private async getAlternatives(card: any, currency: string, format?: string): Promise<string> {
+  private async getAlternatives(card: ScryfallCard, currency: string, format?: MagicFormat): Promise<string> {
     try {
-      const currentPrice = parseFloat((card.prices as any)[currency] || '0');
+      const currentPrice = parseFloat(getPriceForCurrency(card.prices, currency) || '0');
       if (currentPrice === 0) {
         return '\n\n**Alternatives:** Price data not available for comparison.';
       }
@@ -74,7 +78,7 @@ export class GetCardPricesTool {
         if (cheaperResults.data.length > 0) {
           alternatives += '\n\n*Budget Options:*';
           for (const alt of cheaperResults.data.slice(0, 3)) {
-            const price = (alt.prices as any)[currency] || 'N/A';
+            const price = getPriceForCurrency(alt.prices, currency) || 'N/A';
             alternatives += `\n- ${alt.name}: ${currency.toUpperCase()} ${price}`;
           }
         }
@@ -92,7 +96,7 @@ export class GetCardPricesTool {
         if (expensiveResults.data.length > 0) {
           alternatives += '\n\n*Upgrade Options:*';
           for (const alt of expensiveResults.data.slice(0, 3)) {
-            const price = (alt.prices as any)[currency] || 'N/A';
+            const price = getPriceForCurrency(alt.prices, currency) || 'N/A';
             alternatives += `\n- ${alt.name}: ${currency.toUpperCase()} ${price}`;
           }
         }
@@ -191,7 +195,10 @@ export class GetCardPricesTool {
         let errorMessage = `Scryfall API error: ${error.message}`;
         
         if (error.status === 404) {
-          errorMessage = `Card not found: "${(args as any)?.card_identifier ?? 'unknown'}". Check the card name, set code, or ID.`;
+          const identifier = args && typeof args === 'object' && 'card_identifier' in args
+            ? args.card_identifier
+            : 'unknown';
+          errorMessage = `Card not found: "${typeof identifier === 'string' ? identifier : 'unknown'}". Check the card name, set code, or ID.`;
         } else if (error.status === 422) {
           errorMessage = `Invalid card identifier format. Use card name, "SET/NUMBER", or Scryfall UUID.`;
         } else if (error.status === 429) {

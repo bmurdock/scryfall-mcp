@@ -45,6 +45,17 @@ export class QueryRulesTool {
     this.loadRulesFile();
   }
 
+  private isValidParams(
+    value: unknown
+  ): value is {
+    query: string;
+    section?: string;
+    context_lines?: number;
+    exact_match?: boolean;
+  } {
+    return !!value && typeof value === 'object';
+  }
+
   /**
    * Load the MTG rules file into memory
    */
@@ -74,7 +85,11 @@ export class QueryRulesTool {
       throw new ValidationError('Invalid parameters');
     }
 
-    const params = args as any;
+    if (!this.isValidParams(args)) {
+      throw new ValidationError('Invalid parameters');
+    }
+
+    const params = args;
 
     if (!params.query || typeof params.query !== 'string' || params.query.trim().length === 0) {
       throw new ValidationError('Query is required and must be a non-empty string');

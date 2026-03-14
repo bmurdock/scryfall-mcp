@@ -10,6 +10,12 @@ import {
   ParsedQuery, 
   QueryContext, 
   Ambiguity,
+  ColorConcept,
+  KeywordConcept,
+  AbilityConcept,
+  MechanicConcept,
+  ManaCostConcept,
+  StatConcept,
   LegalityConcept,
   RoleConcept,
   StrategyConcept,
@@ -25,6 +31,8 @@ import { ArchetypePatternEngine } from './extractors/archetype-extractor.js';
 import { PricePatternEngine } from './extractors/price-extractor.js';
 import { TypePatternEngine } from './extractors/type-extractor.js';
 import { FormatPatternEngine } from './extractors/format-extractor.js';
+
+type ExtractedConcepts = Omit<ParsedQuery, 'confidence' | 'ambiguities' | 'context'>;
 
 /**
  * Main natural language parser that coordinates all extraction engines
@@ -57,15 +65,15 @@ export class NaturalLanguageParser {
     const mechanics = this.extractMechanics(cleanedText);
     const manaCost = this.extractManaCost(cleanedText);
     const powerToughness = this.extractPowerToughness(cleanedText);
-    const legality = this.extractLegality(cleanedText);
-    const deckRoles = this.extractDeckRoles(cleanedText);
-    const strategies = this.extractStrategies(cleanedText);
-    const sets = this.extractSets(cleanedText);
-    const rarity = this.extractRarity(cleanedText);
-    const timeConstraints = this.extractTimeConstraints(cleanedText);
-    const namePatterns = this.extractNamePatterns(cleanedText);
-    const flavorText = this.extractFlavorText(cleanedText);
-    const artist = this.extractArtist(cleanedText);
+    const legality = this.extractLegality();
+    const deckRoles = this.extractDeckRoles();
+    const strategies = this.extractStrategies();
+    const sets = this.extractSets();
+    const rarity = this.extractRarity();
+    const timeConstraints = this.extractTimeConstraints();
+    const namePatterns = this.extractNamePatterns();
+    const flavorText = this.extractFlavorText();
+    const artist = this.extractArtist();
     
     // Resolve conflicts and calculate confidence
     const resolved = this.resolveConflicts({
@@ -94,7 +102,7 @@ export class NaturalLanguageParser {
     return {
       ...resolved,
       confidence: this.calculateOverallConfidence(resolved),
-      ambiguities: this.detectAmbiguities(resolved, cleanedText),
+      ambiguities: this.detectAmbiguities(resolved),
       context: context || {}
     };
   }
@@ -113,7 +121,7 @@ export class NaturalLanguageParser {
   /**
    * Extract keyword abilities (placeholder implementation)
    */
-  private extractKeywords(text: string) {
+  private extractKeywords(text: string): KeywordConcept[] {
     const keywords = ['flying', 'trample', 'haste', 'vigilance', 'lifelink', 'deathtouch', 'first strike', 'double strike'];
     return keywords
       .filter(keyword => text.includes(keyword))
@@ -123,7 +131,7 @@ export class NaturalLanguageParser {
   /**
    * Extract complex abilities (placeholder implementation)
    */
-  private extractAbilities(text: string) {
+  private extractAbilities(text: string): AbilityConcept[] {
     const abilities = ['enters the battlefield', 'when dies', 'tap to add', 'sacrifice to'];
     return abilities
       .filter(ability => text.includes(ability))
@@ -133,7 +141,7 @@ export class NaturalLanguageParser {
   /**
    * Extract game mechanics (placeholder implementation)
    */
-  private extractMechanics(text: string) {
+  private extractMechanics(text: string): MechanicConcept[] {
     const mechanics = ['storm', 'cascade', 'flashback', 'madness', 'cycling'];
     return mechanics
       .filter(mechanic => text.includes(mechanic))
@@ -143,14 +151,14 @@ export class NaturalLanguageParser {
   /**
    * Extract mana cost constraints (placeholder implementation)
    */
-  private extractManaCost(text: string) {
+  private extractManaCost(text: string): ManaCostConcept[] {
     const patterns = [
       /cmc\s*(\d+)/i,
       /mana cost\s*(\d+)/i,
       /costs?\s*(\d+)/i
     ];
     
-    const constraints = [];
+    const constraints: ManaCostConcept[] = [];
     for (const pattern of patterns) {
       const match = text.match(pattern);
       if (match) {
@@ -167,14 +175,14 @@ export class NaturalLanguageParser {
   /**
    * Extract power/toughness constraints (placeholder implementation)
    */
-  private extractPowerToughness(text: string) {
+  private extractPowerToughness(text: string): StatConcept[] {
     const patterns = [
       /power\s*(\d+)/i,
       /toughness\s*(\d+)/i,
       /(\d+)\/(\d+)/
     ];
     
-    const constraints = [];
+    const constraints: StatConcept[] = [];
     for (const pattern of patterns) {
       const match = text.match(pattern);
       if (match) {
@@ -200,20 +208,20 @@ export class NaturalLanguageParser {
   /**
    * Placeholder implementations for remaining extractors
    */
-  private extractLegality(_text: string): LegalityConcept[] { return []; }
-  private extractDeckRoles(_text: string): RoleConcept[] { return []; }
-  private extractStrategies(_text: string): StrategyConcept[] { return []; }
-  private extractSets(_text: string): SetConcept[] { return []; }
-  private extractRarity(_text: string): RarityConcept[] { return []; }
-  private extractTimeConstraints(_text: string): TimeConcept[] { return []; }
-  private extractNamePatterns(_text: string): NameConcept[] { return []; }
-  private extractFlavorText(_text: string): FlavorConcept[] { return []; }
-  private extractArtist(_text: string): ArtistConcept[] { return []; }
+  private extractLegality(): LegalityConcept[] { return []; }
+  private extractDeckRoles(): RoleConcept[] { return []; }
+  private extractStrategies(): StrategyConcept[] { return []; }
+  private extractSets(): SetConcept[] { return []; }
+  private extractRarity(): RarityConcept[] { return []; }
+  private extractTimeConstraints(): TimeConcept[] { return []; }
+  private extractNamePatterns(): NameConcept[] { return []; }
+  private extractFlavorText(): FlavorConcept[] { return []; }
+  private extractArtist(): ArtistConcept[] { return []; }
   
   /**
    * Resolve conflicts between extracted concepts
    */
-  private resolveConflicts(concepts: any): ParsedQuery {
+  private resolveConflicts(concepts: ExtractedConcepts): ParsedQuery {
     // For now, return concepts as-is
     // TODO: Implement conflict resolution logic
     return {
@@ -246,7 +254,7 @@ export class NaturalLanguageParser {
   /**
    * Resolve color conflicts (e.g., "red and blue" vs "only red")
    */
-  private resolveColorConflicts(colors: any[]) {
+  private resolveColorConflicts(colors: ColorConcept[]): ColorConcept[] {
     if (colors.length <= 1) return colors;
     
     // If we have both exact and inclusive, prefer exact
@@ -284,7 +292,7 @@ export class NaturalLanguageParser {
   /**
    * Detect ambiguities in the parsed query
    */
-  private detectAmbiguities(parsed: ParsedQuery, _originalText: string): Ambiguity[] {
+  private detectAmbiguities(parsed: ParsedQuery): Ambiguity[] {
     const ambiguities: Ambiguity[] = [];
     
     // Check for color ambiguities

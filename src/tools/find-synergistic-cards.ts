@@ -1,6 +1,32 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
+import { ScryfallCard, ScryfallSearchResponse } from '../types/scryfall-api.js';
 // Removed unused import
+
+interface FindSynergisticCardsInput {
+  focus_card: string;
+  synergy_type?: string;
+  format?: string;
+  exclude_colors?: string;
+  max_cmc?: number;
+  include_lands?: boolean;
+  limit?: number;
+  arena_only?: boolean;
+}
+
+interface SynergyParams {
+  focus_card: string;
+  synergy_type?: string;
+  format?: string;
+  exclude_colors?: string;
+  max_cmc?: number;
+  include_lands: boolean;
+  limit: number;
+  arena_only: boolean;
+}
+
+type SynergyLayer = 'semantic' | 'exact' | 'thematic';
+type SynergyCard = ScryfallCard & { _synergy_layer?: SynergyLayer; _synergy_query?: string };
 
 /**
  * MCP Tool for finding cards that synergize with a specific card, theme, or archetype
@@ -75,7 +101,7 @@ export class FindSynergisticCardsTool {
       throw new ValidationError('Invalid parameters');
     }
 
-    const params = args as any;
+    const params = args as FindSynergisticCardsInput;
 
     if (!params.focus_card || typeof params.focus_card !== 'string') {
       throw new ValidationError('Focus card is required and must be a string');
@@ -152,8 +178,8 @@ export class FindSynergisticCardsTool {
       const queries = this.buildSynergyQueries(focusCard, params);
 
       // Execute searches with multi-layered strategy
-      const allResults: any[] = [];
-      const resultsByLayer: { [key: string]: any[] } = {
+      const allResults: SynergyCard[] = [];
+      const resultsByLayer: Record<SynergyLayer, SynergyCard[]> = {
         semantic: [],
         exact: [],
         thematic: []
@@ -169,9 +195,10 @@ export class FindSynergisticCardsTool {
           });
           
           // Categorize results by search layer
-          const layerResults = results.data.map(card => ({
+          const layer: SynergyLayer = i < 10 ? 'semantic' : (i < 20 ? 'exact' : 'thematic');
+          const layerResults: SynergyCard[] = results.data.map(card => ({
             ...card,
-            _synergy_layer: i < 10 ? 'semantic' : (i < 20 ? 'exact' : 'thematic'), // Rough categorization
+            _synergy_layer: layer,
             _synergy_query: query
           }));
           
@@ -301,14 +328,18 @@ export class FindSynergisticCardsTool {
   /**
    * Format results with synergy explanations
    */
-  private formatResultsWithSynergyExplanations(searchResponse: any, focusCard: any, focusCardName: string): string {
+  private formatResultsWithSynergyExplanations(
+    searchResponse: ScryfallSearchResponse,
+    focusCard: ScryfallCard | null,
+    focusCardName: string
+  ): string {
     let output = '';
     
     // Group results by synergy layer
     const resultsByLayer = {
-      semantic: searchResponse.data.filter((card: any) => card._synergy_layer === 'semantic'),
-      exact: searchResponse.data.filter((card: any) => card._synergy_layer === 'exact'), 
-      thematic: searchResponse.data.filter((card: any) => card._synergy_layer === 'thematic')
+      semantic: searchResponse.data.filter((card): card is SynergyCard => (card as SynergyCard)._synergy_layer === 'semantic'),
+      exact: searchResponse.data.filter((card): card is SynergyCard => (card as SynergyCard)._synergy_layer === 'exact'), 
+      thematic: searchResponse.data.filter((card): card is SynergyCard => (card as SynergyCard)._synergy_layer === 'thematic')
     };
     
     // Display semantic synergies first (highest priority)
@@ -343,7 +374,7 @@ export class FindSynergisticCardsTool {
   /**
    * Format individual card with synergy explanation
    */
-  private formatCardWithSynergyExplanation(card: any, focusCard: any, focusCardName: string): string {
+  private formatCardWithSynergyExplanation(card: SynergyCard, focusCard: ScryfallCard | null, focusCardName: string): string {
     const name = card.name;
     const manaCost = card.mana_cost || '';
     const typeLine = card.type_line || '';
@@ -378,7 +409,7 @@ export class FindSynergisticCardsTool {
   /**
    * Generate synergy explanation for a card
    */
-  private generateSynergyExplanation(card: any, focusCard: any, focusCardName: string): string {
+  private generateSynergyExplanation(card: SynergyCard, focusCard: ScryfallCard | null, focusCardName: string): string {
     const cardOracle = card.oracle_text?.toLowerCase() || '';
     const focusOracle = focusCard?.oracle_text?.toLowerCase() || '';
     const focusName = focusCardName.toLowerCase();
@@ -456,15 +487,7 @@ export class FindSynergisticCardsTool {
   /**
    * Build synergy search queries based on focus card and parameters
    */
-  private buildSynergyQueries(focusCard: any, params: {
-    focus_card: string;
-    synergy_type?: string;
-    format?: string;
-    exclude_colors?: string;
-    max_cmc?: number;
-    include_lands: boolean;
-    arena_only: boolean;
-  }): string[] {
+  private buildSynergyQueries(focusCard: ScryfallCard | null, params: Omit<SynergyParams, 'limit'>): string[] {
     const queries: string[] = [];
     let baseQuery = '';
 
@@ -511,7 +534,12 @@ export class FindSynergisticCardsTool {
   /**
    * Get synergies based on an actual card
    */
-  private getCardBasedSynergies(focusCard: any, baseQuery: string, synergyType?: string, originalSearchTerm?: string): string[] {
+  private getCardBasedSynergies(
+    focusCard: ScryfallCard,
+    baseQuery: string,
+    synergyType?: string,
+    originalSearchTerm?: string
+  ): string[] {
     const queries: string[] = [];
 
     // Theme override: If user explicitly wants theme analysis but we found a card,
@@ -576,7 +604,7 @@ export class FindSynergisticCardsTool {
   /**
    * Get semantic synergies based on strategic patterns and interactions
    */
-  private getSemanticSynergies(focusCard: any, baseQuery: string): string[] {
+  private getSemanticSynergies(focusCard: ScryfallCard, baseQuery: string): string[] {
     const queries: string[] = [];
     const oracleText = focusCard.oracle_text?.toLowerCase() || '';
     const name = focusCard.name.toLowerCase();
@@ -872,7 +900,7 @@ export class FindSynergisticCardsTool {
   /**
    * Get archetype-based synergies
    */
-  private getArchetypeSynergies(focusCard: any, baseQuery: string): string[] {
+  private getArchetypeSynergies(focusCard: ScryfallCard, baseQuery: string): string[] {
     const queries: string[] = [];
     const oracleText = focusCard.oracle_text?.toLowerCase() || '';
     const types = focusCard.type_line?.toLowerCase() || '';
@@ -894,8 +922,8 @@ export class FindSynergisticCardsTool {
 
     // Creature synergies
     if (types.includes('creature')) {
-      const power = parseInt(focusCard.power) || 0;
-      const toughness = parseInt(focusCard.toughness) || 0;
+      const power = parseInt(focusCard.power || '0', 10) || 0;
+      const toughness = parseInt(focusCard.toughness || '0', 10) || 0;
       
       // Aggressive creatures
       if (power >= 3 && focusCard.cmc <= 3) {
@@ -989,7 +1017,7 @@ export class FindSynergisticCardsTool {
   /**
    * Prioritize results by synergy layer
    */
-  private prioritizeResultsByLayer(results: any[]): any[] {
+  private prioritizeResultsByLayer(results: SynergyCard[]): SynergyCard[] {
     const layerPriority = { semantic: 3, exact: 2, thematic: 1 };
     
     return results.sort((a, b) => {
@@ -1008,9 +1036,13 @@ export class FindSynergisticCardsTool {
   /**
    * Filter and deduplicate results
    */
-  private filterAndDeduplicateResults(results: any[], focusCard: any, params: any): any[] {
+  private filterAndDeduplicateResults(
+    results: SynergyCard[],
+    focusCard: ScryfallCard | null,
+    params: Pick<SynergyParams, 'focus_card'>
+  ): SynergyCard[] {
     const seen = new Set<string>();
-    const filtered: any[] = [];
+    const filtered: SynergyCard[] = [];
 
     for (const card of results) {
       // Skip duplicates

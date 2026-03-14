@@ -1,5 +1,37 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError } from '../types/mcp-types.js';
+import { Color, Rarity, ScryfallCard } from '../types/scryfall-api.js';
+
+interface AnalyzeDeckCompositionInput {
+  deck_list: string;
+  format?: string;
+  strategy?: string;
+  commander?: string;
+}
+
+interface DeckAnalysisParams {
+  deck_list: string;
+  format?: string;
+  strategy: string;
+  commander?: string;
+}
+
+interface PriceEntry {
+  name: string;
+  price: number;
+}
+
+interface DeckCompositionAnalysis {
+  totalCards: number;
+  manaCurve: Record<number, number>;
+  typeBreakdown: Record<string, number>;
+  colorBreakdown: Partial<Record<Color, number>>;
+  rarityBreakdown: Partial<Record<Rarity, number>>;
+  averageCMC: number;
+  expensiveCards: PriceEntry[];
+  keyCards: string[];
+  problems: string[];
+}
 
 /**
  * MCP Tool for analyzing deck composition, mana curve, and balance
@@ -39,17 +71,12 @@ export class AnalyzeDeckCompositionTool {
   /**
    * Validate parameters
    */
-  private validateParams(args: unknown): {
-    deck_list: string;
-    format?: string;
-    strategy: string;
-    commander?: string;
-  } {
+  private validateParams(args: unknown): DeckAnalysisParams {
     if (!args || typeof args !== 'object') {
       throw new ValidationError('Invalid parameters');
     }
 
-    const params = args as any;
+    const params = args as AnalyzeDeckCompositionInput;
 
     if (!params.deck_list || typeof params.deck_list !== 'string') {
       throw new ValidationError('Deck list is required and must be a string');
@@ -169,8 +196,8 @@ export class AnalyzeDeckCompositionTool {
   /**
    * Fetch card data for all cards in the deck
    */
-  private async fetchCardData(cardNames: string[]): Promise<any[]> {
-    const cardData: any[] = [];
+  private async fetchCardData(cardNames: string[]): Promise<ScryfallCard[]> {
+    const cardData: ScryfallCard[] = [];
     
     for (const cardName of cardNames) {
       try {
@@ -188,8 +215,8 @@ export class AnalyzeDeckCompositionTool {
   /**
    * Analyze deck composition
    */
-  private analyzeComposition(cardData: any[]) {
-    const analysis: any = {
+  private analyzeComposition(cardData: ScryfallCard[]): DeckCompositionAnalysis {
+    const analysis: DeckCompositionAnalysis = {
       totalCards: cardData.length,
       manaCurve: {},
       typeBreakdown: {},
@@ -254,7 +281,7 @@ export class AnalyzeDeckCompositionTool {
     analysis.averageCMC = totalCMC / cardData.length;
     
     // Sort expensive cards by price
-    analysis.expensiveCards.sort((a: any, b: any) => b.price - a.price);
+    analysis.expensiveCards.sort((a, b) => b.price - a.price);
     
     return analysis;
   }
@@ -262,7 +289,7 @@ export class AnalyzeDeckCompositionTool {
   /**
    * Generate recommendations based on analysis
    */
-  private generateRecommendations(analysis: any, params: any): string[] {
+  private generateRecommendations(analysis: DeckCompositionAnalysis, params: DeckAnalysisParams): string[] {
     const recommendations: string[] = [];
     const { strategy, format } = params;
     
@@ -301,7 +328,7 @@ export class AnalyzeDeckCompositionTool {
     
     // Expensive cards warning
     if (analysis.expensiveCards.length > 5) {
-      const totalCost = analysis.expensiveCards.reduce((sum: number, card: any) => sum + card.price, 0);
+      const totalCost = analysis.expensiveCards.reduce((sum, card) => sum + card.price, 0);
       recommendations.push(`💰 Deck contains ${analysis.expensiveCards.length} expensive cards (total: $${totalCost.toFixed(2)})`);
     }
     
@@ -311,7 +338,11 @@ export class AnalyzeDeckCompositionTool {
   /**
    * Format analysis response
    */
-  private formatAnalysisResponse(analysis: any, recommendations: string[], params: any): string {
+  private formatAnalysisResponse(
+    analysis: DeckCompositionAnalysis,
+    recommendations: string[],
+    params: DeckAnalysisParams
+  ): string {
     let response = `**Deck Composition Analysis**\n\n`;
     
     // Basic stats

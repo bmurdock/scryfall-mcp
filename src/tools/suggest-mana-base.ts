@@ -1,6 +1,42 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError } from '../types/mcp-types.js';
 
+interface SuggestManaBaseInput {
+  color_requirements: string;
+  deck_size?: number;
+  format?: string;
+  strategy?: string;
+  average_cmc?: number;
+  budget?: string;
+  color_intensity?: Record<string, number>;
+  special_requirements?: string[];
+}
+
+interface ManaBaseParams {
+  color_requirements: string;
+  deck_size: number;
+  format?: string;
+  strategy: string;
+  average_cmc?: number;
+  budget: string;
+  color_intensity?: Record<string, number>;
+  special_requirements: string[];
+}
+
+interface LandRecommendation {
+  name: string;
+  count: number;
+  reason: string;
+  example?: string;
+}
+
+interface ManaBaseRecommendations {
+  basics: LandRecommendation[];
+  duals: LandRecommendation[];
+  utility: LandRecommendation[];
+  budget_alternatives: LandRecommendation[];
+}
+
 /**
  * MCP Tool for suggesting mana base composition and land recommendations
  */
@@ -70,21 +106,12 @@ export class SuggestManaBaseTool {
 
   constructor(private readonly scryfallClient: ScryfallClient) {}
 
-  private validateParams(args: unknown): {
-    color_requirements: string;
-    deck_size: number;
-    format?: string;
-    strategy: string;
-    average_cmc?: number;
-    budget: string;
-    color_intensity?: Record<string, number>;
-    special_requirements: string[];
-  } {
+  private validateParams(args: unknown): ManaBaseParams {
     if (!args || typeof args !== 'object') {
       throw new ValidationError('Invalid parameters');
     }
 
-    const params = args as any;
+    const params = args as SuggestManaBaseInput;
 
     if (!params.color_requirements || typeof params.color_requirements !== 'string') {
       throw new ValidationError('Color requirements are required');
@@ -175,7 +202,7 @@ export class SuggestManaBaseTool {
   /**
    * Calculate optimal land count based on strategy and average CMC
    */
-  private calculateLandCount(params: any): number {
+  private calculateLandCount(params: ManaBaseParams): number {
     const { deck_size, strategy, average_cmc } = params;
     
     // Base land count ratios by strategy
@@ -211,7 +238,7 @@ export class SuggestManaBaseTool {
   /**
    * Calculate color distribution for lands
    */
-  private calculateColorDistribution(params: any, landCount: number): Record<string, number> {
+  private calculateColorDistribution(params: ManaBaseParams, landCount: number): Record<string, number> {
     const { color_requirements, color_intensity } = params;
     const colors = color_requirements.split('');
     
@@ -250,11 +277,14 @@ export class SuggestManaBaseTool {
   /**
    * Generate land recommendations based on format and budget
    */
-  private async generateLandRecommendations(params: any, colorDistribution: Record<string, number>): Promise<any> {
+  private async generateLandRecommendations(
+    params: ManaBaseParams,
+    colorDistribution: Record<string, number>
+  ): Promise<ManaBaseRecommendations> {
     const { format, budget, color_requirements, special_requirements } = params;
     const colors = color_requirements.split('');
     
-    const recommendations: any = {
+    const recommendations: ManaBaseRecommendations = {
       basics: [],
       duals: [],
       utility: [],
@@ -350,7 +380,12 @@ export class SuggestManaBaseTool {
   /**
    * Format the mana base response
    */
-  private formatManaBaseResponse(params: any, landCount: number, colorDistribution: Record<string, number>, recommendations: any): string {
+  private formatManaBaseResponse(
+    params: ManaBaseParams,
+    landCount: number,
+    colorDistribution: Record<string, number>,
+    recommendations: ManaBaseRecommendations
+  ): string {
     let response = `**Mana Base Suggestion**\n\n`;
     
     // Overview

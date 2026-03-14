@@ -2,6 +2,12 @@ import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
 import { validateCardIdentifier } from '../utils/validators.js';
 import { formatCard } from '../utils/formatters.js';
+import { FormattedCard } from '../types/mcp-types.js';
+
+interface ValidateBrawlCommanderInput {
+  card_identifier: string;
+  format: 'brawl' | 'standardbrawl';
+}
 
 /**
  * MCP Tool for validating if a card can be a legal Brawl commander
@@ -39,7 +45,7 @@ export class ValidateBrawlCommanderTool {
       throw new ValidationError('Invalid parameters');
     }
 
-    const params = args as any;
+    const params = args as ValidateBrawlCommanderInput;
 
     if (!params.card_identifier || typeof params.card_identifier !== 'string') {
       throw new ValidationError('Card identifier is required and must be a string');
@@ -129,7 +135,10 @@ export class ValidateBrawlCommanderTool {
         let errorMessage = `Scryfall API error: ${error.message}`;
         
         if (error.status === 404) {
-          errorMessage = `Card not found: "${(args as any)?.card_identifier || 'unknown'}". Please check the card name or identifier.`;
+          const identifier = args && typeof args === 'object' && 'card_identifier' in args
+            ? args.card_identifier
+            : 'unknown';
+          errorMessage = `Card not found: "${typeof identifier === 'string' ? identifier : 'unknown'}". Please check the card name or identifier.`;
         }
 
         return {
@@ -159,7 +168,7 @@ export class ValidateBrawlCommanderTool {
   /**
    * Validate if a card can be a Brawl commander
    */
-  private validateCommander(card: any, format: 'brawl' | 'standardbrawl'): {
+  private validateCommander(card: FormattedCard, format: 'brawl' | 'standardbrawl'): {
     isValid: boolean;
     commanderEligible: boolean;
     formatLegal: boolean;

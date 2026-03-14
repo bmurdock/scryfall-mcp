@@ -6,6 +6,7 @@ import {
   ValidationError,
   RateLimitError 
 } from '../types/mcp-types.js';
+import { RandomCardParams } from '../types/mcp-types.js';
 
 /**
  * MCP Tool for getting a random Magic: The Gathering card
@@ -76,7 +77,7 @@ export class RandomCardTool {
   /**
    * Build enhanced query with all filtering parameters
    */
-  private buildEnhancedQuery(params: any): string {
+  private buildEnhancedQuery(params: RandomCardParams): string {
     const queryParts: string[] = [];
 
     // Add base query if provided
@@ -223,13 +224,13 @@ export class RandomCardTool {
         let errorMessage = `Scryfall API error: ${error.message}`;
         
         if (error.status === 404) {
-          const query = (args as any)?.query;
-          const format = (args as any)?.format;
+          const query = args && typeof args === 'object' && 'query' in args ? args.query : undefined;
+          const format = args && typeof args === 'object' && 'format' in args ? args.format : undefined;
           
-          if (query || format) {
+          if (typeof query === 'string' || typeof format === 'string') {
             errorMessage = `No cards found matching the specified criteria`;
-            if (format) errorMessage += ` (format: ${format})`;
-            if (query) errorMessage += ` (query: "${query}")`;
+            if (typeof format === 'string') errorMessage += ` (format: ${format})`;
+            if (typeof query === 'string') errorMessage += ` (query: "${query}")`;
             errorMessage += '. Try broadening your search criteria.';
           } else {
             errorMessage = 'Unable to find a random card. This is unusual - please try again.';

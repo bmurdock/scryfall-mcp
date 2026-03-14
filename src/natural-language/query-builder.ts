@@ -17,6 +17,11 @@ import { ConceptExtractor } from './concept-extractor.js';
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { mcpLogger } from '../services/logger.js';
 
+interface TestedQuery {
+  query: string;
+  optimizations: QueryOptimization[];
+}
+
 /**
  * Builds optimized Scryfall queries from natural language concepts
  */
@@ -514,7 +519,7 @@ export class QueryBuilderEngine {
   private calculateBuildConfidence(
     parsed: ParsedQuery, 
     mappings: ConceptMapping[], 
-    testedQuery: any
+    testedQuery: TestedQuery
   ): number {
     let confidence = parsed.confidence;
     

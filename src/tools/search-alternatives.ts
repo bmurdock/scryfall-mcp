@@ -1,6 +1,17 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
 import { formatSearchResultsAsText } from '../utils/formatters.js';
+import { ScryfallCard } from '../types/scryfall-api.js';
+
+interface SearchAlternativesInput {
+  target_card: string;
+  direction: string;
+  format?: string;
+  max_price?: number;
+  min_price?: number;
+  preserve_function?: boolean;
+  limit?: number;
+}
 
 /**
  * MCP Tool for finding budget alternatives, upgrades, or functionally similar cards
@@ -70,7 +81,7 @@ export class SearchAlternativesTool {
       throw new ValidationError('Invalid parameters');
     }
 
-    const params = args as any;
+    const params = args as SearchAlternativesInput;
 
     if (!params.target_card || typeof params.target_card !== 'string') {
       throw new ValidationError('Target card is required and must be a string');
@@ -217,7 +228,7 @@ export class SearchAlternativesTool {
   /**
    * Build search query for finding alternatives
    */
-  private buildAlternativesQuery(targetCard: any, params: {
+  private buildAlternativesQuery(targetCard: ScryfallCard, params: {
     direction: string;
     format?: string;
     max_price?: number;
@@ -245,7 +256,7 @@ export class SearchAlternativesTool {
     }
 
     // Add price constraints based on direction
-    const targetPrice = parseFloat((targetCard.prices as any).usd || '0');
+    const targetPrice = parseFloat(targetCard.prices.usd || '0');
     
     if (params.direction === 'cheaper' && targetPrice > 0) {
       const maxPrice = params.max_price || targetPrice * 0.8; // 20% cheaper by default

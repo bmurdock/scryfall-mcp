@@ -6,7 +6,7 @@ A comprehensive Model Context Protocol (MCP) server that integrates with the Scr
 
 ### 🔧 MCP Tools
 
-#### Enhanced Search Tools
+#### Query Building
 - **build_scryfall_query**: Convert natural language requests into optimized Scryfall search queries
   - Input: Natural language description, format preferences, optimization strategy
   - Output: Optimized Scryfall query with explanation and alternatives
@@ -18,6 +18,18 @@ A comprehensive Model Context Protocol (MCP) server that integrates with the Scr
 - **get_card_prices**: Retrieve current price data for cards
 - **random_card**: Get random cards with optional filters
 - **search_sets**: Search and filter Magic sets
+
+#### Discovery And Analysis Tools
+- **query_rules**: Search the MTG comprehensive rules with context
+- **search_format_staples**: Find staples, role players, and meta cards for a format
+- **search_alternatives**: Find budget replacements, upgrades, or similar cards
+- **find_synergistic_cards**: Discover synergy pieces for a card, theme, or archetype
+- **batch_card_analysis**: Analyze multiple cards for legality, prices, synergy, or composition
+
+#### Deck Building Tools
+- **validate_brawl_commander**: Check whether a card is a legal Brawl or Standard Brawl commander
+- **analyze_deck_composition**: Evaluate mana curve, card mix, colors, and recommendations from a deck list
+- **suggest_mana_base**: Recommend land counts and mana-fixing packages from color requirements
 
 ### 📚 MCP Resources
 - **card-database://bulk**: Complete Scryfall bulk card database with daily updates
@@ -172,6 +184,105 @@ Discover interesting cards:
 }
 ```
 
+### Query Rules
+```javascript
+{
+  "tool": "query_rules",
+  "arguments": {
+    "query": "state-based actions",
+    "context_lines": 2
+  }
+}
+```
+
+### Search Format Staples
+```javascript
+{
+  "tool": "search_format_staples",
+  "arguments": {
+    "format": "commander",
+    "role": "ramp",
+    "tier": "competitive",
+    "limit": 10
+  }
+}
+```
+
+### Search Alternatives
+```javascript
+{
+  "tool": "search_alternatives",
+  "arguments": {
+    "target_card": "Rhystic Study",
+    "direction": "cheaper",
+    "format": "commander",
+    "max_price": 10
+  }
+}
+```
+
+### Find Synergistic Cards
+```javascript
+{
+  "tool": "find_synergistic_cards",
+  "arguments": {
+    "focus_card": "Obeka, Splitter of Seconds",
+    "synergy_type": "theme",
+    "format": "commander",
+    "limit": 12
+  }
+}
+```
+
+### Batch Card Analysis
+```javascript
+{
+  "tool": "batch_card_analysis",
+  "arguments": {
+    "card_list": ["Sol Ring", "Arcane Signet", "Command Tower"],
+    "analysis_type": "prices",
+    "currency": "usd",
+    "include_suggestions": true
+  }
+}
+```
+
+### Validate Brawl Commander
+```javascript
+{
+  "tool": "validate_brawl_commander",
+  "arguments": {
+    "card_identifier": "Ashiok, Nightmare Muse",
+    "format": "brawl"
+  }
+}
+```
+
+### Analyze Deck Composition
+```javascript
+{
+  "tool": "analyze_deck_composition",
+  "arguments": {
+    "deck_list": "4 Lightning Bolt\n4 Monastery Swiftspear\n20 Mountain",
+    "format": "modern",
+    "strategy": "aggro"
+  }
+}
+```
+
+### Suggest Mana Base
+```javascript
+{
+  "tool": "suggest_mana_base",
+  "arguments": {
+    "color_requirements": "WUG",
+    "format": "commander",
+    "strategy": "midrange",
+    "budget": "moderate"
+  }
+}
+```
+
 ### Search Cards
 ```javascript
 // Basic search
@@ -220,7 +331,7 @@ Discover interesting cards:
 ### Get Card Prices
 ```javascript
 {
-  "card_id": "f7a99cc1-2b73-4c9c-8de2-9b6c4c1d8f2a",
+  "card_identifier": "f7a99cc1-2b73-4c9c-8de2-9b6c4c1d8f2a",
   "currency": "usd"
 }
 ```

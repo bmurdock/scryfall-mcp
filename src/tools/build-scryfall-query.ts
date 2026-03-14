@@ -16,6 +16,7 @@ import {
   ScryfallAPIError,
   BuildQueryParams
 } from '../types/mcp-types.js';
+import { ScryfallSearchResponse } from '../types/scryfall-api.js';
 import { 
   ParsedQuery, 
   BuildResult 
@@ -136,7 +137,7 @@ export class BuildScryfallQueryTool {
       const buildResult = await this.queryBuilder.build(parsed, buildOptions);
       
       // Test query if requested (sanitize the generated query before testing)
-      let testResult;
+      let testResult: ScryfallSearchResponse | null = null;
       if (params.test_query) {
         const sanitizedTestQuery = sanitizeQuery(buildResult.query);
         testResult = await this.testQuery(sanitizedTestQuery);
@@ -181,7 +182,7 @@ export class BuildScryfallQueryTool {
    */
   private formatResponse(
     buildResult: BuildResult,
-    testResult: any,
+    testResult: ScryfallSearchResponse | null,
     params: BuildQueryParams,
     parsed: ParsedQuery
   ): string {
@@ -190,12 +191,13 @@ export class BuildScryfallQueryTool {
     // Add test results
     if (testResult) {
       response += `**Query Test Results:**\n`;
-      response += `✅ Query is valid and returns ${testResult.total_cards} cards\n`;
+      const totalCards = testResult.total_cards ?? testResult.data.length;
+      response += `✅ Query is valid and returns ${totalCards} cards\n`;
       
-      if (testResult.total_cards === 0) {
+      if (totalCards === 0) {
         response += `⚠️ No results found. Consider broadening your search.\n`;
-      } else if (testResult.total_cards > params.max_results * 5) {
-        response += `⚠️ Many results (${testResult.total_cards}). Consider adding more constraints.\n`;
+      } else if (totalCards > params.max_results * 5) {
+        response += `⚠️ Many results (${totalCards}). Consider adding more constraints.\n`;
       } else {
         response += `✨ Good result count for exploration.\n`;
       }

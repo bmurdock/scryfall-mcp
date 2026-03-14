@@ -2,6 +2,15 @@ import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError } from '../types/mcp-types.js';
 import { formatSearchResultsAsText } from '../utils/formatters.js';
 
+interface SearchFormatStaplesInput {
+  format: string;
+  tier?: string;
+  role?: string;
+  color_identity?: string;
+  max_price?: number;
+  limit?: number;
+}
+
 /**
  * MCP Tool for finding format staples and meta-relevant cards
  */
@@ -65,7 +74,7 @@ export class SearchFormatStaplesTool {
       throw new ValidationError('Invalid parameters');
     }
 
-    const params = args as any;
+    const params = args as SearchFormatStaplesInput;
 
     if (!params.format || typeof params.format !== 'string') {
       throw new ValidationError('Format is required and must be a string');
