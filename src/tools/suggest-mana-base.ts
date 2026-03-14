@@ -37,6 +37,12 @@ interface ManaBaseRecommendations {
   budget_alternatives: LandRecommendation[];
 }
 
+interface DualCyclePlan {
+  name: string;
+  reason: string;
+  example: string;
+}
+
 /**
  * MCP Tool for suggesting mana base composition and land recommendations
  */
@@ -105,6 +111,33 @@ export class SuggestManaBaseTool {
   };
 
   constructor(private readonly scryfallClient: ScryfallClient) {}
+
+  private distributeCycleCounts(total: number, cycles: DualCyclePlan[], maxPerCycle: number): LandRecommendation[] {
+    if (total <= 0 || cycles.length === 0) {
+      return [];
+    }
+
+    const recommendations: LandRecommendation[] = [];
+    let remaining = total;
+
+    for (let index = 0; index < cycles.length; index++) {
+      const cycle = cycles[index];
+      const cyclesLeft = cycles.length - index;
+      const count = Math.min(maxPerCycle, Math.ceil(remaining / cyclesLeft));
+
+      if (count > 0) {
+        recommendations.push({
+          name: cycle.name,
+          count,
+          reason: cycle.reason,
+          example: cycle.example
+        });
+        remaining -= count;
+      }
+    }
+
+    return recommendations;
+  }
 
   private validateParams(args: unknown): ManaBaseParams {
     if (!args || typeof args !== 'object') {
@@ -307,12 +340,24 @@ export class SuggestManaBaseTool {
     // Dual lands by format and budget
     if (colors.length > 1) {
       const dualCount = colorDistribution.dual || 0;
+
+      if (budget === 'budget') {
+        recommendations.budget_alternatives = this.distributeCycleCounts(dualCount, [
+          {
+            name: 'Taplands',
+            reason: 'Budget-friendly fixing',
+            example: 'Temple of Epiphany, Tranquil Cove'
+          }
+        ], dualCount);
+        return recommendations;
+      }
+
+      const dualCycles: DualCyclePlan[] = [];
       
       if (format === 'legacy' || format === 'vintage') {
         if (budget === 'no_limit' || budget === 'expensive') {
-          recommendations.duals.push({
+          dualCycles.push({
             name: 'Original Dual Lands',
-            count: Math.min(dualCount, 4),
             reason: 'Best fixing available',
             example: `Tundra (${colors.includes('W') && colors.includes('U') ? 'W/U' : 'etc'})`
           });
@@ -320,47 +365,34 @@ export class SuggestManaBaseTool {
       }
       
       if (format === 'modern' || format === 'legacy' || format === 'vintage') {
-        if (budget !== 'budget') {
-          recommendations.duals.push({
-            name: 'Fetchlands',
-            count: Math.min(dualCount, 8),
-            reason: 'Perfect mana fixing',
-            example: 'Polluted Delta, Scalding Tarn'
-          });
-          
-          recommendations.duals.push({
-            name: 'Shocklands',
-            count: Math.min(dualCount, 4),
-            reason: 'Fetchable duals',
-            example: 'Steam Vents, Hallowed Fountain'
-          });
-        }
+        dualCycles.push({
+          name: 'Fetchlands',
+          reason: 'Perfect mana fixing',
+          example: 'Polluted Delta, Scalding Tarn'
+        });
+        
+        dualCycles.push({
+          name: 'Shocklands',
+          reason: 'Fetchable duals',
+          example: 'Steam Vents, Hallowed Fountain'
+        });
       }
       
       if (format === 'standard' || format === 'pioneer') {
-        recommendations.duals.push({
+        dualCycles.push({
           name: 'Painlands',
-          count: Math.min(dualCount, 4),
           reason: 'Immediate access',
           example: 'Shivan Reef, Adarkar Wastes'
         });
         
-        recommendations.duals.push({
+        dualCycles.push({
           name: 'Checklands',
-          count: Math.min(dualCount, 4),
           reason: 'Untapped mid-game',
           example: 'Drowned Catacomb, Glacial Fortress'
         });
       }
-      
-      if (budget === 'budget') {
-        recommendations.budget_alternatives.push({
-          name: 'Taplands',
-          count: dualCount,
-          reason: 'Budget-friendly fixing',
-          example: 'Temple of Epiphany, Tranquil Cove'
-        });
-      }
+
+      recommendations.duals = this.distributeCycleCounts(dualCount, dualCycles, 4);
     }
     
     // Utility lands

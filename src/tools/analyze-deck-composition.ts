@@ -16,9 +16,15 @@ interface DeckAnalysisParams {
   commander?: string;
 }
 
+interface DeckCardEntry {
+  name: string;
+  quantity: number;
+}
+
 interface PriceEntry {
   name: string;
   price: number;
+  quantity: number;
 }
 
 interface DeckCompositionAnalysis {
@@ -108,9 +114,9 @@ export class AnalyzeDeckCompositionTool {
       const params = this.validateParams(args);
       
       // Parse deck list
-      const cardNames = this.parseDeckList(params.deck_list);
+      const deckEntries = this.parseDeckList(params.deck_list);
       
-      if (cardNames.length === 0) {
+      if (deckEntries.length === 0) {
         return {
           content: [{
             type: 'text',
@@ -121,9 +127,9 @@ export class AnalyzeDeckCompositionTool {
       }
 
       // Fetch card data
-      const cardData = await this.fetchCardData(cardNames);
+      const cardData = await this.fetchCardData(deckEntries);
       
-      if (cardData.length === 0) {
+      if (cardData.size === 0) {
         return {
           content: [{
             type: 'text',
@@ -134,7 +140,7 @@ export class AnalyzeDeckCompositionTool {
       }
 
       // Analyze composition
-      const analysis = this.analyzeComposition(cardData);
+      const analysis = this.analyzeComposition(deckEntries, cardData);
       
       // Generate recommendations
       const recommendations = this.generateRecommendations(analysis, params);
@@ -173,36 +179,37 @@ export class AnalyzeDeckCompositionTool {
   /**
    * Parse deck list into individual card names
    */
-  private parseDeckList(deckList: string): string[] {
+  private parseDeckList(deckList: string): DeckCardEntry[] {
     const lines = deckList.split(/[\n,]/).map(line => line.trim());
-    const cardNames: string[] = [];
+    const quantities = new Map<string, number>();
     
     for (const line of lines) {
       if (!line) continue;
       
       // Handle various formats: "4 Lightning Bolt", "Lightning Bolt", "4x Lightning Bolt"
-      const match = line.match(/^(?:\d+x?\s+)?(.+)$/);
+      const match = line.match(/^(?:(\d+)x?\s+)?(.+)$/i);
       if (match) {
-        const cardName = match[1].trim();
+        const quantity = match[1] ? parseInt(match[1], 10) : 1;
+        const cardName = match[2].trim();
         if (cardName) {
-          cardNames.push(cardName);
+          quantities.set(cardName, (quantities.get(cardName) || 0) + quantity);
         }
       }
     }
     
-    return [...new Set(cardNames)]; // Remove duplicates
+    return Array.from(quantities.entries()).map(([name, quantity]) => ({ name, quantity }));
   }
 
   /**
    * Fetch card data for all cards in the deck
    */
-  private async fetchCardData(cardNames: string[]): Promise<ScryfallCard[]> {
-    const cardData: ScryfallCard[] = [];
+  private async fetchCardData(deckEntries: DeckCardEntry[]): Promise<Map<string, ScryfallCard>> {
+    const cardData = new Map<string, ScryfallCard>();
     
-    for (const cardName of cardNames) {
+    for (const { name } of deckEntries) {
       try {
-        const card = await this.scryfallClient.getCard({ identifier: cardName });
-        cardData.push(card);
+        const card = await this.scryfallClient.getCard({ identifier: name });
+        cardData.set(name, card);
       } catch (error) {
         // Skip cards that can't be found
         continue;
@@ -215,9 +222,9 @@ export class AnalyzeDeckCompositionTool {
   /**
    * Analyze deck composition
    */
-  private analyzeComposition(cardData: ScryfallCard[]): DeckCompositionAnalysis {
+  private analyzeComposition(deckEntries: DeckCardEntry[], cardData: Map<string, ScryfallCard>): DeckCompositionAnalysis {
     const analysis: DeckCompositionAnalysis = {
-      totalCards: cardData.length,
+      totalCards: deckEntries.reduce((sum, entry) => sum + entry.quantity, 0),
       manaCurve: {},
       typeBreakdown: {},
       colorBreakdown: {},
@@ -231,7 +238,11 @@ export class AnalyzeDeckCompositionTool {
     let totalCMC = 0;
     
     // Analyze each card
-    for (const card of cardData) {
+    for (const entry of deckEntries) {
+      const card = cardData.get(entry.name);
+      if (!card) continue;
+
+      const quantity = entry.quantity;
       const cmc = card.cmc || 0;
       const types = card.type_line?.toLowerCase() || '';
       const colors = card.color_identity || [];
@@ -239,37 +250,37 @@ export class AnalyzeDeckCompositionTool {
       const price = parseFloat(card.prices?.usd || '0');
       
       // Mana curve
-      analysis.manaCurve[cmc] = (analysis.manaCurve[cmc] || 0) + 1;
-      totalCMC += cmc;
+      analysis.manaCurve[cmc] = (analysis.manaCurve[cmc] || 0) + quantity;
+      totalCMC += cmc * quantity;
       
       // Type breakdown
       if (types.includes('creature')) {
-        analysis.typeBreakdown.creatures = (analysis.typeBreakdown.creatures || 0) + 1;
+        analysis.typeBreakdown.creatures = (analysis.typeBreakdown.creatures || 0) + quantity;
       } else if (types.includes('instant')) {
-        analysis.typeBreakdown.instants = (analysis.typeBreakdown.instants || 0) + 1;
+        analysis.typeBreakdown.instants = (analysis.typeBreakdown.instants || 0) + quantity;
       } else if (types.includes('sorcery')) {
-        analysis.typeBreakdown.sorceries = (analysis.typeBreakdown.sorceries || 0) + 1;
+        analysis.typeBreakdown.sorceries = (analysis.typeBreakdown.sorceries || 0) + quantity;
       } else if (types.includes('artifact')) {
-        analysis.typeBreakdown.artifacts = (analysis.typeBreakdown.artifacts || 0) + 1;
+        analysis.typeBreakdown.artifacts = (analysis.typeBreakdown.artifacts || 0) + quantity;
       } else if (types.includes('enchantment')) {
-        analysis.typeBreakdown.enchantments = (analysis.typeBreakdown.enchantments || 0) + 1;
+        analysis.typeBreakdown.enchantments = (analysis.typeBreakdown.enchantments || 0) + quantity;
       } else if (types.includes('planeswalker')) {
-        analysis.typeBreakdown.planeswalkers = (analysis.typeBreakdown.planeswalkers || 0) + 1;
+        analysis.typeBreakdown.planeswalkers = (analysis.typeBreakdown.planeswalkers || 0) + quantity;
       } else if (types.includes('land')) {
-        analysis.typeBreakdown.lands = (analysis.typeBreakdown.lands || 0) + 1;
+        analysis.typeBreakdown.lands = (analysis.typeBreakdown.lands || 0) + quantity;
       }
       
       // Color breakdown
       for (const color of colors) {
-        analysis.colorBreakdown[color] = (analysis.colorBreakdown[color] || 0) + 1;
+        analysis.colorBreakdown[color] = (analysis.colorBreakdown[color] || 0) + quantity;
       }
       
       // Rarity breakdown
-      analysis.rarityBreakdown[rarity] = (analysis.rarityBreakdown[rarity] || 0) + 1;
+      analysis.rarityBreakdown[rarity] = (analysis.rarityBreakdown[rarity] || 0) + quantity;
       
       // Expensive cards (>$5)
       if (price > 5) {
-        analysis.expensiveCards.push({ name: card.name, price });
+        analysis.expensiveCards.push({ name: card.name, price, quantity });
       }
       
       // Key cards (mythic/rare with relevant abilities)
@@ -278,7 +289,7 @@ export class AnalyzeDeckCompositionTool {
       }
     }
     
-    analysis.averageCMC = totalCMC / cardData.length;
+    analysis.averageCMC = analysis.totalCards > 0 ? totalCMC / analysis.totalCards : 0;
     
     // Sort expensive cards by price
     analysis.expensiveCards.sort((a, b) => b.price - a.price);
@@ -328,7 +339,7 @@ export class AnalyzeDeckCompositionTool {
     
     // Expensive cards warning
     if (analysis.expensiveCards.length > 5) {
-      const totalCost = analysis.expensiveCards.reduce((sum, card) => sum + card.price, 0);
+      const totalCost = analysis.expensiveCards.reduce((sum, card) => sum + (card.price * card.quantity), 0);
       recommendations.push(`💰 Deck contains ${analysis.expensiveCards.length} expensive cards (total: $${totalCost.toFixed(2)})`);
     }
     
@@ -399,7 +410,7 @@ export class AnalyzeDeckCompositionTool {
     if (analysis.expensiveCards.length > 0) {
       response += `💰 **Most Expensive Cards:**\n`;
       for (const card of analysis.expensiveCards.slice(0, 5)) {
-        response += `• ${card.name}: $${card.price.toFixed(2)}\n`;
+        response += `• ${card.quantity}x ${card.name}: $${card.price.toFixed(2)} each\n`;
       }
       response += '\n';
     }

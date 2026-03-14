@@ -6,6 +6,8 @@ import { SearchFormatStaplesTool } from '../src/tools/search-format-staples.js';
 import { SearchAlternativesTool } from '../src/tools/search-alternatives.js';
 import { FindSynergisticCardsTool } from '../src/tools/find-synergistic-cards.js';
 import { BatchCardAnalysisTool } from '../src/tools/batch-card-analysis.js';
+import { AnalyzeDeckCompositionTool } from '../src/tools/analyze-deck-composition.js';
+import { SuggestManaBaseTool } from '../src/tools/suggest-mana-base.js';
 import { ScryfallAPIError } from '../src/types/mcp-types.js';
 import { ScryfallClient } from '../src/services/scryfall-client.js';
 
@@ -295,6 +297,36 @@ describe('MCP Tools', () => {
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Lightning Bolt');
     });
+
+    it('should build threats queries with valid loyalty syntax and color identity filtering', async () => {
+      mockScryfallClient.searchCards.mockResolvedValue({
+        total_cards: 0,
+        has_more: false,
+        data: []
+      });
+
+      await tool.execute({
+        format: 'commander',
+        role: 'threats',
+        color_identity: 'grixis'
+      });
+
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: expect.stringContaining('loy>=3')
+        })
+      );
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: expect.stringContaining('id:ubr')
+        })
+      );
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: expect.not.stringContaining('loyalty>=')
+        })
+      );
+    });
   });
 
   describe('SearchAlternativesTool', () => {
@@ -362,6 +394,36 @@ describe('MCP Tools', () => {
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Alternatives for Lightning Bolt');
       expect(result.content[0].text).toContain('Shock');
+    });
+
+    it('should preserve the actual card type instead of the first type-line token', async () => {
+      const targetCard = {
+        id: 'target-id',
+        name: 'Atraxa, Grand Unifier',
+        cmc: 7,
+        type_line: 'Legendary Creature — Phyrexian Angel',
+        prices: { usd: '12.00' }
+      };
+
+      mockScryfallClient.getCard.mockResolvedValue(targetCard);
+      mockScryfallClient.searchCards.mockResolvedValue({
+        total_cards: 0,
+        has_more: false,
+        data: []
+      });
+
+      await tool.execute({ target_card: 'Atraxa, Grand Unifier', direction: 'similar' });
+
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: expect.stringContaining('t:creature')
+        })
+      );
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: expect.not.stringContaining('t:Legendary')
+        })
+      );
     });
   });
 
@@ -452,6 +514,33 @@ describe('MCP Tools', () => {
       const result = await tool.execute({ focus_card: 'goblin tribal', synergy_type: 'tribal' });
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Synergistic cards for "goblin tribal"');
+    });
+
+    it('should render fallback results when primary layered searches miss', async () => {
+      const synergyCard = {
+        id: 'fallback-id',
+        name: 'Foundry Inspector',
+        mana_cost: '{3}',
+        type_line: 'Artifact Creature — Construct',
+        oracle_text: 'Artifact spells you cast cost {1} less to cast.',
+        set_name: 'Kaladesh',
+        rarity: 'uncommon',
+        prices: { usd: '0.25' },
+        legalities: { commander: 'legal' }
+      };
+
+      let callCount = 0;
+      mockScryfallClient.getCard.mockRejectedValue(new ScryfallAPIError('Not found', 404));
+      mockScryfallClient.searchCards.mockImplementation(async () => {
+        callCount += 1;
+        return callCount <= 8
+          ? { total_cards: 0, has_more: false, data: [] }
+          : { total_cards: 1, has_more: false, data: [synergyCard] };
+      });
+
+      const result = await tool.execute({ focus_card: 'artifact', synergy_type: 'theme' });
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Foundry Inspector');
     });
   });
 
@@ -558,6 +647,80 @@ describe('MCP Tools', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Cards not found: Nonexistent Card');
+    });
+  });
+
+  describe('AnalyzeDeckCompositionTool', () => {
+    let tool: AnalyzeDeckCompositionTool;
+
+    beforeEach(() => {
+      tool = new AnalyzeDeckCompositionTool(mockScryfallClient);
+    });
+
+    it('should respect quantities in the deck list', async () => {
+      mockScryfallClient.getCard.mockImplementation(async ({ identifier }: { identifier: string }) => {
+        if (identifier === 'Lightning Bolt') {
+          return {
+            id: 'bolt-id',
+            name: 'Lightning Bolt',
+            cmc: 1,
+            type_line: 'Instant',
+            oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+            rarity: 'common',
+            prices: { usd: '1.00' },
+            color_identity: ['R']
+          };
+        }
+
+        return {
+          id: 'mountain-id',
+          name: 'Mountain',
+          cmc: 0,
+          type_line: 'Basic Land — Mountain',
+          rarity: 'common',
+          prices: { usd: '0.10' },
+          color_identity: ['R']
+        };
+      });
+
+      const result = await tool.execute({
+        deck_list: '4 Lightning Bolt\n20 Mountain',
+        format: 'modern',
+        strategy: 'aggro'
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Total Cards: 24');
+      expect(result.content[0].text).toContain('0 CMC: 20');
+      expect(result.content[0].text).toContain('1 CMC: 4');
+      expect(result.content[0].text).toContain('lands: 20');
+    });
+  });
+
+  describe('SuggestManaBaseTool', () => {
+    let tool: SuggestManaBaseTool;
+
+    beforeEach(() => {
+      tool = new SuggestManaBaseTool(mockScryfallClient);
+    });
+
+    it('should not recommend more lands than the computed land count', async () => {
+      const result = await tool.execute({
+        color_requirements: 'WU',
+        deck_size: 60,
+        format: 'modern',
+        strategy: 'midrange',
+        budget: 'moderate'
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Total Lands: 24/60');
+
+      const recommendationCounts = Array.from(result.content[0].text.matchAll(/• (\d+)x /g))
+        .map((match) => Number(match[1]));
+      const totalRecommended = recommendationCounts.reduce((sum, count) => sum + count, 0);
+
+      expect(totalRecommended).toBe(24);
     });
   });
 });

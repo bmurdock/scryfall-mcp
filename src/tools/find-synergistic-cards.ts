@@ -249,7 +249,12 @@ export class FindSynergisticCardsTool {
               limit: params.limit,
               order: 'edhrec'
             });
-            allResults.push(...results.data);
+            const fallbackResults: SynergyCard[] = results.data.map(card => ({
+              ...card,
+              _synergy_layer: 'thematic',
+              _synergy_query: query
+            }));
+            allResults.push(...fallbackResults);
             if (allResults.length > 0) break; // Stop once we find some results
           } catch (error) {
             continue;

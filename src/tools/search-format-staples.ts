@@ -59,6 +59,34 @@ export class SearchFormatStaplesTool {
 
   constructor(private readonly scryfallClient: ScryfallClient) {}
 
+  private normalizeColorIdentityQuery(colorIdentity: string): string {
+    const normalized = colorIdentity.toLowerCase();
+    
+    const colorMappings: Record<string, string> = {
+      grixis: 'id:ubr',
+      esper: 'id:wub',
+      bant: 'id:gwu',
+      naya: 'id:rgw',
+      jund: 'id:brg',
+      mardu: 'id:rwb',
+      temur: 'id:gur',
+      abzan: 'id:wbg',
+      jeskai: 'id:urw',
+      sultai: 'id:bug',
+      colorless: 'id:c'
+    };
+
+    if (colorMappings[normalized]) {
+      return colorMappings[normalized];
+    }
+
+    if (/^[wubrgc]+$/.test(normalized)) {
+      return `id:${normalized}`;
+    }
+
+    return '';
+  }
+
   /**
    * Validate parameters
    */
@@ -192,7 +220,10 @@ export class SearchFormatStaplesTool {
 
     // Add color identity filter
     if (params.color_identity) {
-      query += ` ${this.getColorIdentityFilter(params.color_identity)}`;
+      const colorFilter = this.normalizeColorIdentityQuery(params.color_identity);
+      if (colorFilter) {
+        query += ` ${colorFilter}`;
+      }
     }
 
     // Add price filter
@@ -214,7 +245,7 @@ export class SearchFormatStaplesTool {
       case 'removal':
         return '(o:destroy OR o:exile OR o:"deals damage" OR o:"-X/-X")';
       case 'threats':
-        return '(t:creature OR t:planeswalker) (pow>=3 OR loyalty>=3)';
+        return '(t:creature OR t:planeswalker) (pow>=3 OR loy>=3)';
       case 'utility':
         return '(t:artifact OR t:enchantment OR (t:instant AND (o:draw OR o:search)))';
       case 'lands':
@@ -233,36 +264,6 @@ export class SearchFormatStaplesTool {
   /**
    * Get color identity filter
    */
-  private getColorIdentityFilter(colorIdentity: string): string {
-    const normalized = colorIdentity.toLowerCase();
-    
-    // Handle named color combinations
-    const colorMappings: Record<string, string> = {
-      'grixis': 'c:ubr',
-      'esper': 'c:wub',
-      'bant': 'c:gwu',
-      'naya': 'c:rgw',
-      'jund': 'c:brg',
-      'mardu': 'c:rwb',
-      'temur': 'c:gur',
-      'abzan': 'c:wbg',
-      'jeskai': 'c:urw',
-      'sultai': 'c:bug',
-      'colorless': 'c:c'
-    };
-
-    if (colorMappings[normalized]) {
-      return colorMappings[normalized];
-    }
-
-    // Handle direct color combinations (e.g., "wr", "bug")
-    if (/^[wubrgc]+$/.test(normalized)) {
-      return `c:${normalized}`;
-    }
-
-    return '';
-  }
-
   /**
    * Get tier-specific filters
    */

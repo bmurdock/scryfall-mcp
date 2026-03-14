@@ -65,6 +65,12 @@ export class SearchAlternativesTool {
 
   constructor(private readonly scryfallClient: ScryfallClient) {}
 
+  private extractPrimaryCardType(typeLine: string): string | null {
+    const normalized = typeLine.toLowerCase().split('—')[0];
+    const typePriority = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker', 'land', 'battle'];
+    return typePriority.find(type => normalized.includes(type)) ?? null;
+  }
+
   /**
    * Validate parameters
    */
@@ -245,8 +251,10 @@ export class SearchAlternativesTool {
     // Add functional similarity constraints if requested
     if (params.preserve_function) {
       // Match primary type
-      const primaryType = targetCard.type_line.split(' ')[0];
-      query += `t:${primaryType} `;
+      const primaryType = this.extractPrimaryCardType(targetCard.type_line);
+      if (primaryType) {
+        query += `t:${primaryType} `;
+      }
 
       // Match mana value (within 1)
       const cmc = targetCard.cmc || 0;
