@@ -142,3 +142,25 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Local agent/editor metadata
+.serena/
+.code/
+.claude/
+
+# AI assistant instructions and private project intent
+AGENTS.md
+CLAUDE.md
+PURPOSE.md
+
+# Local editor/workspace files
+.vscode/
+*.code-workspace
+
+# Internal planning and scratch artifacts
+3-feature-proposals.md
+ENHANCEMENT_PROPOSALS.md
+FEATURE_2_IMPLEMENTATION_PLAN.md
+EDITORCONFIG_GUIDE.md
+SECURITY_FIXES.md
+test-artifact-fix.js

@@ -98,6 +98,12 @@ npm run test:ui
 npm run inspector
 ```
 
+## Project Docs
+
+- [CONTRIBUTING.md](./CONTRIBUTING.md)
+- [SECURITY.md](./SECURITY.md)
+- [SCRYFALL_COMPLIANCE.md](./SCRYFALL_COMPLIANCE.md)
+
 ## Claude Desktop Integration
 
 Add the following to your Claude Desktop configuration file:

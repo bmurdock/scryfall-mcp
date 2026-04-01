@@ -1,7 +1,7 @@
 {
   "name": "scryfall-mcp",
   "version": "1.0.0",
-  "description": "MCP Server for Scryfall",
+  "description": "MCP server for Scryfall-backed Magic: The Gathering search, rules, and deckbuilding workflows",
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -18,7 +18,15 @@
     "type": "git",
     "url": "git+https://github.com/bmurdock/scryfall-mcp.git"
   },
-  "keywords": [],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "scryfall",
+    "magic-the-gathering",
+    "mtg",
+    "typescript",
+    "deckbuilding"
+  ],
   "author": "",
   "license": "MIT",
   "type": "module",
