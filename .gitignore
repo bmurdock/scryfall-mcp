@@ -148,10 +148,9 @@ dist
 .code/
 .claude/
 
-# AI assistant instructions and private project intent
+# AI assistant instructions
 AGENTS.md
 CLAUDE.md
-PURPOSE.md
 
 # Local editor/workspace files
 .vscode/
