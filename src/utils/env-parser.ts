@@ -2,6 +2,19 @@
  * Utility functions for safely parsing environment variables
  */
 
+import { mcpLogger } from "../services/logger.js";
+
+function logEnvFallback(kind: string, details: Record<string, unknown>, message: string): void {
+  mcpLogger.warn(
+    {
+      operation: "env_validation",
+      envValueKind: kind,
+      ...details,
+    },
+    message
+  );
+}
+
 /**
  * Safely parses an integer from an environment variable
  */
@@ -13,17 +26,17 @@ export function parseEnvInt(envVar: string | undefined, defaultValue: number, mi
   const parsed = parseInt(envVar.trim(), 10);
   
   if (isNaN(parsed)) {
-    console.warn(`Invalid integer value for environment variable: "${envVar}". Using default: ${defaultValue}`);
+    logEnvFallback("int", { envVar, defaultValue }, `Invalid integer value for environment variable. Using default: ${defaultValue}`);
     return defaultValue;
   }
 
   if (min !== undefined && parsed < min) {
-    console.warn(`Environment variable value ${parsed} is below minimum ${min}. Using minimum value.`);
+    logEnvFallback("int", { parsed, min }, `Environment variable value ${parsed} is below minimum ${min}. Using minimum value.`);
     return min;
   }
 
   if (max !== undefined && parsed > max) {
-    console.warn(`Environment variable value ${parsed} is above maximum ${max}. Using maximum value.`);
+    logEnvFallback("int", { parsed, max }, `Environment variable value ${parsed} is above maximum ${max}. Using maximum value.`);
     return max;
   }
 
@@ -41,17 +54,17 @@ export function parseEnvFloat(envVar: string | undefined, defaultValue: number, 
   const parsed = parseFloat(envVar.trim());
   
   if (isNaN(parsed)) {
-    console.warn(`Invalid float value for environment variable: "${envVar}". Using default: ${defaultValue}`);
+    logEnvFallback("float", { envVar, defaultValue }, `Invalid float value for environment variable. Using default: ${defaultValue}`);
     return defaultValue;
   }
 
   if (min !== undefined && parsed < min) {
-    console.warn(`Environment variable value ${parsed} is below minimum ${min}. Using minimum value.`);
+    logEnvFallback("float", { parsed, min }, `Environment variable value ${parsed} is below minimum ${min}. Using minimum value.`);
     return min;
   }
 
   if (max !== undefined && parsed > max) {
-    console.warn(`Environment variable value ${parsed} is above maximum ${max}. Using maximum value.`);
+    logEnvFallback("float", { parsed, max }, `Environment variable value ${parsed} is above maximum ${max}. Using maximum value.`);
     return max;
   }
 
@@ -76,7 +89,7 @@ export function parseEnvBoolean(envVar: string | undefined, defaultValue: boolea
     return false;
   }
 
-  console.warn(`Invalid boolean value for environment variable: "${envVar}". Using default: ${defaultValue}`);
+  logEnvFallback("boolean", { envVar, defaultValue }, `Invalid boolean value for environment variable. Using default: ${defaultValue}`);
   return defaultValue;
 }
 
@@ -97,17 +110,21 @@ export function parseEnvString(
   const trimmed = envVar.trim();
 
   if (minLength !== undefined && trimmed.length < minLength) {
-    console.warn(`Environment variable value "${trimmed}" is too short (min ${minLength}). Using default.`);
+    logEnvFallback("string", { envVar: trimmed, minLength, defaultValue }, `Environment variable value is too short (min ${minLength}). Using default.`);
     return defaultValue;
   }
 
   if (maxLength !== undefined && trimmed.length > maxLength) {
-    console.warn(`Environment variable value "${trimmed}" is too long (max ${maxLength}). Using default.`);
+    logEnvFallback("string", { envVar: trimmed, maxLength, defaultValue }, `Environment variable value is too long (max ${maxLength}). Using default.`);
     return defaultValue;
   }
 
   if (allowedValues && !allowedValues.includes(trimmed)) {
-    console.warn(`Environment variable value "${trimmed}" is not in allowed values: ${allowedValues.join(', ')}. Using default.`);
+    logEnvFallback(
+      "string",
+      { envVar: trimmed, allowedValues, defaultValue },
+      `Environment variable value is not in allowed values: ${allowedValues.join(", ")}. Using default.`
+    );
     return defaultValue;
   }
 

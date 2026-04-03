@@ -5,7 +5,6 @@
 
 import pino from "pino";
 import { MCPError } from "../types/mcp-errors.js";
-import { EnvValidators } from "../utils/env-parser.js";
 
 /**
  * Log levels supported by the logger
@@ -44,12 +43,26 @@ export interface ErrorContext extends LogContext {
   stack?: string;
 }
 
+function parseNodeEnv(value: string | undefined): "development" | "production" | "test" {
+  const normalized = value?.trim();
+  if (normalized === "production" || normalized === "test") {
+    return normalized;
+  }
+  return "development";
+}
+
+function parseLogLevel(value: string | undefined): LogLevel {
+  const normalized = value?.trim() as LogLevel | undefined;
+  const validLevels: LogLevel[] = ["trace", "debug", "info", "warn", "error", "fatal"];
+  return normalized && validLevels.includes(normalized) ? normalized : "info";
+}
+
 /**
  * Create Pino logger instance with MCP-specific configuration
  */
 function createLogger() {
-  const isDevelopment = EnvValidators.nodeEnv(process.env.NODE_ENV) === "development";
-  const logLevel = EnvValidators.logLevel(process.env.LOG_LEVEL) as LogLevel;
+  const isDevelopment = parseNodeEnv(process.env.NODE_ENV) === "development";
+  const logLevel = parseLogLevel(process.env.LOG_LEVEL);
 
   const baseConfig: pino.LoggerOptions = {
     level: logLevel,
