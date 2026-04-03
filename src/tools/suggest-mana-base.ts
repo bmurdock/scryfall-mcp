@@ -1,52 +1,20 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError } from '../types/mcp-types.js';
+import { formatManaBaseResponse } from './suggest-mana-base/formatter.js';
+import {
+  calculateColorDistribution,
+  calculateLandCount,
+  generateLandRecommendations
+} from './suggest-mana-base/planner.js';
+import {
+  ManaBaseParams,
+  SuggestManaBaseInput
+} from './suggest-mana-base/types.js';
 import {
   normalizeLowercaseString,
   normalizeStringArray,
   normalizeTrimmedString
 } from '../utils/input-normalization.js';
-
-interface SuggestManaBaseInput {
-  color_requirements: string;
-  deck_size?: number;
-  format?: string;
-  strategy?: string;
-  average_cmc?: number;
-  budget?: string;
-  color_intensity?: Record<string, number>;
-  special_requirements?: string[];
-}
-
-interface ManaBaseParams {
-  color_requirements: string;
-  deck_size: number;
-  format?: string;
-  strategy: string;
-  average_cmc?: number;
-  budget: string;
-  color_intensity?: Record<string, number>;
-  special_requirements: string[];
-}
-
-interface LandRecommendation {
-  name: string;
-  count: number;
-  reason: string;
-  example?: string;
-}
-
-interface ManaBaseRecommendations {
-  basics: LandRecommendation[];
-  duals: LandRecommendation[];
-  utility: LandRecommendation[];
-  budget_alternatives: LandRecommendation[];
-}
-
-interface DualCyclePlan {
-  name: string;
-  reason: string;
-  example: string;
-}
 
 /**
  * MCP Tool for suggesting mana base composition and land recommendations
@@ -115,34 +83,7 @@ export class SuggestManaBaseTool {
     required: ['color_requirements']
   };
 
-  constructor(private readonly scryfallClient: ScryfallClient) {}
-
-  private distributeCycleCounts(total: number, cycles: DualCyclePlan[], maxPerCycle: number): LandRecommendation[] {
-    if (total <= 0 || cycles.length === 0) {
-      return [];
-    }
-
-    const recommendations: LandRecommendation[] = [];
-    let remaining = total;
-
-    for (let index = 0; index < cycles.length; index++) {
-      const cycle = cycles[index];
-      const cyclesLeft = cycles.length - index;
-      const count = Math.min(maxPerCycle, Math.ceil(remaining / cyclesLeft));
-
-      if (count > 0) {
-        recommendations.push({
-          name: cycle.name,
-          count,
-          reason: cycle.reason,
-          example: cycle.example
-        });
-        remaining -= count;
-      }
-    }
-
-    return recommendations;
-  }
+  constructor(_scryfallClient: ScryfallClient) {}
 
   private validateParams(args: unknown): ManaBaseParams {
     if (!args || typeof args !== 'object') {
@@ -160,7 +101,6 @@ export class SuggestManaBaseTool {
       throw new ValidationError('Color requirements are required');
     }
 
-    // Validate color requirements format
     const validColors = new Set(['W', 'U', 'B', 'R', 'G']);
     const colors = normalizedColorRequirements.toUpperCase();
     for (const color of colors) {
@@ -169,8 +109,8 @@ export class SuggestManaBaseTool {
       }
     }
 
-    const deck_size = params.deck_size || 60;
-    if (typeof deck_size !== 'number' || deck_size < 40 || deck_size > 250) {
+    const deckSize = params.deck_size || 60;
+    if (typeof deckSize !== 'number' || deckSize < 40 || deckSize > 250) {
       throw new ValidationError('Deck size must be between 40 and 250');
     }
 
@@ -186,20 +126,31 @@ export class SuggestManaBaseTool {
       throw new ValidationError(`Budget must be one of: ${validBudgets.join(', ')}`);
     }
 
-    const validSpecialRequirements = ['enters_untapped', 'basic_types', 'nonbasic_hate_protection', 'utility_lands', 'combo_lands'];
+    const validSpecialRequirements = [
+      'enters_untapped',
+      'basic_types',
+      'nonbasic_hate_protection',
+      'utility_lands',
+      'combo_lands'
+    ];
+
     const specialRequirements = Array.isArray(normalizedSpecialRequirements)
       ? normalizedSpecialRequirements.map(requirement =>
         typeof requirement === 'string' ? requirement.trim().toLowerCase() : requirement
       )
       : [];
 
-    if (!specialRequirements.every(requirement => typeof requirement === 'string' && validSpecialRequirements.includes(requirement))) {
-      throw new ValidationError(`Special requirements must be drawn from: ${validSpecialRequirements.join(', ')}`);
+    if (!specialRequirements.every(
+      requirement => typeof requirement === 'string' && validSpecialRequirements.includes(requirement)
+    )) {
+      throw new ValidationError(
+        `Special requirements must be drawn from: ${validSpecialRequirements.join(', ')}`
+      );
     }
 
     return {
       color_requirements: colors,
-      deck_size,
+      deck_size: deckSize,
       format: typeof normalizedFormat === 'string' ? normalizedFormat : undefined,
       strategy,
       average_cmc: params.average_cmc,
@@ -212,26 +163,22 @@ export class SuggestManaBaseTool {
   async execute(args: unknown) {
     try {
       const params = this.validateParams(args);
-      
-      // Calculate land count
-      const landCount = this.calculateLandCount(params);
-      
-      // Calculate color distribution
-      const colorDistribution = this.calculateColorDistribution(params, landCount);
-      
-      // Generate land recommendations
-      const landRecommendations = await this.generateLandRecommendations(params, colorDistribution);
-      
-      // Format response
-      const responseText = this.formatManaBaseResponse(params, landCount, colorDistribution, landRecommendations);
-      
+      const landCount = calculateLandCount(params);
+      const colorDistribution = calculateColorDistribution(params, landCount);
+      const landRecommendations = await generateLandRecommendations(params, colorDistribution);
+      const responseText = formatManaBaseResponse(
+        params,
+        landCount,
+        colorDistribution,
+        landRecommendations
+      );
+
       return {
         content: [{
           type: 'text',
           text: responseText
         }]
       };
-
     } catch (error) {
       if (error instanceof ValidationError) {
         return {
@@ -251,289 +198,5 @@ export class SuggestManaBaseTool {
         isError: true
       };
     }
-  }
-
-  /**
-   * Calculate optimal land count based on strategy and average CMC
-   */
-  private calculateLandCount(params: ManaBaseParams): number {
-    const { deck_size, strategy, average_cmc } = params;
-    
-    // Base land count ratios by strategy
-    const baseRatios = {
-      aggro: 0.35,    // 35% lands
-      midrange: 0.40, // 40% lands  
-      control: 0.42,  // 42% lands
-      combo: 0.38,    // 38% lands
-      ramp: 0.45      // 45% lands
-    };
-    
-    let baseCount = Math.round(deck_size * baseRatios[strategy as keyof typeof baseRatios]);
-    
-    // Adjust for average CMC
-    if (average_cmc !== undefined) {
-      if (average_cmc > 4) {
-        baseCount += Math.round((average_cmc - 4) * 2);
-      } else if (average_cmc < 2.5) {
-        baseCount -= Math.round((2.5 - average_cmc) * 2);
-      }
-    }
-    
-    // Format-specific adjustments
-    if (params.format === 'commander') {
-      baseCount = Math.max(36, Math.min(40, baseCount));
-    } else if (params.format === 'brawl') {
-      baseCount = Math.max(22, Math.min(26, baseCount));
-    }
-    
-    return Math.max(Math.round(deck_size * 0.30), Math.min(Math.round(deck_size * 0.50), baseCount));
-  }
-
-  /**
-   * Calculate color distribution for lands
-   */
-  private calculateColorDistribution(params: ManaBaseParams, landCount: number): Record<string, number> {
-    const { color_requirements, color_intensity } = params;
-    const colors = color_requirements.split('');
-    
-    if (colors.length === 1) {
-      // Monocolor
-      return { [colors[0]]: landCount, colorless: 0 };
-    }
-    
-    // Multi-color distribution
-    const distribution: Record<string, number> = {};
-    let totalIntensity = 0;
-    
-    // Calculate total color intensity
-    for (const color of colors) {
-      const intensity = color_intensity?.[color] || 5; // Default to 5 if not specified
-      distribution[color] = intensity;
-      totalIntensity += intensity;
-    }
-    
-    // Reserve slots for dual/utility lands
-    const reservedSlots = Math.min(Math.floor(landCount * 0.3), colors.length * 2);
-    const availableSlots = landCount - reservedSlots;
-    
-    // Distribute available slots by color intensity
-    for (const color of colors) {
-      const ratio = distribution[color] / totalIntensity;
-      distribution[color] = Math.round(availableSlots * ratio);
-    }
-    
-    distribution.dual = reservedSlots;
-    distribution.utility = Math.max(0, landCount - Object.values(distribution).reduce((sum, val) => sum + val, 0));
-    
-    return distribution;
-  }
-
-  /**
-   * Generate land recommendations based on format and budget
-   */
-  private async generateLandRecommendations(
-    params: ManaBaseParams,
-    colorDistribution: Record<string, number>
-  ): Promise<ManaBaseRecommendations> {
-    const { format, budget, color_requirements, special_requirements } = params;
-    const colors = color_requirements.split('');
-    
-    const recommendations: ManaBaseRecommendations = {
-      basics: [],
-      duals: [],
-      utility: [],
-      budget_alternatives: []
-    };
-    
-    // Basic lands
-    const basicNames = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' };
-    for (const color of colors) {
-      const count = colorDistribution[color] || 0;
-      if (count > 0) {
-        recommendations.basics.push({
-          name: basicNames[color as keyof typeof basicNames],
-          count,
-          reason: `Primary ${color} source`
-        });
-      }
-    }
-    
-    // Dual lands by format and budget
-    if (colors.length > 1) {
-      const dualCount = colorDistribution.dual || 0;
-
-      if (budget === 'budget') {
-        recommendations.budget_alternatives = this.distributeCycleCounts(dualCount, [
-          {
-            name: 'Taplands',
-            reason: 'Budget-friendly fixing',
-            example: 'Temple of Epiphany, Tranquil Cove'
-          }
-        ], dualCount);
-        return recommendations;
-      }
-
-      const dualCycles: DualCyclePlan[] = [];
-      
-      if (format === 'legacy' || format === 'vintage') {
-        if (budget === 'no_limit' || budget === 'expensive') {
-          dualCycles.push({
-            name: 'Original Dual Lands',
-            reason: 'Best fixing available',
-            example: `Tundra (${colors.includes('W') && colors.includes('U') ? 'W/U' : 'etc'})`
-          });
-        }
-      }
-      
-      if (format === 'modern' || format === 'legacy' || format === 'vintage') {
-        dualCycles.push({
-          name: 'Fetchlands',
-          reason: 'Perfect mana fixing',
-          example: 'Polluted Delta, Scalding Tarn'
-        });
-        
-        dualCycles.push({
-          name: 'Shocklands',
-          reason: 'Fetchable duals',
-          example: 'Steam Vents, Hallowed Fountain'
-        });
-      }
-      
-      if (format === 'standard' || format === 'pioneer') {
-        dualCycles.push({
-          name: 'Painlands',
-          reason: 'Immediate access',
-          example: 'Shivan Reef, Adarkar Wastes'
-        });
-        
-        dualCycles.push({
-          name: 'Checklands',
-          reason: 'Untapped mid-game',
-          example: 'Drowned Catacomb, Glacial Fortress'
-        });
-      }
-
-      recommendations.duals = this.distributeCycleCounts(dualCount, dualCycles, 4);
-    }
-    
-    // Utility lands
-    const utilityCount = colorDistribution.utility || 0;
-    if (utilityCount > 0 && special_requirements.includes('utility_lands')) {
-      recommendations.utility.push({
-        name: 'Utility Lands',
-        count: utilityCount,
-        reason: 'Additional value',
-        example: 'Ghost Quarter, Mutavault'
-      });
-    }
-    
-    return recommendations;
-  }
-
-  /**
-   * Format the mana base response
-   */
-  private formatManaBaseResponse(
-    params: ManaBaseParams,
-    landCount: number,
-    colorDistribution: Record<string, number>,
-    recommendations: ManaBaseRecommendations
-  ): string {
-    let response = `**Mana Base Suggestion**\n\n`;
-    
-    // Overview
-    response += `🎯 **Overview:**\n`;
-    response += `• Colors: ${params.color_requirements}\n`;
-    response += `• Strategy: ${params.strategy}\n`;
-    response += `• Total Lands: ${landCount}/${params.deck_size}\n`;
-    if (params.format) {
-      response += `• Format: ${params.format}\n`;
-    }
-    response += `• Budget: ${params.budget}\n\n`;
-    
-    // Land count breakdown
-    response += `📊 **Land Distribution:**\n`;
-    for (const [color, count] of Object.entries(colorDistribution)) {
-      if (count > 0 && color !== 'dual' && color !== 'utility') {
-        const colorName = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' }[color as keyof typeof colorDistribution] || color;
-        response += `• ${colorName}: ${count} lands\n`;
-      }
-    }
-    if (colorDistribution.dual) {
-      response += `• Dual/Fixing: ${colorDistribution.dual} lands\n`;
-    }
-    if (colorDistribution.utility) {
-      response += `• Utility: ${colorDistribution.utility} lands\n`;
-    }
-    response += '\n';
-    
-    // Basic lands
-    if (recommendations.basics.length > 0) {
-      response += `🏔️ **Basic Lands:**\n`;
-      for (const basic of recommendations.basics) {
-        response += `• ${basic.count}x ${basic.name}\n`;
-      }
-      response += '\n';
-    }
-    
-    // Dual lands
-    if (recommendations.duals.length > 0) {
-      response += `🌈 **Dual Lands:**\n`;
-      for (const dual of recommendations.duals) {
-        response += `• ${dual.count}x ${dual.name}\n`;
-        response += `  💡 *${dual.reason}*\n`;
-        if (dual.example) {
-          response += `  📝 Example: ${dual.example}\n`;
-        }
-      }
-      response += '\n';
-    }
-    
-    // Utility lands
-    if (recommendations.utility.length > 0) {
-      response += `🛠️ **Utility Lands:**\n`;
-      for (const utility of recommendations.utility) {
-        response += `• ${utility.count}x ${utility.name}\n`;
-        response += `  💡 *${utility.reason}*\n`;
-        if (utility.example) {
-          response += `  📝 Example: ${utility.example}\n`;
-        }
-      }
-      response += '\n';
-    }
-    
-    // Budget alternatives
-    if (recommendations.budget_alternatives.length > 0) {
-      response += `💰 **Budget Alternatives:**\n`;
-      for (const alt of recommendations.budget_alternatives) {
-        response += `• ${alt.count}x ${alt.name}\n`;
-        response += `  💡 *${alt.reason}*\n`;
-        if (alt.example) {
-          response += `  📝 Example: ${alt.example}\n`;
-        }
-      }
-      response += '\n';
-    }
-    
-    // Additional recommendations
-    response += `💡 **Additional Tips:**\n`;
-    
-    if (params.strategy === 'aggro') {
-      response += `• Prioritize lands that enter untapped\n`;
-      response += `• Consider fewer utility lands for speed\n`;
-    } else if (params.strategy === 'control') {
-      response += `• Include more utility lands for late game\n`;
-      response += `• Consider lands with card selection\n`;
-    } else if (params.strategy === 'combo') {
-      response += `• Focus on consistency over speed\n`;
-      response += `• Include tutoring lands if available\n`;
-    }
-    
-    if (params.color_requirements.length > 2) {
-      response += `• Three+ color decks need excellent mana fixing\n`;
-      response += `• Consider green ramp spells for color fixing\n`;
-    }
-    
-    return response;
   }
 }
