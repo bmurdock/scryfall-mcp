@@ -1,5 +1,6 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
+import { normalizeLowercaseString, normalizeTrimmedString } from '../utils/input-normalization.js';
 import {
   buildSynergyQueries,
   getFallbackQueries
@@ -89,26 +90,30 @@ export class FindSynergisticCardsTool {
     }
 
     const params = args as FindSynergisticCardsInput;
+    const normalizedFocusCard = normalizeTrimmedString(params.focus_card);
+    const normalizedSynergyType = normalizeLowercaseString(params.synergy_type);
+    const normalizedFormat = normalizeLowercaseString(params.format);
+    const normalizedExcludeColors = normalizeLowercaseString(params.exclude_colors);
 
-    if (!params.focus_card || typeof params.focus_card !== 'string') {
+    if (!normalizedFocusCard || typeof normalizedFocusCard !== 'string') {
       throw new ValidationError('Focus card is required and must be a string');
     }
 
-    if (params.synergy_type) {
+    if (normalizedSynergyType) {
       const validTypes = ['tribal', 'combo', 'archetype', 'keyword', 'theme', 'mechanic'];
-      if (!validTypes.includes(params.synergy_type)) {
+      if (typeof normalizedSynergyType !== 'string' || !validTypes.includes(normalizedSynergyType)) {
         throw new ValidationError(`Synergy type must be one of: ${validTypes.join(', ')}`);
       }
     }
 
-    if (params.format) {
+    if (normalizedFormat) {
       const validFormats = ['standard', 'modern', 'legacy', 'vintage', 'commander', 'pioneer', 'brawl', 'standardbrawl'];
-      if (!validFormats.includes(params.format)) {
+      if (typeof normalizedFormat !== 'string' || !validFormats.includes(normalizedFormat)) {
         throw new ValidationError(`Format must be one of: ${validFormats.join(', ')}`);
       }
     }
 
-    if (params.exclude_colors && typeof params.exclude_colors !== 'string') {
+    if (normalizedExcludeColors && typeof normalizedExcludeColors !== 'string') {
       throw new ValidationError('Exclude colors must be a string');
     }
 
@@ -134,10 +139,10 @@ export class FindSynergisticCardsTool {
     }
 
     return {
-      focus_card: params.focus_card.trim(),
-      synergy_type: params.synergy_type,
-      format: params.format,
-      exclude_colors: params.exclude_colors,
+      focus_card: normalizedFocusCard,
+      synergy_type: typeof normalizedSynergyType === 'string' ? normalizedSynergyType : undefined,
+      format: typeof normalizedFormat === 'string' ? normalizedFormat : undefined,
+      exclude_colors: typeof normalizedExcludeColors === 'string' ? normalizedExcludeColors : undefined,
       max_cmc: params.max_cmc,
       include_lands: includeLands,
       limit,

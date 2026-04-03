@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SearchCardsTool } from '../src/tools/search-cards.js';
 import { GetCardTool } from '../src/tools/get-card.js';
+import { GetCardPricesTool } from '../src/tools/get-card-prices.js';
 import { QueryRulesTool } from '../src/tools/query-rules.js';
 import { SearchFormatStaplesTool } from '../src/tools/search-format-staples.js';
 import { SearchAlternativesTool } from '../src/tools/search-alternatives.js';
@@ -155,6 +156,43 @@ describe('MCP Tools', () => {
         include_variations: true,
         price_range: { min: 0.5, max: 2.0, currency: 'usd' }
       });
+    });
+
+    it('should normalize enum-like search inputs and nested currency fields', async () => {
+      mockScryfallClient.searchCards.mockResolvedValue({
+        total_cards: 1,
+        has_more: false,
+        data: [{
+          id: 'test-id',
+          name: 'Lightning Bolt',
+          mana_cost: '{R}',
+          type_line: 'Instant',
+          oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          set_name: 'Alpha',
+          rarity: 'common',
+          prices: { usd: '1.00' },
+          legalities: { modern: 'legal' }
+        }]
+      });
+
+      const result = await tool.execute({
+        query: '  lightning bolt  ',
+        format: 'JSON',
+        unique: 'PRINTS',
+        direction: 'DESC',
+        order: 'USD',
+        price_range: { min: 0.5, max: 2.0, currency: 'USD' }
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        query: 'lightning bolt',
+        unique: 'prints',
+        direction: 'desc',
+        order: 'usd',
+        price_range: { min: 0.5, max: 2.0, currency: 'usd' }
+      }));
+      expect(result.content[0].text.trim().startsWith('{')).toBe(true);
     });
   });
 
@@ -327,6 +365,33 @@ describe('MCP Tools', () => {
         })
       );
     });
+
+    it('should normalize format, tier, role, and color identity inputs', async () => {
+      mockScryfallClient.searchCards.mockResolvedValue({
+        total_cards: 0,
+        has_more: false,
+        data: []
+      });
+
+      const result = await tool.execute({
+        format: ' COMMANDER ',
+        tier: 'BUDGET',
+        role: 'COUNTERSPELLS',
+        color_identity: ' Grixis '
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        order: 'usd',
+        query: expect.stringContaining('f:commander')
+      }));
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        query: expect.stringContaining('id:ubr')
+      }));
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        query: expect.stringContaining('(o:counter AND o:spell)')
+      }));
+    });
   });
 
   describe('SearchAlternativesTool', () => {
@@ -424,6 +489,36 @@ describe('MCP Tools', () => {
           query: expect.not.stringContaining('t:Legendary')
         })
       );
+    });
+
+    it('should normalize direction and format inputs', async () => {
+      const targetCard = {
+        id: 'target-id',
+        name: 'Lightning Bolt',
+        cmc: 1,
+        type_line: 'Instant',
+        prices: { usd: '1.00' }
+      };
+
+      mockScryfallClient.getCard.mockResolvedValue(targetCard);
+      mockScryfallClient.searchCards.mockResolvedValue({
+        total_cards: 0,
+        has_more: false,
+        data: []
+      });
+
+      const result = await tool.execute({
+        target_card: ' Lightning Bolt ',
+        direction: 'CHEAPER',
+        format: 'MODERN'
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockScryfallClient.getCard).toHaveBeenCalledWith({ identifier: 'Lightning Bolt' });
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        order: 'usd',
+        query: expect.stringContaining('f:modern')
+      }));
     });
   });
 
@@ -542,6 +637,74 @@ describe('MCP Tools', () => {
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Foundry Inspector');
     });
+
+    it('should normalize synergy parameters defensively', async () => {
+      const focusCard = {
+        id: 'focus-id',
+        name: 'Serra Angel',
+        type_line: 'Creature — Angel',
+        oracle_text: 'Flying, vigilance'
+      };
+
+      mockScryfallClient.getCard.mockResolvedValue(focusCard);
+      mockScryfallClient.searchCards.mockResolvedValue({
+        total_cards: 0,
+        has_more: false,
+        data: []
+      });
+
+      const result = await tool.execute({
+        focus_card: ' Serra Angel ',
+        synergy_type: 'KEYWORD',
+        format: 'COMMANDER',
+        exclude_colors: ' RB '
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockScryfallClient.getCard).toHaveBeenCalledWith({ identifier: 'Serra Angel' });
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        query: expect.stringContaining('legal:commander')
+      }));
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        query: expect.stringContaining('-c:r')
+      }));
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        query: expect.stringContaining('-c:b')
+      }));
+    });
+  });
+
+  describe('GetCardPricesTool', () => {
+    let tool: GetCardPricesTool;
+
+    beforeEach(() => {
+      tool = new GetCardPricesTool(mockScryfallClient);
+    });
+
+    it('should normalize currency and format context inputs', async () => {
+      mockScryfallClient.getCard.mockResolvedValue({
+        id: 'test-id',
+        name: 'Lightning Bolt',
+        mana_cost: '{R}',
+        type_line: 'Instant',
+        oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+        set_name: 'Alpha',
+        rarity: 'common',
+        prices: { usd: '1.00' },
+        legalities: { modern: 'legal' }
+      });
+
+      const result = await tool.execute({
+        card_identifier: ' Lightning Bolt ',
+        currency: 'USD',
+        format_context: 'MODERN'
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockScryfallClient.getCard).toHaveBeenCalledWith({ identifier: 'Lightning Bolt' });
+      expect(result.content[0].text).toContain('Paper');
+      expect(result.content[0].text).toContain('MODERN Legality');
+    });
   });
 
   describe('BatchCardAnalysisTool', () => {
@@ -648,6 +811,30 @@ describe('MCP Tools', () => {
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Cards not found: Nonexistent Card');
     });
+
+    it('should normalize analysis enums and trim card list entries', async () => {
+      mockScryfallClient.getCard.mockResolvedValue({
+        id: 'test-id',
+        name: 'Lightning Bolt',
+        mana_cost: '{R}',
+        type_line: 'Instant',
+        cmc: 1,
+        legalities: { modern: 'legal' },
+        prices: { usd: '1.50' },
+        color_identity: ['R']
+      });
+
+      const result = await tool.execute({
+        card_list: [' Lightning Bolt '],
+        analysis_type: 'PRICES',
+        currency: 'USD'
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockScryfallClient.getCard).toHaveBeenCalledWith({ identifier: 'Lightning Bolt' });
+      expect(result.content[0].text).toContain('Price Analysis');
+      expect(result.content[0].text).toContain('USD 1.50');
+    });
   });
 
   describe('AnalyzeDeckCompositionTool', () => {
@@ -695,6 +882,29 @@ describe('MCP Tools', () => {
       expect(result.content[0].text).toContain('1 CMC: 4');
       expect(result.content[0].text).toContain('lands: 20');
     });
+
+    it('should normalize format and strategy inputs', async () => {
+      mockScryfallClient.getCard.mockResolvedValue({
+        id: 'bolt-id',
+        name: 'Lightning Bolt',
+        cmc: 1,
+        type_line: 'Instant',
+        oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+        rarity: 'common',
+        prices: { usd: '1.00' },
+        color_identity: ['R']
+      });
+
+      const result = await tool.execute({
+        deck_list: 'Lightning Bolt',
+        format: 'MODERN',
+        strategy: 'AGGRO'
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Strategy: aggro');
+      expect(result.content[0].text).toContain('Format: modern');
+    });
   });
 
   describe('SuggestManaBaseTool', () => {
@@ -721,6 +931,22 @@ describe('MCP Tools', () => {
       const totalRecommended = recommendationCounts.reduce((sum, count) => sum + count, 0);
 
       expect(totalRecommended).toBe(24);
+    });
+
+    it('should normalize strategy, budget, and special requirements inputs', async () => {
+      const result = await tool.execute({
+        color_requirements: ' wu ',
+        deck_size: 60,
+        format: 'MODERN',
+        strategy: 'MIDRANGE',
+        budget: 'MODERATE',
+        special_requirements: ['UTILITY_LANDS', ' enters_untapped ']
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Colors: WU');
+      expect(result.content[0].text).toContain('Strategy: midrange');
+      expect(result.content[0].text).toContain('Budget: moderate');
     });
   });
 });

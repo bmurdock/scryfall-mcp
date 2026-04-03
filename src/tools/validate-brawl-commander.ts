@@ -3,6 +3,7 @@ import { ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
 import { validateCardIdentifier } from '../utils/validators.js';
 import { formatCard } from '../utils/formatters.js';
 import { FormattedCard } from '../types/mcp-types.js';
+import { normalizeLowercaseString, normalizeTrimmedString } from '../utils/input-normalization.js';
 
 interface ValidateBrawlCommanderInput {
   card_identifier: string;
@@ -46,23 +47,25 @@ export class ValidateBrawlCommanderTool {
     }
 
     const params = args as ValidateBrawlCommanderInput;
+    const normalizedIdentifier = normalizeTrimmedString(params.card_identifier);
+    const normalizedFormat = normalizeLowercaseString(params.format);
 
-    if (!params.card_identifier || typeof params.card_identifier !== 'string') {
+    if (!normalizedIdentifier || typeof normalizedIdentifier !== 'string') {
       throw new ValidationError('Card identifier is required and must be a string');
     }
 
-    if (!params.format || typeof params.format !== 'string') {
+    if (!normalizedFormat || typeof normalizedFormat !== 'string') {
       throw new ValidationError('Format is required and must be a string');
     }
 
     const validFormats = ['brawl', 'standardbrawl'];
-    if (!validFormats.includes(params.format)) {
+    if (!validFormats.includes(normalizedFormat)) {
       throw new ValidationError(`Format must be one of: ${validFormats.join(', ')}`);
     }
 
     return {
-      card_identifier: params.card_identifier.trim(),
-      format: params.format as 'brawl' | 'standardbrawl'
+      card_identifier: normalizedIdentifier,
+      format: normalizedFormat as 'brawl' | 'standardbrawl'
     };
   }
 

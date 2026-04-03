@@ -1,6 +1,7 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError } from '../types/mcp-types.js';
 import { formatSearchResultsAsText } from '../utils/formatters.js';
+import { normalizeLowercaseString, normalizeTrimmedString } from '../utils/input-normalization.js';
 
 interface SearchFormatStaplesInput {
   format: string;
@@ -103,25 +104,29 @@ export class SearchFormatStaplesTool {
     }
 
     const params = args as SearchFormatStaplesInput;
+    const normalizedFormat = normalizeLowercaseString(params.format);
+    const normalizedTier = normalizeLowercaseString(params.tier);
+    const normalizedRole = normalizeLowercaseString(params.role);
+    const normalizedColorIdentity = normalizeTrimmedString(params.color_identity);
 
-    if (!params.format || typeof params.format !== 'string') {
+    if (!normalizedFormat || typeof normalizedFormat !== 'string') {
       throw new ValidationError('Format is required and must be a string');
     }
 
     const validFormats = ['standard', 'modern', 'legacy', 'vintage', 'commander', 'pioneer', 'brawl', 'standardbrawl'];
-    if (!validFormats.includes(params.format)) {
+    if (!validFormats.includes(normalizedFormat)) {
       throw new ValidationError(`Format must be one of: ${validFormats.join(', ')}`);
     }
 
-    const tier = params.tier || 'competitive';
+    const tier = (typeof normalizedTier === 'string' ? normalizedTier : undefined) || 'competitive';
     const validTiers = ['top', 'competitive', 'budget', 'fringe'];
     if (!validTiers.includes(tier)) {
       throw new ValidationError(`Tier must be one of: ${validTiers.join(', ')}`);
     }
 
-    if (params.role) {
+    if (normalizedRole) {
       const validRoles = ['removal', 'threats', 'utility', 'lands', 'ramp', 'draw', 'counterspells'];
-      if (!validRoles.includes(params.role)) {
+      if (typeof normalizedRole !== 'string' || !validRoles.includes(normalizedRole)) {
         throw new ValidationError(`Role must be one of: ${validRoles.join(', ')}`);
       }
     }
@@ -138,10 +143,10 @@ export class SearchFormatStaplesTool {
     }
 
     return {
-      format: params.format,
+      format: normalizedFormat,
       tier,
-      role: params.role,
-      color_identity: params.color_identity,
+      role: typeof normalizedRole === 'string' ? normalizedRole : undefined,
+      color_identity: typeof normalizedColorIdentity === 'string' ? normalizedColorIdentity : undefined,
       max_price: params.max_price,
       limit
     };

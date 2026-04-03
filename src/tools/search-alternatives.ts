@@ -2,6 +2,7 @@ import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
 import { formatSearchResultsAsText } from '../utils/formatters.js';
 import { ScryfallCard } from '../types/scryfall-api.js';
+import { normalizeLowercaseString, normalizeTrimmedString } from '../utils/input-normalization.js';
 
 interface SearchAlternativesInput {
   target_card: string;
@@ -88,23 +89,26 @@ export class SearchAlternativesTool {
     }
 
     const params = args as SearchAlternativesInput;
+    const normalizedTargetCard = normalizeTrimmedString(params.target_card);
+    const normalizedDirection = normalizeLowercaseString(params.direction);
+    const normalizedFormat = normalizeLowercaseString(params.format);
 
-    if (!params.target_card || typeof params.target_card !== 'string') {
+    if (!normalizedTargetCard || typeof normalizedTargetCard !== 'string') {
       throw new ValidationError('Target card is required and must be a string');
     }
 
-    if (!params.direction || typeof params.direction !== 'string') {
+    if (!normalizedDirection || typeof normalizedDirection !== 'string') {
       throw new ValidationError('Direction is required and must be a string');
     }
 
     const validDirections = ['cheaper', 'upgrade', 'similar'];
-    if (!validDirections.includes(params.direction)) {
+    if (!validDirections.includes(normalizedDirection)) {
       throw new ValidationError(`Direction must be one of: ${validDirections.join(', ')}`);
     }
 
-    if (params.format) {
+    if (normalizedFormat) {
       const validFormats = ['standard', 'modern', 'legacy', 'vintage', 'commander', 'pioneer'];
-      if (!validFormats.includes(params.format)) {
+      if (typeof normalizedFormat !== 'string' || !validFormats.includes(normalizedFormat)) {
         throw new ValidationError(`Format must be one of: ${validFormats.join(', ')}`);
       }
     }
@@ -132,9 +136,9 @@ export class SearchAlternativesTool {
     }
 
     return {
-      target_card: params.target_card.trim(),
-      direction: params.direction,
-      format: params.format,
+      target_card: normalizedTargetCard,
+      direction: normalizedDirection,
+      format: typeof normalizedFormat === 'string' ? normalizedFormat : undefined,
       max_price: params.max_price,
       min_price: params.min_price,
       preserve_function: preserveFunction,

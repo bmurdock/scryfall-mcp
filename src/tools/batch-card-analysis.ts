@@ -1,6 +1,7 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError, ScryfallAPIError, BatchCardAnalysisParams } from '../types/mcp-types.js';
 import { MagicFormat, Prices, ScryfallCard } from '../types/scryfall-api.js';
+import { normalizeLowercaseString, normalizeStringArray } from '../utils/input-normalization.js';
 
 const getPriceForCurrency = (prices: Prices, currency: string): string | undefined =>
   prices[currency as keyof Prices];
@@ -69,36 +70,41 @@ export class BatchCardAnalysisTool {
     }
 
     const params = args as BatchCardAnalysisParams;
+    const normalizedCardList = normalizeStringArray(params.card_list);
+    const normalizedAnalysisType = normalizeLowercaseString(params.analysis_type);
+    const normalizedFormat = normalizeLowercaseString(params.format);
+    const normalizedCurrency = normalizeLowercaseString(params.currency);
+    const normalizedGroupBy = normalizeLowercaseString(params.group_by);
 
-    if (!Array.isArray(params.card_list) || params.card_list.length === 0) {
+    if (!Array.isArray(normalizedCardList) || normalizedCardList.length === 0) {
       throw new ValidationError('Card list is required and must be a non-empty array');
     }
 
-    if (params.card_list.length > 100) {
+    if (normalizedCardList.length > 100) {
       throw new ValidationError('Card list cannot exceed 100 cards');
     }
 
-    if (!params.card_list.every((card: string) => typeof card === 'string' && card.trim().length > 0)) {
+    if (!normalizedCardList.every((card: string) => typeof card === 'string' && card.trim().length > 0)) {
       throw new ValidationError('All cards in the list must be non-empty strings');
     }
 
-    if (!params.analysis_type || typeof params.analysis_type !== 'string') {
+    if (!normalizedAnalysisType || typeof normalizedAnalysisType !== 'string') {
       throw new ValidationError('Analysis type is required and must be a string');
     }
 
     const validAnalysisTypes = ['legality', 'prices', 'synergy', 'composition', 'comprehensive'];
-    if (!validAnalysisTypes.includes(params.analysis_type)) {
+    if (!validAnalysisTypes.includes(normalizedAnalysisType)) {
       throw new ValidationError(`Analysis type must be one of: ${validAnalysisTypes.join(', ')}`);
     }
 
-    if (params.format) {
+    if (normalizedFormat) {
       const validFormats = ['standard', 'modern', 'legacy', 'vintage', 'commander', 'pioneer'];
-      if (!validFormats.includes(params.format)) {
+      if (typeof normalizedFormat !== 'string' || !validFormats.includes(normalizedFormat)) {
         throw new ValidationError(`Format must be one of: ${validFormats.join(', ')}`);
       }
     }
 
-    const currency = params.currency || 'usd';
+    const currency = (typeof normalizedCurrency === 'string' ? normalizedCurrency : undefined) || 'usd';
     const validCurrencies = ['usd', 'eur', 'tix'];
     if (!validCurrencies.includes(currency)) {
       throw new ValidationError(`Currency must be one of: ${validCurrencies.join(', ')}`);
@@ -109,20 +115,20 @@ export class BatchCardAnalysisTool {
       throw new ValidationError('Include suggestions must be a boolean');
     }
 
-    if (params.group_by) {
+    if (normalizedGroupBy) {
       const validGroupBy = ['type', 'cmc', 'color', 'rarity', 'price_range'];
-      if (!validGroupBy.includes(params.group_by)) {
+      if (typeof normalizedGroupBy !== 'string' || !validGroupBy.includes(normalizedGroupBy)) {
         throw new ValidationError(`Group by must be one of: ${validGroupBy.join(', ')}`);
       }
     }
 
     return {
-      card_list: params.card_list.map((card: string) => card.trim()),
-      analysis_type: params.analysis_type,
-      format: params.format as MagicFormat | undefined,
-      currency,
+      card_list: normalizedCardList.map((card: string) => card.trim()),
+      analysis_type: normalizedAnalysisType as ValidatedBatchCardAnalysisParams['analysis_type'],
+      format: normalizedFormat as MagicFormat | undefined,
+      currency: currency as ValidatedBatchCardAnalysisParams['currency'],
       include_suggestions: includeSuggestions,
-      group_by: params.group_by
+      group_by: typeof normalizedGroupBy === 'string' ? normalizedGroupBy : undefined
     };
   }
 

@@ -1,6 +1,7 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError } from '../types/mcp-types.js';
 import { Color, Rarity, ScryfallCard } from '../types/scryfall-api.js';
+import { normalizeLowercaseString, normalizeTrimmedString } from '../utils/input-normalization.js';
 
 interface AnalyzeDeckCompositionInput {
   deck_list: string;
@@ -83,19 +84,22 @@ export class AnalyzeDeckCompositionTool {
     }
 
     const params = args as AnalyzeDeckCompositionInput;
+    const normalizedFormat = normalizeLowercaseString(params.format);
+    const normalizedStrategy = normalizeLowercaseString(params.strategy);
+    const normalizedCommander = normalizeTrimmedString(params.commander);
 
     if (!params.deck_list || typeof params.deck_list !== 'string') {
       throw new ValidationError('Deck list is required and must be a string');
     }
 
-    if (params.format) {
+    if (normalizedFormat) {
       const validFormats = ['standard', 'modern', 'legacy', 'vintage', 'commander', 'pioneer', 'brawl', 'standardbrawl'];
-      if (!validFormats.includes(params.format)) {
+      if (typeof normalizedFormat !== 'string' || !validFormats.includes(normalizedFormat)) {
         throw new ValidationError(`Format must be one of: ${validFormats.join(', ')}`);
       }
     }
 
-    const strategy = params.strategy || 'unknown';
+    const strategy = (typeof normalizedStrategy === 'string' ? normalizedStrategy : undefined) || 'unknown';
     const validStrategies = ['aggro', 'midrange', 'control', 'combo', 'ramp', 'tribal', 'unknown'];
     if (!validStrategies.includes(strategy)) {
       throw new ValidationError(`Strategy must be one of: ${validStrategies.join(', ')}`);
@@ -103,9 +107,9 @@ export class AnalyzeDeckCompositionTool {
 
     return {
       deck_list: params.deck_list.trim(),
-      format: params.format,
+      format: typeof normalizedFormat === 'string' ? normalizedFormat : undefined,
       strategy,
-      commander: params.commander
+      commander: typeof normalizedCommander === 'string' ? normalizedCommander : undefined
     };
   }
 

@@ -1,5 +1,10 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError } from '../types/mcp-types.js';
+import {
+  normalizeLowercaseString,
+  normalizeStringArray,
+  normalizeTrimmedString
+} from '../utils/input-normalization.js';
 
 interface SuggestManaBaseInput {
   color_requirements: string;
@@ -145,14 +150,19 @@ export class SuggestManaBaseTool {
     }
 
     const params = args as SuggestManaBaseInput;
+    const normalizedColorRequirements = normalizeTrimmedString(params.color_requirements);
+    const normalizedFormat = normalizeLowercaseString(params.format);
+    const normalizedStrategy = normalizeLowercaseString(params.strategy);
+    const normalizedBudget = normalizeLowercaseString(params.budget);
+    const normalizedSpecialRequirements = normalizeStringArray(params.special_requirements);
 
-    if (!params.color_requirements || typeof params.color_requirements !== 'string') {
+    if (!normalizedColorRequirements || typeof normalizedColorRequirements !== 'string') {
       throw new ValidationError('Color requirements are required');
     }
 
     // Validate color requirements format
     const validColors = new Set(['W', 'U', 'B', 'R', 'G']);
-    const colors = params.color_requirements.toUpperCase();
+    const colors = normalizedColorRequirements.toUpperCase();
     for (const color of colors) {
       if (!validColors.has(color)) {
         throw new ValidationError(`Invalid color: ${color}. Use W, U, B, R, G`);
@@ -164,27 +174,38 @@ export class SuggestManaBaseTool {
       throw new ValidationError('Deck size must be between 40 and 250');
     }
 
-    const strategy = params.strategy || 'midrange';
+    const strategy = (typeof normalizedStrategy === 'string' ? normalizedStrategy : undefined) || 'midrange';
     const validStrategies = ['aggro', 'midrange', 'control', 'combo', 'ramp'];
     if (!validStrategies.includes(strategy)) {
       throw new ValidationError(`Strategy must be one of: ${validStrategies.join(', ')}`);
     }
 
-    const budget = params.budget || 'moderate';
+    const budget = (typeof normalizedBudget === 'string' ? normalizedBudget : undefined) || 'moderate';
     const validBudgets = ['budget', 'moderate', 'expensive', 'no_limit'];
     if (!validBudgets.includes(budget)) {
       throw new ValidationError(`Budget must be one of: ${validBudgets.join(', ')}`);
     }
 
+    const validSpecialRequirements = ['enters_untapped', 'basic_types', 'nonbasic_hate_protection', 'utility_lands', 'combo_lands'];
+    const specialRequirements = Array.isArray(normalizedSpecialRequirements)
+      ? normalizedSpecialRequirements.map(requirement =>
+        typeof requirement === 'string' ? requirement.trim().toLowerCase() : requirement
+      )
+      : [];
+
+    if (!specialRequirements.every(requirement => typeof requirement === 'string' && validSpecialRequirements.includes(requirement))) {
+      throw new ValidationError(`Special requirements must be drawn from: ${validSpecialRequirements.join(', ')}`);
+    }
+
     return {
       color_requirements: colors,
       deck_size,
-      format: params.format,
+      format: typeof normalizedFormat === 'string' ? normalizedFormat : undefined,
       strategy,
       average_cmc: params.average_cmc,
       budget,
       color_intensity: params.color_intensity,
-      special_requirements: params.special_requirements || []
+      special_requirements: specialRequirements
     };
   }
 

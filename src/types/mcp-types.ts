@@ -1,51 +1,53 @@
 import { z } from "zod";
 import { MagicFormat } from "./scryfall-api.js";
+import {
+  trimmedString,
+  normalizedEnum
+} from "../utils/input-normalization.js";
 
 // Tool Parameter Schemas
 export const SearchCardsParamsSchema = z.object({
-  query: z.string().min(1, "Query cannot be empty"),
+  query: trimmedString(1, "Query cannot be empty"),
   limit: z.number().int().min(1).max(175).optional().default(20),
   page: z.number().int().min(1).optional().default(1),
-  format: z.enum(["json", "text"]).optional().default("text"),
+  format: normalizedEnum(["json", "text"]).optional().default("text"),
   include_extras: z.boolean().optional().default(false),
-  order: z
-    .enum([
-      "name",
-      "released",
-      "cmc",
-      "power",
-      "toughness",
-      "artist",
-      "set",
-      "rarity",
-      "color",
-      "usd",
-      "eur",
-      "tix",
-      "edhrec",
-      "penny",
-      "review",
-    ])
-    .optional(),
-  unique: z.enum(["cards", "art", "prints"]).optional().default("cards"),
-  direction: z.enum(["asc", "desc", "auto"]).optional().default("auto"),
+  order: normalizedEnum([
+    "name",
+    "released",
+    "cmc",
+    "power",
+    "toughness",
+    "artist",
+    "set",
+    "rarity",
+    "color",
+    "usd",
+    "eur",
+    "tix",
+    "edhrec",
+    "penny",
+    "review",
+  ]).optional(),
+  unique: normalizedEnum(["cards", "art", "prints"]).optional().default("cards"),
+  direction: normalizedEnum(["asc", "desc", "auto"]).optional().default("auto"),
   include_multilingual: z.boolean().optional().default(false),
   include_variations: z.boolean().optional().default(false),
   price_range: z
     .object({
       min: z.number().min(0).optional(),
       max: z.number().min(0).optional(),
-      currency: z.enum(["usd", "eur", "tix"]).optional().default("usd"),
+      currency: normalizedEnum(["usd", "eur", "tix"]).optional().default("usd"),
     })
     .optional(),
   arena_only: z.boolean().optional().default(false),
 });
 
 export const GetCardParamsSchema = z.object({
-  identifier: z.string().min(1, "Identifier cannot be empty"),
-  set: z.string().length(3).optional(),
-  lang: z.string().length(2).optional().default("en"),
-  face: z.enum(["front", "back"]).optional(),
+  identifier: trimmedString(1, "Identifier cannot be empty"),
+  set: z.preprocess((value) => typeof value === "string" ? value.trim().toLowerCase() : value, z.string().length(3)).optional(),
+  lang: z.preprocess((value) => typeof value === "string" ? value.trim().toLowerCase() : value, z.string().length(2)).optional().default("en"),
+  face: normalizedEnum(["front", "back"]).optional(),
   include_image: z.boolean().optional().default(true),
 });
 
@@ -63,38 +65,34 @@ export interface BatchCardAnalysisParams {
 }
 
 export const GetCardPricesParamsSchema = z.object({
-  card_identifier: z.string().min(1, "Card identifier cannot be empty"),
-  currency: z.enum(["usd", "eur", "tix"]).optional().default("usd"),
-  format_context: z
-    .enum(["standard", "modern", "legacy", "vintage", "commander", "pioneer"])
-    .optional(),
+  card_identifier: trimmedString(1, "Card identifier cannot be empty"),
+  currency: normalizedEnum(["usd", "eur", "tix"]).optional().default("usd"),
+  format_context: normalizedEnum(["standard", "modern", "legacy", "vintage", "commander", "pioneer"]).optional(),
   include_alternatives: z.boolean().optional().default(false),
   include_history: z.boolean().optional().default(false),
 });
 
 export const RandomCardParamsSchema = z.object({
-  query: z.string().optional(),
-  format: z.enum(["standard", "modern", "legacy", "vintage", "commander", "pioneer"]).optional(),
-  archetype: z.enum(["aggro", "control", "combo", "midrange", "ramp", "tribal"]).optional(),
+  query: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string()).optional(),
+  format: normalizedEnum(["standard", "modern", "legacy", "vintage", "commander", "pioneer"]).optional(),
+  archetype: normalizedEnum(["aggro", "control", "combo", "midrange", "ramp", "tribal"]).optional(),
   price_range: z
     .object({
       min: z.number().min(0).optional(),
       max: z.number().min(0).optional(),
-      currency: z.enum(["usd", "eur", "tix"]).optional().default("usd"),
+      currency: normalizedEnum(["usd", "eur", "tix"]).optional().default("usd"),
     })
     .optional(),
   exclude_reprints: z.boolean().optional().default(false),
-  similar_to: z.string().optional(),
-  rarity_preference: z.enum(["common", "uncommon", "rare", "mythic"]).optional(),
+  similar_to: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string()).optional(),
+  rarity_preference: normalizedEnum(["common", "uncommon", "rare", "mythic"]).optional(),
 });
 
 export const SearchSetsParamsSchema = z.object({
-  query: z.string().optional(),
-  type: z
-    .enum(["core", "expansion", "masters", "commander", "draft_innovation", "funny"])
-    .optional(),
-  released_after: z.string().datetime().optional(),
-  released_before: z.string().datetime().optional(),
+  query: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string()).optional(),
+  type: normalizedEnum(["core", "expansion", "masters", "commander", "draft_innovation", "funny"]).optional(),
+  released_after: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().datetime()).optional(),
+  released_before: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().datetime()).optional(),
 });
 
 // Inferred Types
@@ -106,28 +104,24 @@ export type SearchSetsParams = z.infer<typeof SearchSetsParamsSchema>;
 
 // Build Scryfall Query Parameters
 export const BuildQueryParamsSchema = z.object({
-  natural_query: z
-    .string()
-    .min(1, "Natural query cannot be empty")
-    .max(500, "Natural query too long (max 500 characters)"),
+  natural_query: trimmedString(1, "Natural query cannot be empty")
+    .pipe(z.string().max(500, "Natural query too long (max 500 characters)")),
 
-  format: z
-    .enum([
-      "standard",
-      "modern",
-      "legacy",
-      "vintage",
-      "commander",
-      "pioneer",
-      "brawl",
-      "pauper",
-      "penny",
-      "historic",
-      "alchemy",
-    ])
-    .optional(),
+  format: normalizedEnum([
+    "standard",
+    "modern",
+    "legacy",
+    "vintage",
+    "commander",
+    "pioneer",
+    "brawl",
+    "pauper",
+    "penny",
+    "historic",
+    "alchemy",
+  ]).optional(),
 
-  optimize_for: z.enum(["precision", "recall", "discovery", "budget"]).default("precision"),
+  optimize_for: normalizedEnum(["precision", "recall", "discovery", "budget"]).default("precision"),
 
   max_results: z
     .number()
@@ -138,7 +132,7 @@ export const BuildQueryParamsSchema = z.object({
   price_budget: z
     .object({
       max: z.number().min(0, "Price budget cannot be negative"),
-      currency: z.enum(["usd", "eur", "tix"]).default("usd"),
+      currency: normalizedEnum(["usd", "eur", "tix"]).default("usd"),
     })
     .optional(),
 
