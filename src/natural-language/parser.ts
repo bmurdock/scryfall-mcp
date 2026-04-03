@@ -15,16 +15,7 @@ import {
   AbilityConcept,
   MechanicConcept,
   ManaCostConcept,
-  StatConcept,
-  LegalityConcept,
-  RoleConcept,
-  StrategyConcept,
-  SetConcept,
-  RarityConcept,
-  TimeConcept,
-  NameConcept,
-  FlavorConcept,
-  ArtistConcept
+  StatConcept
 } from './types.js';
 import { ColorPatternEngine } from './extractors/color-extractor.js';
 import { ArchetypePatternEngine } from './extractors/archetype-extractor.js';
@@ -33,6 +24,14 @@ import { TypePatternEngine } from './extractors/type-extractor.js';
 import { FormatPatternEngine } from './extractors/format-extractor.js';
 
 type ExtractedConcepts = Omit<ParsedQuery, 'confidence' | 'ambiguities' | 'context'>;
+type SupplementalConcepts = Pick<
+  ExtractedConcepts,
+  'keywords' | 'abilities' | 'mechanics' | 'manaCost' | 'powerToughness'
+>;
+type DeferredConcepts = Pick<
+  ExtractedConcepts,
+  'legality' | 'deckRoles' | 'strategies' | 'sets' | 'rarity' | 'timeConstraints' | 'namePatterns' | 'flavorText' | 'artist'
+>;
 
 /**
  * Main natural language parser that coordinates all extraction engines
@@ -58,22 +57,8 @@ export class NaturalLanguageParser {
     const archetypes = this.archetypeEngine.extract(cleanedText);
     const priceConstraints = this.priceEngine.extract(cleanedText);
     const formats = this.formatEngine.extract(cleanedText);
-    
-    // Extract additional concepts (placeholder implementations)
-    const keywords = this.extractKeywords(cleanedText);
-    const abilities = this.extractAbilities(cleanedText);
-    const mechanics = this.extractMechanics(cleanedText);
-    const manaCost = this.extractManaCost(cleanedText);
-    const powerToughness = this.extractPowerToughness(cleanedText);
-    const legality = this.extractLegality();
-    const deckRoles = this.extractDeckRoles();
-    const strategies = this.extractStrategies();
-    const sets = this.extractSets();
-    const rarity = this.extractRarity();
-    const timeConstraints = this.extractTimeConstraints();
-    const namePatterns = this.extractNamePatterns();
-    const flavorText = this.extractFlavorText();
-    const artist = this.extractArtist();
+    const supplementalConcepts = this.extractSupplementalConcepts(cleanedText);
+    const deferredConcepts = this.createDeferredConcepts();
     
     // Resolve conflicts and calculate confidence
     const resolved = this.resolveConflicts({
@@ -83,20 +68,8 @@ export class NaturalLanguageParser {
       archetypes,
       priceConstraints,
       formats,
-      keywords,
-      abilities,
-      mechanics,
-      manaCost,
-      powerToughness,
-      legality,
-      deckRoles,
-      strategies,
-      sets,
-      rarity,
-      timeConstraints,
-      namePatterns,
-      flavorText,
-      artist
+      ...supplementalConcepts,
+      ...deferredConcepts
     });
     
     return {
@@ -117,9 +90,43 @@ export class NaturalLanguageParser {
       .replace(/\s+/g, ' ')        // Normalize whitespace
       .trim();
   }
+
+  /**
+   * Supplemental extraction currently supported directly in this parser.
+   * Higher-signal domains such as color, type, price, archetype, and format
+   * live in dedicated extractor modules instead.
+   */
+  private extractSupplementalConcepts(text: string): SupplementalConcepts {
+    return {
+      keywords: this.extractKeywords(text),
+      abilities: this.extractAbilities(text),
+      mechanics: this.extractMechanics(text),
+      manaCost: this.extractManaCost(text),
+      powerToughness: this.extractPowerToughness(text),
+    };
+  }
+
+  /**
+   * Concept categories that are part of the ParsedQuery contract but do not yet
+   * have dedicated extractors in this parser. Keeping them centralized makes the
+   * current capability boundary explicit instead of implying hidden logic.
+   */
+  private createDeferredConcepts(): DeferredConcepts {
+    return {
+      legality: [],
+      deckRoles: [],
+      strategies: [],
+      sets: [],
+      rarity: [],
+      timeConstraints: [],
+      namePatterns: [],
+      flavorText: [],
+      artist: [],
+    };
+  }
   
   /**
-   * Extract keyword abilities (placeholder implementation)
+   * Extract directly named evergreen and common keyword abilities.
    */
   private extractKeywords(text: string): KeywordConcept[] {
     const keywords = ['flying', 'trample', 'haste', 'vigilance', 'lifelink', 'deathtouch', 'first strike', 'double strike'];
@@ -129,7 +136,7 @@ export class NaturalLanguageParser {
   }
   
   /**
-   * Extract complex abilities (placeholder implementation)
+   * Extract a small set of directly named multi-word abilities.
    */
   private extractAbilities(text: string): AbilityConcept[] {
     const abilities = ['enters the battlefield', 'when dies', 'tap to add', 'sacrifice to'];
@@ -139,7 +146,7 @@ export class NaturalLanguageParser {
   }
   
   /**
-   * Extract game mechanics (placeholder implementation)
+   * Extract a small set of explicitly named mechanics.
    */
   private extractMechanics(text: string): MechanicConcept[] {
     const mechanics = ['storm', 'cascade', 'flashback', 'madness', 'cycling'];
@@ -149,7 +156,7 @@ export class NaturalLanguageParser {
   }
   
   /**
-   * Extract mana cost constraints (placeholder implementation)
+   * Extract simple mana-value constraints from natural-language text.
    */
   private extractManaCost(text: string): ManaCostConcept[] {
     const patterns = [
@@ -173,7 +180,7 @@ export class NaturalLanguageParser {
   }
   
   /**
-   * Extract power/toughness constraints (placeholder implementation)
+   * Extract simple power/toughness constraints from natural-language text.
    */
   private extractPowerToughness(text: string): StatConcept[] {
     const patterns = [
@@ -206,24 +213,12 @@ export class NaturalLanguageParser {
   }
   
   /**
-   * Placeholder implementations for remaining extractors
-   */
-  private extractLegality(): LegalityConcept[] { return []; }
-  private extractDeckRoles(): RoleConcept[] { return []; }
-  private extractStrategies(): StrategyConcept[] { return []; }
-  private extractSets(): SetConcept[] { return []; }
-  private extractRarity(): RarityConcept[] { return []; }
-  private extractTimeConstraints(): TimeConcept[] { return []; }
-  private extractNamePatterns(): NameConcept[] { return []; }
-  private extractFlavorText(): FlavorConcept[] { return []; }
-  private extractArtist(): ArtistConcept[] { return []; }
-  
-  /**
    * Resolve conflicts between extracted concepts
    */
   private resolveConflicts(concepts: ExtractedConcepts): ParsedQuery {
-    // For now, return concepts as-is
-    // TODO: Implement conflict resolution logic
+    // Only color conflicts currently require normalization. Other concept
+    // categories are returned as extracted until we add dedicated conflict
+    // resolution rules for them.
     return {
       colors: this.resolveColorConflicts(concepts.colors),
       types: concepts.types,
