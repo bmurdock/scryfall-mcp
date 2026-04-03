@@ -21,6 +21,8 @@ export class ScryfallClient {
   private readonly baseUrl = "https://api.scryfall.com";
   private rateLimiter: RateLimiter;
   private cache: CacheService;
+  private readonly timeoutMs = () =>
+    EnvValidators.scryfallTimeoutMs(process.env.SCRYFALL_TIMEOUT_MS);
 
   constructor(
     rateLimiter?: RateLimiter,
@@ -43,116 +45,21 @@ export class ScryfallClient {
       "Scryfall API request started"
     );
     // Check circuit breaker
-    if (this.rateLimiter.isCircuitOpen()) {
-      const error = new ScryfallAPIError(
-        "Circuit breaker is open due to consecutive failures",
-        503,
-        "circuit_breaker_open"
-      );
-      mcpLogger.error(
-        {
-          requestId: reqId,
-          url,
-          error,
-          operation: "scryfall_request",
-        },
-        "Circuit breaker is open"
-      );
-      throw error;
-    }
+    this.assertCircuitClosed(url, reqId);
 
     // Wait for rate limit clearance
     await this.rateLimiter.waitForClearance();
 
     try {
-      // Timeout support via AbortController
-      const timeoutMs = EnvValidators.scryfallTimeoutMs(process.env.SCRYFALL_TIMEOUT_MS);
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-      const response = await fetch(url, {
-        headers: {
-          ...REQUIRED_HEADERS,
-          "User-Agent": this.userAgent,
-        },
-        signal: controller.signal,
-      }).finally(() => clearTimeout(timeout));
-
-      // Handle the response body properly
-      let data;
-      let responseText: string | null = null;
-      
-      try {
-        // First try to get the response text for debugging purposes
-        const clonedResponse = response.clone();
-        responseText = await clonedResponse.text();
-        
-        // Then parse as JSON
-        data = JSON.parse(responseText);
-      } catch (jsonError) {
-        const originalError = jsonError instanceof Error ? jsonError.message : "Unknown JSON error";
-        const debugText = responseText ? responseText.substring(0, 200) : "Unable to read response";
-        
-        throw new Error(
-          `Failed to parse JSON response. Original error: ${originalError}. Response preview: ${debugText}...`
-        );
-      }
+      const response = await this.fetchJsonResponse(url);
+      const data = await this.parseJsonResponse<T>(response);
 
       if (response.status >= 400) {
-        this.rateLimiter.recordError(response.status);
-
-        if (response.status === 429) {
-          const retryAfter = response.headers.get("retry-after");
-          await this.rateLimiter.handleRateLimitResponse(retryAfter || undefined);
-          const rateLimitError = new RateLimitError(
-            "Rate limit exceeded",
-            retryAfter ? parseInt(retryAfter) : undefined
-          );
-          mcpLogger.warn(
-            {
-              requestId: reqId,
-              url,
-              status: response.status,
-              retryAfter,
-              operation: "scryfall_request",
-            },
-            "Rate limit exceeded"
-          );
-          throw rateLimitError;
-        }
-
-        const error = data as ScryfallError;
-        const apiError = new ScryfallAPIError(
-          error.details || `HTTP ${response.status}`,
-          response.status,
-          error.code,
-          error.details
-        );
-        mcpLogger.error(
-          {
-            requestId: reqId,
-            url,
-            status: response.status,
-            error: apiError,
-            operation: "scryfall_request",
-          },
-          "Scryfall API error"
-        );
-        throw apiError;
+        throw await this.buildHttpError(response, data, url, reqId);
       }
 
       this.rateLimiter.recordSuccess();
-      const duration = Date.now() - startTime;
-      mcpLogger.debug(
-        {
-          requestId: reqId,
-          url,
-          status: response.status,
-          duration,
-          operation: "scryfall_request",
-        },
-        "Scryfall API request completed"
-      );
+      this.logRequestCompletion(url, reqId, response.status, startTime);
 
       return data;
     } catch (error) {
@@ -160,25 +67,151 @@ export class ScryfallClient {
         throw error;
       }
 
-      this.rateLimiter.recordError();
-      const isAbort = error instanceof Error && error.name === 'AbortError';
-      const networkError = new ScryfallAPIError(
-        `Network error: ${error instanceof Error ? error.message : "Unknown error"}`,
-        0,
-        isAbort ? "timeout" : "network_error"
+      throw this.buildNetworkError(error, url, reqId);
+    }
+  }
+
+  private assertCircuitClosed(url: string, requestId: string): void {
+    if (!this.rateLimiter.isCircuitOpen()) {
+      return;
+    }
+
+    const error = new ScryfallAPIError(
+      "Circuit breaker is open due to consecutive failures",
+      503,
+      "circuit_breaker_open"
+    );
+    mcpLogger.error(
+      {
+        requestId,
+        url,
+        error,
+        operation: "scryfall_request",
+      },
+      "Circuit breaker is open"
+    );
+    throw error;
+  }
+
+  private async fetchJsonResponse(url: string): Promise<Response> {
+    return this.fetchWithTimeout(url, {
+      ...REQUIRED_HEADERS,
+      "User-Agent": this.userAgent,
+    });
+  }
+
+  private async fetchWithTimeout(url: string, headers: Record<string, string>, timeoutMs = this.timeoutMs()): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    return fetch(url, {
+      headers,
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
+  }
+
+  private async parseJsonResponse<T>(response: Response): Promise<T> {
+    let responseText: string | null = null;
+
+    try {
+      responseText = await response.clone().text();
+      return JSON.parse(responseText) as T;
+    } catch (jsonError) {
+      const originalError = jsonError instanceof Error ? jsonError.message : "Unknown JSON error";
+      const debugText = responseText ? responseText.substring(0, 200) : "Unable to read response";
+
+      throw new Error(
+        `Failed to parse JSON response. Original error: ${originalError}. Response preview: ${debugText}...`
       );
-      mcpLogger.error(
+    }
+  }
+
+  private async buildHttpError(
+    response: Response,
+    data: unknown,
+    url: string,
+    requestId: string
+  ): Promise<ScryfallAPIError | RateLimitError> {
+    this.rateLimiter.recordError(response.status);
+
+    if (response.status === 429) {
+      const retryAfter = response.headers.get("retry-after");
+      await this.rateLimiter.handleRateLimitResponse(retryAfter || undefined);
+      const rateLimitError = new RateLimitError(
+        "Rate limit exceeded",
+        retryAfter ? parseInt(retryAfter, 10) : undefined
+      );
+      mcpLogger.warn(
         {
-          requestId: reqId,
+          requestId,
           url,
-          error: networkError,
-          originalError: error instanceof Error ? error.message : String(error),
+          status: response.status,
+          retryAfter,
           operation: "scryfall_request",
         },
-        "Network error during Scryfall request"
+        "Rate limit exceeded"
       );
-      throw networkError;
+      return rateLimitError;
     }
+
+    const error = data as ScryfallError;
+    const apiError = new ScryfallAPIError(
+      error.details || `HTTP ${response.status}`,
+      response.status,
+      error.code,
+      error.details
+    );
+    mcpLogger.error(
+      {
+        requestId,
+        url,
+        status: response.status,
+        error: apiError,
+        operation: "scryfall_request",
+      },
+      "Scryfall API error"
+    );
+    return apiError;
+  }
+
+  private buildNetworkError(error: unknown, url: string, requestId: string): ScryfallAPIError {
+    this.rateLimiter.recordError();
+    const isAbort = error instanceof Error && error.name === "AbortError";
+    const networkError = new ScryfallAPIError(
+      `Network error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      0,
+      isAbort ? "timeout" : "network_error"
+    );
+    mcpLogger.error(
+      {
+        requestId,
+        url,
+        error: networkError,
+        originalError: error instanceof Error ? error.message : String(error),
+        operation: "scryfall_request",
+      },
+      "Network error during Scryfall request"
+    );
+    return networkError;
+  }
+
+  private logRequestCompletion(
+    url: string,
+    requestId: string,
+    status: number,
+    startTime: number
+  ): void {
+    const duration = Date.now() - startTime;
+    mcpLogger.debug(
+      {
+        requestId,
+        url,
+        status,
+        duration,
+        operation: "scryfall_request",
+      },
+      "Scryfall API request completed"
+    );
   }
 
   /**
@@ -423,16 +456,11 @@ export class ScryfallClient {
    */
   async downloadBulkData(downloadUri: string): Promise<ScryfallCard[]> {
     try {
-      const timeoutMs = EnvValidators.scryfallTimeoutMs(process.env.SCRYFALL_TIMEOUT_MS) * 2; // Double timeout for bulk downloads
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-      const response = await fetch(downloadUri, {
-        headers: {
-          "User-Agent": this.userAgent,
-        },
-        signal: controller.signal,
-      }).finally(() => clearTimeout(timeout));
+      const response = await this.fetchWithTimeout(
+        downloadUri,
+        { "User-Agent": this.userAgent },
+        this.timeoutMs() * 2
+      );
 
       if (response.status >= 400) {
         throw new ScryfallAPIError(
