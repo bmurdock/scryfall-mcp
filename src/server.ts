@@ -18,6 +18,13 @@ import {
   generateRequestId,
   wrapError,
 } from "./types/mcp-errors.js";
+import {
+  createNamedRegistry,
+  createUriRegistry,
+  PromptContract,
+  ResourceContract,
+  ToolContract,
+} from "./types/mcp-registry.js";
 import { EnvValidators } from "./utils/env-parser.js";
 
 // Tools
@@ -51,9 +58,9 @@ export class ScryfallMCPServer {
   private readonly scryfallClient: ScryfallClient;
   private readonly rateLimiter: RateLimiter;
   private readonly cache: CacheService;
-  private readonly tools: Map<string, any>;
-  private readonly resources: Map<string, any>;
-  private readonly prompts: Map<string, any>;
+  private readonly tools: Map<string, ToolContract>;
+  private readonly resources: Map<string, ResourceContract>;
+  private readonly prompts: Map<string, PromptContract>;
 
   constructor() {
     // Initialize core services
@@ -61,38 +68,32 @@ export class ScryfallMCPServer {
     this.cache = new CacheService();
     this.scryfallClient = new ScryfallClient(this.rateLimiter, this.cache);
 
-    // Initialize tools
-    this.tools = new Map();
-    this.tools.set("search_cards", new SearchCardsTool(this.scryfallClient));
-    this.tools.set("get_card", new GetCardTool(this.scryfallClient));
-    this.tools.set("get_card_prices", new GetCardPricesTool(this.scryfallClient));
-    this.tools.set("random_card", new RandomCardTool(this.scryfallClient));
-    this.tools.set("search_sets", new SearchSetsTool(this.scryfallClient));
-    this.tools.set("query_rules", new QueryRulesTool());
-    this.tools.set("search_format_staples", new SearchFormatStaplesTool(this.scryfallClient));
-    this.tools.set("search_alternatives", new SearchAlternativesTool(this.scryfallClient));
-    this.tools.set("find_synergistic_cards", new FindSynergisticCardsTool(this.scryfallClient));
-    this.tools.set("batch_card_analysis", new BatchCardAnalysisTool(this.scryfallClient));
-    this.tools.set("validate_brawl_commander", new ValidateBrawlCommanderTool(this.scryfallClient));
-    this.tools.set("build_scryfall_query", new BuildScryfallQueryTool(this.scryfallClient));
-    this.tools.set("analyze_deck_composition", new AnalyzeDeckCompositionTool(this.scryfallClient));
-    this.tools.set("suggest_mana_base", new SuggestManaBaseTool(this.scryfallClient));
+    this.tools = createNamedRegistry<ToolContract>([
+      new SearchCardsTool(this.scryfallClient),
+      new GetCardTool(this.scryfallClient),
+      new GetCardPricesTool(this.scryfallClient),
+      new RandomCardTool(this.scryfallClient),
+      new SearchSetsTool(this.scryfallClient),
+      new QueryRulesTool(),
+      new SearchFormatStaplesTool(this.scryfallClient),
+      new SearchAlternativesTool(this.scryfallClient),
+      new FindSynergisticCardsTool(this.scryfallClient),
+      new BatchCardAnalysisTool(this.scryfallClient),
+      new ValidateBrawlCommanderTool(this.scryfallClient),
+      new BuildScryfallQueryTool(this.scryfallClient),
+      new AnalyzeDeckCompositionTool(this.scryfallClient),
+      new SuggestManaBaseTool(this.scryfallClient),
+    ]);
 
-    // Initialize resources
-    this.resources = new Map();
-    this.resources.set(
-      "card-database://bulk",
-      new CardDatabaseResource(this.scryfallClient, this.cache)
-    );
-    this.resources.set(
-      "set-database://all",
-      new SetDatabaseResource(this.scryfallClient, this.cache)
-    );
+    this.resources = createUriRegistry<ResourceContract>([
+      new CardDatabaseResource(this.scryfallClient, this.cache),
+      new SetDatabaseResource(this.scryfallClient, this.cache),
+    ]);
 
-    // Initialize prompts
-    this.prompts = new Map();
-    this.prompts.set("analyze_card", new AnalyzeCardPrompt(this.scryfallClient));
-    this.prompts.set("build_deck", new BuildDeckPrompt(this.scryfallClient));
+    this.prompts = createNamedRegistry<PromptContract>([
+      new AnalyzeCardPrompt(this.scryfallClient),
+      new BuildDeckPrompt(this.scryfallClient),
+    ]);
   }
 
   async setupHandlers(server: Server) {
