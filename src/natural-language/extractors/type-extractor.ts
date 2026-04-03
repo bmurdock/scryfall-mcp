@@ -8,11 +8,23 @@
 
 import { TypeConcept, SubtypeConcept } from '../types.js';
 
+type CardTypeDefinition = Pick<TypeConcept, 'type' | 'supertype' | 'confidence'> & {
+  function?: string;
+};
+
+type SubtypeCategory = SubtypeConcept['category'];
+
+interface SubtypeDefinition {
+  subtype: string;
+  category: SubtypeCategory;
+  confidence: number;
+}
+
 /**
  * Engine for extracting type concepts from natural language
  */
 export class TypePatternEngine {
-  private readonly cardTypes = new Map([
+  private readonly cardTypes = new Map<string, CardTypeDefinition>([
     // Primary types
     ['creature', { type: 'creature', confidence: 0.98 }],
     ['creatures', { type: 'creature', confidence: 0.98 }],
@@ -62,7 +74,7 @@ export class TypePatternEngine {
     ['sweeper', { function: 'wipe', confidence: 0.88 }]
   ]);
 
-  private readonly subtypes = new Map([
+  private readonly subtypes = new Map<string, SubtypeDefinition>([
     // Common creature types
     ['human', { subtype: 'human', category: 'creature', confidence: 0.90 }],
     ['humans', { subtype: 'human', category: 'creature', confidence: 0.90 }],
@@ -153,7 +165,7 @@ export class TypePatternEngine {
       if (lowerText.includes(pattern)) {
         concepts.push({
           subtype: definition.subtype,
-          category: definition.category as any,
+          category: definition.category,
           confidence: definition.confidence
         });
       }
