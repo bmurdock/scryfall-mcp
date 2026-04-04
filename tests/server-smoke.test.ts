@@ -1,19 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { ScryfallMCPServer } from '../src/server.js';
-
-function createSdkServer() {
-  return new Server(
-    { name: 'scryfall-mcp-test', version: '1.0.0' },
-    {
-      capabilities: {
-        tools: {},
-        resources: {},
-        prompts: {},
-      },
-    }
-  );
-}
+import { ScryfallMCPServer, createConfiguredServer } from '../src/server.js';
 
 async function invokeRequest(server: Server, method: string, params: Record<string, unknown> = {}) {
   const handlers = (server as unknown as { _requestHandlers: Map<string, (request: unknown) => Promise<unknown>> })._requestHandlers;
@@ -40,9 +27,13 @@ describe('MCP server smoke tests', () => {
   };
 
   beforeEach(async () => {
-    appServer = new ScryfallMCPServer();
-    sdkServer = createSdkServer();
-    await appServer.setupHandlers(sdkServer);
+    const configuredServer = await createConfiguredServer({
+      name: 'scryfall-mcp-test',
+      version: '1.0.0',
+    });
+
+    appServer = configuredServer.appServer;
+    sdkServer = configuredServer.sdkServer;
 
     mockScryfallClient = {
       searchCards: vi.fn(),

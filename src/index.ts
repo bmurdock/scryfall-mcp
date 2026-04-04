@@ -1,28 +1,12 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { ScryfallMCPServer } from './server.js';
+import { createConfiguredServer } from './server.js';
 import { mcpLogger } from './services/logger.js';
 
 async function main() {
-  const server = new Server(
-    {
-      name: 'scryfall-mcp-server',
-      version: '1.0.0',
-    },
-    {
-      capabilities: {
-        tools: {},
-        resources: {},
-        prompts: {},
-      },
-    }
-  );
-
-  const scryfallServer = new ScryfallMCPServer();
-  await scryfallServer.setupHandlers(server);
+  const { sdkServer, appServer } = await createConfiguredServer();
 
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await sdkServer.connect(transport);
 
   mcpLogger.info({ operation: 'startup' }, 'scryfall-mcp server started');
 
@@ -30,7 +14,7 @@ async function main() {
   const shutdown = async (signal: string) => {
     try {
       mcpLogger.info({ operation: 'shutdown', signal }, 'Shutting down server');
-      scryfallServer.destroy();
+      appServer.destroy();
     } finally {
       process.exit(0);
     }

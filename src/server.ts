@@ -51,6 +51,37 @@ import { SetDatabaseResource } from "./resources/set-database.js";
 import { AnalyzeCardPrompt } from "./prompts/analyze-card.js";
 import { BuildDeckPrompt } from "./prompts/build-deck.js";
 
+export const MCP_SERVER_INFO = {
+  name: "scryfall-mcp-server",
+  version: "1.0.0",
+} as const;
+
+export const MCP_SERVER_CAPABILITIES = {
+  tools: {},
+  resources: {},
+  prompts: {},
+} as const;
+
+export function createSdkServer(
+  serverInfo: { name: string; version: string } = MCP_SERVER_INFO
+): Server {
+  return new Server(serverInfo, {
+    capabilities: {
+      ...MCP_SERVER_CAPABILITIES,
+    },
+  });
+}
+
+export async function createConfiguredServer(
+  serverInfo: { name: string; version: string } = MCP_SERVER_INFO
+): Promise<{ sdkServer: Server; appServer: ScryfallMCPServer }> {
+  const sdkServer = createSdkServer(serverInfo);
+  const appServer = new ScryfallMCPServer();
+  await appServer.setupHandlers(sdkServer);
+
+  return { sdkServer, appServer };
+}
+
 /**
  * Main MCP Server for Scryfall integration
  */
