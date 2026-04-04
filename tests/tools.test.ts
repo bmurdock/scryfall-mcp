@@ -672,6 +672,71 @@ describe('MCP Tools', () => {
         query: expect.stringContaining('-c:b')
       }));
     });
+
+    it('should prioritize strategic synergies ahead of mechanical matches in the final output', async () => {
+      const focusCard = {
+        id: 'focus-id',
+        name: 'Test Focus',
+        type_line: 'Creature — Human Wizard',
+        oracle_text: 'Flying. Whenever you cast an instant or sorcery, create a token. At the beginning of your upkeep, draw a card.',
+        color_identity: ['U', 'R']
+      };
+
+      const strategicCard = {
+        id: 'strategic-id',
+        name: 'Young Pyromancer',
+        mana_cost: '{1}{R}',
+        type_line: 'Creature — Human Shaman',
+        oracle_text: 'Whenever you cast an instant or sorcery spell, create a 1/1 red Elemental creature token.',
+        edhrec_rank: 120,
+        set_name: 'Magic 2014',
+        rarity: 'rare',
+        prices: { usd: '1.50' },
+        legalities: { commander: 'legal' }
+      };
+
+      const mechanicalCard = {
+        id: 'mechanical-id',
+        name: 'Watcher of the Spheres',
+        mana_cost: '{1}{W}',
+        type_line: 'Creature — Bird Wizard',
+        oracle_text: 'Creature spells with flying you cast cost {1} less to cast.',
+        edhrec_rank: 400,
+        set_name: 'Core Set 2021',
+        rarity: 'uncommon',
+        prices: { usd: '0.25' },
+        legalities: { commander: 'legal' }
+      };
+
+      mockScryfallClient.getCard.mockResolvedValue(focusCard);
+      mockScryfallClient.searchCards.mockImplementation(async ({ query }: { query: string }) => {
+        if (query.includes('whenever you cast an instant or sorcery')) {
+          return { total_cards: 1, has_more: false, data: [strategicCard] };
+        }
+
+        if (query.includes('(o:"human" OR t:"human")')) {
+          return { total_cards: 1, has_more: false, data: [focusCard] };
+        }
+
+        if (query.includes('o:"flying"')) {
+          return { total_cards: 1, has_more: false, data: [mechanicalCard] };
+        }
+
+        return { total_cards: 0, has_more: false, data: [] };
+      });
+
+      const result = await tool.execute({ focus_card: 'Test Focus', format: 'commander', limit: 6 });
+      const text = result.content[0].text;
+
+      expect(result.isError).toBeUndefined();
+      expect(text).toContain('**🎯 Strategic Synergies:**');
+      expect(text).toContain('**⚡ Mechanical Synergies:**');
+      expect(text.indexOf('**🎯 Strategic Synergies:**')).toBeLessThan(text.indexOf('**⚡ Mechanical Synergies:**'));
+      expect(text).toContain('Young Pyromancer');
+      expect(text).toContain('Watcher of the Spheres');
+      expect(text).toContain('Triggers from spell casting');
+      expect(text).not.toContain('• **Test Focus**');
+    });
   });
 
   describe('GetCardPricesTool', () => {
@@ -905,6 +970,71 @@ describe('MCP Tools', () => {
       expect(result.content[0].text).toContain('Strategy: aggro');
       expect(result.content[0].text).toContain('Format: modern');
     });
+
+    it('should surface actionable warnings for an under-landed high-curve aggro shell', async () => {
+      const expensiveThreats = new Map([
+        ['Goldspan Dragon', { cmc: 5, price: '12.00' }],
+        ['Glorybringer', { cmc: 5, price: '7.50' }],
+        ['Thundermaw Hellkite', { cmc: 5, price: '18.00' }],
+        ['Terror of the Peaks', { cmc: 5, price: '25.00' }],
+        ['Skarrgan Hellkite', { cmc: 5, price: '6.50' }],
+        ['Leyline Tyrant', { cmc: 5, price: '8.50' }]
+      ]);
+
+      mockScryfallClient.getCard.mockImplementation(async ({ identifier }: { identifier: string }) => {
+        if (identifier === 'Mountain') {
+          return {
+            id: 'mountain-id',
+            name: 'Mountain',
+            cmc: 0,
+            type_line: 'Basic Land — Mountain',
+            rarity: 'common',
+            prices: { usd: '0.10' },
+            color_identity: ['R']
+          };
+        }
+
+        const threat = expensiveThreats.get(identifier);
+        if (!threat) {
+          throw new Error(`Unexpected card lookup: ${identifier}`);
+        }
+
+        return {
+          id: identifier.toLowerCase().replace(/\s+/g, '-'),
+          name: identifier,
+          cmc: threat.cmc,
+          type_line: 'Creature — Dragon',
+          oracle_text: 'Flying, haste',
+          rarity: 'mythic',
+          prices: { usd: threat.price },
+          color_identity: ['R']
+        };
+      });
+
+      const result = await tool.execute({
+        deck_list: [
+          '4 Mountain',
+          '3 Goldspan Dragon',
+          '3 Glorybringer',
+          '3 Thundermaw Hellkite',
+          '3 Terror of the Peaks',
+          '3 Skarrgan Hellkite',
+          '3 Leyline Tyrant'
+        ].join('\n'),
+        format: 'modern',
+        strategy: 'aggro'
+      });
+
+      const text = result.content[0].text;
+
+      expect(result.isError).toBeUndefined();
+      expect(text).toContain('Average CMC: 4.09');
+      expect(text).toContain('⚡ Mana curve too high for aggro');
+      expect(text).toContain('🌍 Consider adding 20 more lands');
+      expect(text).toContain('💰 Deck contains 6 expensive cards (total: $232.50)');
+      expect(text).toContain('• 3x Thundermaw Hellkite: $18.00 each');
+      expect(text).toContain('⭐ **Key Cards:**');
+    });
   });
 
   describe('SuggestManaBaseTool', () => {
@@ -947,6 +1077,33 @@ describe('MCP Tools', () => {
       expect(result.content[0].text).toContain('Colors: WU');
       expect(result.content[0].text).toContain('Strategy: midrange');
       expect(result.content[0].text).toContain('Budget: moderate');
+    });
+
+    it('should produce a coherent fixing plan for a three-color modern control deck', async () => {
+      const result = await tool.execute({
+        color_requirements: 'WUB',
+        deck_size: 60,
+        format: 'modern',
+        strategy: 'control',
+        budget: 'expensive',
+        average_cmc: 4.5,
+        special_requirements: ['utility_lands']
+      });
+
+      const text = result.content[0].text;
+      const recommendationCounts = Array.from(text.matchAll(/• (\d+)x /g))
+        .map((match) => Number(match[1]));
+      const totalRecommended = recommendationCounts.reduce((sum, count) => sum + count, 0);
+
+      expect(result.isError).toBeUndefined();
+      expect(text).toContain('• Colors: WUB');
+      expect(text).toContain('• Total Lands: 26/60');
+      expect(text).toContain('• Dual/Fixing: 6 lands');
+      expect(text).toContain('🌈 **Dual Lands:**');
+      expect(text).toContain('• 3x Fetchlands');
+      expect(text).toContain('• 3x Shocklands');
+      expect(text).toContain('• Include more utility lands for late game');
+      expect(totalRecommended).toBe(26);
     });
   });
 });

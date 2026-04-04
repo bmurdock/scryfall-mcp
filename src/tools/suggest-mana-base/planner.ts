@@ -96,11 +96,30 @@ export function calculateColorDistribution(
 
   const reservedSlots = Math.min(Math.floor(landCount * 0.3), colors.length * 2);
   const availableSlots = landCount - reservedSlots;
-
-  for (const color of colors) {
+  const exactAllocations = colors.map((color) => {
     const ratio = distribution[color] / totalIntensity;
-    distribution[color] = Math.round(availableSlots * ratio);
+    const exact = availableSlots * ratio;
+    return {
+      color,
+      exact,
+      base: Math.floor(exact),
+      fraction: exact - Math.floor(exact),
+    };
+  });
+
+  let assignedSlots = 0;
+  for (const allocation of exactAllocations) {
+    distribution[allocation.color] = allocation.base;
+    assignedSlots += allocation.base;
   }
+
+  let remainingSlots = availableSlots - assignedSlots;
+  exactAllocations
+    .sort((a, b) => b.fraction - a.fraction)
+    .slice(0, remainingSlots)
+    .forEach((allocation) => {
+      distribution[allocation.color] += 1;
+    });
 
   distribution.dual = reservedSlots;
   distribution.utility = Math.max(
