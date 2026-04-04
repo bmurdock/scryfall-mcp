@@ -1,6 +1,13 @@
 # Scryfall MCP Server
 
-A comprehensive Model Context Protocol (MCP) server that integrates with the Scryfall API to provide Magic: The Gathering card data and functionality to AI assistants like Claude.
+A comprehensive Model Context Protocol (MCP) server that integrates with the Scryfall API to provide Magic: The Gathering card data and functionality to AI assistants.
+
+This repository currently supports:
+
+- `stdio` as the stable default transport for local MCP clients
+- experimental `Streamable HTTP` as an additive transport for local-first HTTP workflows
+
+The core product remains the same in both modes: Scryfall-backed search, rules, and deckbuilding workflows for MTG.
 
 ## Features
 
@@ -83,14 +90,30 @@ A comprehensive Model Context Protocol (MCP) server that integrates with the Scr
 
 ## Usage
 
-### Development Mode
+### Transport Modes
+
+#### STDIO (stable default)
+
+Use stdio for local MCP clients such as Claude Desktop, Codex, and MCP Inspector. This remains the primary and best-supported transport.
+
 ```bash
 npm run dev
 ```
 
-### Production Mode
 ```bash
 npm start
+```
+
+#### Streamable HTTP (experimental)
+
+An additive HTTP entrypoint is available for local-first `Streamable HTTP` usage.
+
+```bash
+npm run dev:http
+```
+
+```bash
+npm run start:http
 ```
 
 ### Testing
@@ -109,6 +132,33 @@ npm run test:ui
 ```bash
 npm run inspector
 ```
+
+## HTTP Transport Status
+
+HTTP support is currently **experimental**.
+
+What that means:
+
+- stdio remains the recommended default
+- HTTP is additive, not a replacement
+- the implementation follows the official MCP `Streamable HTTP` transport path
+- the first implementation is intentionally local-first and conservative in scope
+
+Current HTTP behavior:
+
+- binds to `127.0.0.1` by default
+- exposes `POST|GET|DELETE /mcp`
+- exposes `GET /health`
+- rejects non-loopback browser-style `Origin` headers by default
+- can be configured with `HTTP_ALLOWED_ORIGINS` when a different origin policy is intentionally needed
+
+Current non-goals:
+
+- public internet deployment guidance
+- auth middleware or hosted production hardening
+- replacing stdio examples throughout the repo
+
+If you need a public-facing deployment model, treat the current HTTP support as a foundation rather than a finished hosting story.
 
 ## Project Docs
 
@@ -135,6 +185,24 @@ Add the following to your Claude Desktop configuration file:
 ```
 
 Replace `/absolute/path/to/scryfall-mcp` with the actual path to your installation.
+
+## HTTP Configuration
+
+Optional HTTP environment variables:
+
+- `HTTP_HOST` default `127.0.0.1`
+- `HTTP_PORT` default `3000`
+- `HTTP_MCP_PATH` default `/mcp`
+- `HTTP_HEALTH_PATH` default `/health`
+- `HTTP_ALLOWED_ORIGINS` optional comma-separated origin allowlist
+
+Example local HTTP startup:
+
+```bash
+HTTP_HOST=127.0.0.1 HTTP_PORT=3000 npm run start:http
+```
+
+This mode is intended for local or explicitly controlled environments. Do not treat the current HTTP entrypoint as production-ready public exposure without adding auth and deployment hardening.
 
 ## Tool Usage Examples
 
