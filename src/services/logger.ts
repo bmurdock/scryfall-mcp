@@ -1,12 +1,15 @@
 export {
   baseLogger,
   logger,
+  MCPLogger,
+  mcpLogger,
+} from './logger-core.js';
+
+export type {
   LogLevel,
   LogContext,
   PerformanceContext,
   ErrorContext,
-  MCPLogger,
-  mcpLogger,
 } from './logger-core.js';
 
 export {
