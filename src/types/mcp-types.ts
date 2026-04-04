@@ -91,8 +91,14 @@ export const RandomCardParamsSchema = z.object({
 export const SearchSetsParamsSchema = z.object({
   query: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string()).optional(),
   type: normalizedEnum(["core", "expansion", "masters", "commander", "draft_innovation", "funny"]).optional(),
-  released_after: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().datetime()).optional(),
-  released_before: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string().datetime()).optional(),
+  released_after: z.preprocess(
+    (value) => typeof value === "string" ? value.trim() : value,
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD date format")
+  ).optional(),
+  released_before: z.preprocess(
+    (value) => typeof value === "string" ? value.trim() : value,
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD date format")
+  ).optional(),
 });
 
 // Inferred Types

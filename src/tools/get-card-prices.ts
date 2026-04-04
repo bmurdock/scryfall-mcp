@@ -11,6 +11,12 @@ import { MagicFormat, Prices, ScryfallCard } from '../types/scryfall-api.js';
 const getPriceForCurrency = (prices: Prices, currency: string): string | undefined =>
   prices[currency as keyof Prices];
 
+const extractPrimaryCardType = (typeLine: string): string | null => {
+  const normalized = typeLine.toLowerCase().split('—')[0];
+  const typePriority = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker', 'land', 'battle'];
+  return typePriority.find(type => normalized.includes(type)) ?? null;
+};
+
 /**
  * MCP Tool for retrieving card price information
  */
@@ -63,8 +69,10 @@ export class GetCardPricesTool {
       }
 
       // Search for similar cards with different price ranges
-      const cheaperQuery = `t:${card.type_line.split(' ')[0]} cmc:${card.cmc} ${currency}<${currentPrice}`;
-      const expensiveQuery = `t:${card.type_line.split(' ')[0]} cmc:${card.cmc} ${currency}>${currentPrice}`;
+      const primaryType = extractPrimaryCardType(card.type_line || '');
+      const typeClause = primaryType ? `t:${primaryType}` : '';
+      const cheaperQuery = `${typeClause} cmc:${card.cmc} ${currency}<${currentPrice}`.trim();
+      const expensiveQuery = `${typeClause} cmc:${card.cmc} ${currency}>${currentPrice}`.trim();
 
       let alternatives = '\n\n**Alternatives:**';
 

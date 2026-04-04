@@ -2,7 +2,7 @@ import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
 import { validateCardIdentifier } from '../utils/validators.js';
 import { formatCard } from '../utils/formatters.js';
-import { FormattedCard } from '../types/mcp-types.js';
+import { ScryfallCard } from '../types/scryfall-api.js';
 import { normalizeLowercaseString, normalizeTrimmedString } from '../utils/input-normalization.js';
 
 interface ValidateBrawlCommanderInput {
@@ -82,7 +82,7 @@ export class ValidateBrawlCommanderTool {
       const formattedCard = formatCard(card);
 
       // Validate commander eligibility
-      const validation = this.validateCommander(formattedCard, params.format);
+      const validation = this.validateCommander(card, params.format);
 
       // Format response
       let responseText = `**Brawl Commander Validation: ${formattedCard.name}**\n\n`;
@@ -171,7 +171,7 @@ export class ValidateBrawlCommanderTool {
   /**
    * Validate if a card can be a Brawl commander
    */
-  private validateCommander(card: FormattedCard, format: 'brawl' | 'standardbrawl'): {
+  private validateCommander(card: ScryfallCard, format: 'brawl' | 'standardbrawl'): {
     isValid: boolean;
     commanderEligible: boolean;
     formatLegal: boolean;
