@@ -3,7 +3,7 @@ import { EnvValidators } from '../utils/env-parser.js';
 
 interface QueuedRequest {
   run: () => Promise<unknown>;
-  resolve: (value: unknown) => void;
+  resolve: (value?: unknown) => void;
   reject: (error: Error) => void;
   timestamp: number;
 }
@@ -33,13 +33,13 @@ export class RateLimiter {
    * Queues an operation so rate limiting and request completion stay serialized
    */
   async execute<T>(operation: () => Promise<T>): Promise<T> {
-    return new Promise((resolve, reject) => {
+    return new Promise<T>((resolve, reject) => {
       if (this.queue.length >= this.maxQueueSize) {
         return reject(new RateLimitError('Queue capacity exceeded'));
       }
       this.queue.push({
         run: operation as () => Promise<unknown>,
-        resolve,
+        resolve: (value) => resolve(value as T),
         reject,
         timestamp: Date.now()
       });

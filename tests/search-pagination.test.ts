@@ -121,6 +121,7 @@ describe("ScryfallClient search pagination", () => {
 
     const client = new ScryfallClient(
       {
+        execute: vi.fn(async (operation: () => Promise<unknown>) => operation()),
         waitForClearance: vi.fn().mockResolvedValue(undefined),
         recordSuccess: vi.fn(),
         recordError: vi.fn(),
@@ -147,6 +148,7 @@ describe("ScryfallClient search pagination", () => {
 
     const client = new ScryfallClient(
       {
+        execute: vi.fn(async (operation: () => Promise<unknown>) => operation()),
         waitForClearance: vi.fn().mockResolvedValue(undefined),
         recordSuccess: vi.fn(),
         recordError: vi.fn(),
