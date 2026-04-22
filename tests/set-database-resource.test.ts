@@ -71,4 +71,27 @@ describe("SetDatabaseResource", () => {
 
     await expect(resource.getSetTypes()).resolves.toEqual(["alchemy", "commander", "expansion"]);
   });
+
+  it("caches the serialized payload and returns the prebuilt snapshot on warm reads", async () => {
+    const getSets = vi.fn().mockResolvedValue([
+      createSet(),
+      createSet({ id: "set-2", code: "cmd", set_type: "commander" }),
+    ]);
+
+    const resource = new SetDatabaseResource(
+      {
+        getSets,
+      } as never,
+      cache
+    );
+
+    const first = await resource.getData();
+    const second = await resource.getData();
+
+    expect(getSets).toHaveBeenCalledTimes(1);
+    expect(typeof second).toBe("string");
+    expect(JSON.parse(first).source).toBe("fresh");
+    expect(JSON.parse(second).source).toBe("cache");
+    expect(JSON.parse(second).total_sets).toBe(2);
+  });
 });

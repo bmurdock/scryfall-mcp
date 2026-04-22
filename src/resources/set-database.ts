@@ -6,6 +6,15 @@ import { mcpLogger } from '../services/logger.js';
 import { REQUIRED_HEADERS } from '../types/mcp-types.js';
 import { EnvValidators } from '../utils/env-parser.js';
 
+type SetSnapshotMetadata = {
+  updatedAt: string;
+  totalSets: number;
+};
+
+const SET_DATA_KEY = CacheService.createSetKey();
+const SET_PAYLOAD_KEY = CacheService.createSetKey('serialized');
+const SET_METADATA_KEY = CacheService.createSetKey('metadata');
+
 /**
  * MCP Resource for accessing set database
  */
@@ -28,16 +37,29 @@ export class SetDatabaseResource {
    */
   async getData(): Promise<string> {
     try {
-      const sets = await this.getSetDataModel();
+      const now = Date.now();
+      if (now - this.lastUpdateCheck > this.updateCheckInterval) {
+        await this.checkForUpdates();
+        this.lastUpdateCheck = now;
+      }
 
-      return JSON.stringify({
-        object: 'list',
-        type: 'sets',
-        updated_at: new Date().toISOString(),
-        total_sets: sets.length,
-        data: sets,
-        source: 'fresh'
-      }, null, 2);
+      const cachedPayload = this.cache.getWithStats<string>(SET_PAYLOAD_KEY);
+      if (cachedPayload) {
+        return cachedPayload;
+      }
+
+      const sets = await this.getSetDataModel();
+      const updatedAt = new Date().toISOString();
+      const freshPayload = this.serializeSetPayload(sets, updatedAt, 'fresh');
+      const cachedSnapshot = this.serializeSetPayload(sets, updatedAt, 'cache');
+
+      this.cache.setWithType(SET_PAYLOAD_KEY, cachedSnapshot, 'set_data');
+      this.cache.setWithType(SET_METADATA_KEY, {
+        updatedAt,
+        totalSets: sets.length,
+      } satisfies SetSnapshotMetadata, 'set_data');
+
+      return freshPayload;
 
     } catch (error) {
       throw new ScryfallAPIError(
@@ -49,22 +71,29 @@ export class SetDatabaseResource {
   }
 
   private async getSetDataModel(): Promise<ScryfallSet[]> {
-    const now = Date.now();
-
-    if (now - this.lastUpdateCheck > this.updateCheckInterval) {
-      await this.checkForUpdates();
-      this.lastUpdateCheck = now;
-    }
-
-    const cacheKey = CacheService.createSetKey();
-    const cached = this.cache.getWithStats<ScryfallSet[]>(cacheKey);
+    const cached = this.cache.getWithStats<ScryfallSet[]>(SET_DATA_KEY);
     if (cached) {
       return cached;
     }
 
     const sets = await this.downloadSetData();
-    this.cache.setWithType(cacheKey, sets, 'set_data');
+    this.cache.setWithType(SET_DATA_KEY, sets, 'set_data');
     return sets;
+  }
+
+  private serializeSetPayload(
+    sets: ScryfallSet[],
+    updatedAt: string,
+    source: 'cache' | 'fresh'
+  ): string {
+    return JSON.stringify({
+      object: 'list',
+      type: 'sets',
+      updated_at: updatedAt,
+      total_sets: sets.length,
+      data: sets,
+      source
+    }, null, 2);
   }
 
   /**
@@ -82,6 +111,8 @@ export class SetDatabaseResource {
       if (!lastUpdate || lastUpdate < weekAgo) {
         // Clear old cache and mark for refresh
         this.cache.delete(cacheKey);
+        this.cache.delete(SET_PAYLOAD_KEY);
+        this.cache.delete(SET_METADATA_KEY);
         this.cache.set(lastUpdateKey, new Date().toISOString(), this.updateCheckInterval);
       }
 
@@ -199,8 +230,8 @@ export class SetDatabaseResource {
    */
   getMetadata() {
     const stats = this.cache.getStats();
-    const cacheKey = CacheService.createSetKey();
-    const ttl = this.cache.getTTL(cacheKey);
+    const ttl = this.cache.getTTL(SET_PAYLOAD_KEY);
+    const snapshot = this.cache.get<SetSnapshotMetadata>(SET_METADATA_KEY);
     
     return {
       uri: this.uri,
@@ -209,6 +240,8 @@ export class SetDatabaseResource {
       mimeType: this.mimeType,
       cache_stats: stats,
       cache_ttl_remaining: ttl,
+      snapshot_updated_at: snapshot?.updatedAt,
+      cached_total_sets: snapshot?.totalSets,
       last_update_check: new Date(this.lastUpdateCheck).toISOString(),
       next_update_check: new Date(this.lastUpdateCheck + this.updateCheckInterval).toISOString()
     };
@@ -218,8 +251,9 @@ export class SetDatabaseResource {
    * Forces a refresh of the set data
    */
   async forceRefresh(): Promise<void> {
-    const cacheKey = CacheService.createSetKey();
-    this.cache.delete(cacheKey);
+    this.cache.delete(SET_DATA_KEY);
+    this.cache.delete(SET_PAYLOAD_KEY);
+    this.cache.delete(SET_METADATA_KEY);
     this.lastUpdateCheck = 0;
     await this.getData(); // This will trigger a fresh download
   }
