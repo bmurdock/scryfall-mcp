@@ -16,6 +16,10 @@ import {
   SynergyLayer
 } from './find-synergistic-cards/types.js';
 
+const SEARCH_CONCURRENCY = 3;
+const MAX_PRIMARY_QUERY_CANDIDATES = 15;
+const MAX_FALLBACK_QUERY_CANDIDATES = 6;
+
 /**
  * MCP Tool for finding cards that synergize with a specific card, theme, or archetype
  */
@@ -167,33 +171,17 @@ export class FindSynergisticCardsTool {
       }
 
       // Build synergy search queries
-      const queries = buildSynergyQueries(focusCard, params);
+      const queries = this.prioritizeQueries(
+        buildSynergyQueries(focusCard, params),
+        MAX_PRIMARY_QUERY_CANDIDATES
+      );
 
       // Execute searches with multi-layered strategy
-      const allResults: SynergyCard[] = [];
-      for (let i = 0; i < queries.length; i++) {
-        const query = queries[i];
-        try {
-          const results = await this.scryfallClient.searchCards({
-            query,
-            limit: Math.ceil(params.limit / queries.length) + 5, // Get extra to account for filtering
-            order: 'edhrec'
-          });
-          
-          // Categorize results by search layer
-          const layer: SynergyLayer = i < 10 ? 'semantic' : (i < 20 ? 'exact' : 'thematic');
-          const layerResults: SynergyCard[] = results.data.map(card => ({
-            ...card,
-            _synergy_layer: layer,
-            _synergy_query: query
-          }));
-          
-          allResults.push(...layerResults);
-        } catch (error) {
-          // Continue with other queries if one fails
-          continue;
-        }
-      }
+      const allResults = await this.searchQueries(
+        queries,
+        params.limit,
+        index => this.getPrimaryLayer(index)
+      );
 
       // If no results and theme-based, try broader searches
       if (allResults.length === 0 && !focusCard) {
@@ -219,25 +207,17 @@ export class FindSynergisticCardsTool {
           fallbackBaseQuery += 'game:arena ';
         }
 
-        const fallbackQueries = getFallbackQueries(params.focus_card, fallbackBaseQuery);
-        for (const query of fallbackQueries) {
-          try {
-            const results = await this.scryfallClient.searchCards({
-              query,
-              limit: params.limit,
-              order: 'edhrec'
-            });
-            const fallbackResults: SynergyCard[] = results.data.map(card => ({
-              ...card,
-              _synergy_layer: 'thematic',
-              _synergy_query: query
-            }));
-            allResults.push(...fallbackResults);
-            if (allResults.length > 0) break; // Stop once we find some results
-          } catch (error) {
-            continue;
-          }
-        }
+        const fallbackQueries = this.prioritizeQueries(
+          getFallbackQueries(params.focus_card, fallbackBaseQuery),
+          MAX_FALLBACK_QUERY_CANDIDATES
+        );
+        const fallbackResults = await this.searchQueries(
+          fallbackQueries,
+          params.limit,
+          () => 'thematic',
+          1
+        );
+        allResults.push(...fallbackResults);
       }
 
       // Remove duplicates and filter results with layered prioritization
@@ -308,4 +288,78 @@ export class FindSynergisticCardsTool {
     }
   }
 
+  private prioritizeQueries(queries: string[], maxQueries: number): string[] {
+    return Array.from(new Set(queries.map(query => query.trim()).filter(Boolean))).slice(0, maxQueries);
+  }
+
+  private getPrimaryLayer(index: number): SynergyLayer {
+    if (index < 10) {
+      return 'semantic';
+    }
+
+    if (index < 20) {
+      return 'exact';
+    }
+
+    return 'thematic';
+  }
+
+  private async searchQueries(
+    queries: string[],
+    targetUniqueResults: number,
+    getLayer: (index: number) => SynergyLayer,
+    stopAfterUniqueResults = targetUniqueResults
+  ): Promise<SynergyCard[]> {
+    const allResults: SynergyCard[] = [];
+    const uniqueResultIds = new Set<string>();
+    let nextIndex = 0;
+    const perQueryLimit = this.getPerQueryLimit(queries.length, targetUniqueResults);
+    const workerCount = Math.min(Math.max(1, SEARCH_CONCURRENCY), queries.length);
+
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (nextIndex < queries.length && uniqueResultIds.size < stopAfterUniqueResults) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        const query = queries[currentIndex];
+
+        try {
+          const results = await this.scryfallClient.searchCards({
+            query,
+            limit: perQueryLimit,
+            order: 'edhrec'
+          });
+
+          const layer = getLayer(currentIndex);
+          for (const card of results.data) {
+            if (!uniqueResultIds.has(card.id)) {
+              uniqueResultIds.add(card.id);
+            }
+
+            allResults.push({
+              ...card,
+              _synergy_layer: layer,
+              _synergy_query: query
+            });
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+    });
+
+    await Promise.all(workers);
+
+    return allResults;
+  }
+
+  private getPerQueryLimit(queryCount: number, targetUniqueResults: number): number {
+    if (queryCount === 0) {
+      return targetUniqueResults;
+    }
+
+    return Math.min(
+      targetUniqueResults + 5,
+      Math.max(5, Math.ceil(targetUniqueResults / Math.min(queryCount, SEARCH_CONCURRENCY)) + 4)
+    );
+  }
 }

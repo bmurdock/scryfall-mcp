@@ -6,6 +6,7 @@ import { QueryRulesTool } from '../src/tools/query-rules.js';
 import { SearchFormatStaplesTool } from '../src/tools/search-format-staples.js';
 import { SearchAlternativesTool } from '../src/tools/search-alternatives.js';
 import { FindSynergisticCardsTool } from '../src/tools/find-synergistic-cards.js';
+import { buildSynergyQueries } from '../src/tools/find-synergistic-cards/query-builder.js';
 import { BatchCardAnalysisTool } from '../src/tools/batch-card-analysis.js';
 import { AnalyzeDeckCompositionTool } from '../src/tools/analyze-deck-composition.js';
 import { SuggestManaBaseTool } from '../src/tools/suggest-mana-base.js';
@@ -646,6 +647,49 @@ describe('MCP Tools', () => {
       const result = await tool.execute({ focus_card: 'artifact', synergy_type: 'theme' });
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Foundry Inspector');
+    });
+
+    it('should stop searching once enough unique synergy results are found', async () => {
+      const params = {
+        focus_card: 'artifact token graveyard counter',
+        synergy_type: 'theme' as const,
+        include_lands: true,
+        limit: 2,
+        arena_only: false
+      };
+      const totalQueries = buildSynergyQueries(null, params).length;
+      let searchCallCount = 0;
+
+      mockScryfallClient.getCard.mockRejectedValue(new ScryfallAPIError('Not found', 404));
+      mockScryfallClient.searchCards.mockImplementation(async ({ query }: { query: string }) => {
+        searchCallCount += 1;
+        return {
+          total_cards: 1,
+          has_more: false,
+          data: [{
+            id: `synergy-${searchCallCount}`,
+            name: `Card ${searchCallCount}`,
+            mana_cost: '{1}',
+            type_line: 'Artifact',
+            oracle_text: query,
+            set_name: 'Test Set',
+            rarity: 'uncommon',
+            prices: { usd: '0.25' },
+            legalities: { commander: 'legal' }
+          }]
+        };
+      });
+
+      const result = await tool.execute({
+        focus_card: params.focus_card,
+        synergy_type: params.synergy_type,
+        limit: params.limit
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(searchCallCount).toBeLessThan(totalQueries);
+      expect(result.content[0].text).toContain('Card 1');
+      expect(result.content[0].text).toContain('Card 2');
     });
 
     it('should normalize synergy parameters defensively', async () => {
