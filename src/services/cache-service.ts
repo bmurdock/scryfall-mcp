@@ -37,6 +37,7 @@ export class CacheService {
 
     const now = Date.now();
     if (now - entry.timestamp > entry.ttl) {
+      this.currentMemoryUsage -= this.calculateEntrySize(key, entry);
       this.cache.delete(key);
       return null;
     }
