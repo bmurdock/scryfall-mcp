@@ -42,6 +42,7 @@ export class CacheService {
       return null;
     }
 
+    this.touchEntry(key, entry);
     return entry.data as T;
   }
 
@@ -58,19 +59,15 @@ export class CacheService {
     // Calculate entry size
     const entrySize = this.calculateEntrySize(key, entry);
     entry.sizeBytes = entrySize;
-    
-    // Check if adding this entry would exceed limits
-    if (this.cache.size >= this.maxSize || 
-        this.currentMemoryUsage + entrySize > this.maxMemoryBytes) {
-      this.evictLRU();
-    }
 
     // Remove existing entry if updating
-    if (this.cache.has(key)) {
-      const existingEntry = this.cache.get(key)!;
+    const existingEntry = this.cache.get(key);
+    if (existingEntry) {
       this.currentMemoryUsage -= this.getEntrySize(key, existingEntry);
+      this.cache.delete(key);
     }
 
+    this.evictToFit(entrySize);
     this.cache.set(key, entry);
     this.currentMemoryUsage += entrySize;
   }
@@ -218,6 +215,7 @@ export class CacheService {
 
     entry.ttl = newTtl;
     entry.timestamp = Date.now(); // Reset timestamp
+    this.touchEntry(key, entry);
     return true;
   }
 
@@ -344,26 +342,32 @@ export class CacheService {
     return entry.sizeBytes ?? this.calculateEntrySize(key, entry);
   }
 
+  private touchEntry(key: string, entry: CacheEntry<unknown>): void {
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+  }
+
   /**
-   * Evicts the least recently used entries to make room for new ones
+   * Evicts least recently used entries until the new entry fits.
    */
-  private evictLRU(): void {
-    const entries = Array.from(this.cache.entries());
-    
-    // Sort by timestamp (oldest first)
-    entries.sort(([, a], [, b]) => a.timestamp - b.timestamp);
-    
-    // Remove oldest entries until we're under the limits
-    const targetSize = Math.floor(this.maxSize * 0.8); // Remove 20% when limit reached
-    const targetMemory = Math.floor(this.maxMemoryBytes * 0.8);
-    
-    for (const [key, entry] of entries) {
-      if (this.cache.size <= targetSize && this.currentMemoryUsage <= targetMemory) {
+  private evictToFit(requiredBytes: number): void {
+    while (
+      this.cache.size > 0 &&
+      (this.cache.size >= this.maxSize || this.currentMemoryUsage + requiredBytes > this.maxMemoryBytes)
+    ) {
+      const oldestKey = this.cache.keys().next().value;
+      if (!oldestKey) {
         break;
       }
-      
-      this.currentMemoryUsage -= this.getEntrySize(key, entry);
-      this.cache.delete(key);
+
+      const oldestEntry = this.cache.get(oldestKey);
+      if (!oldestEntry) {
+        this.cache.delete(oldestKey);
+        continue;
+      }
+
+      this.currentMemoryUsage -= this.getEntrySize(oldestKey, oldestEntry);
+      this.cache.delete(oldestKey);
     }
   }
 }

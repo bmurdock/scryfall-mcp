@@ -48,4 +48,20 @@ describe("CacheService", () => {
     expect(serializeCount).toBe(1);
     expect(cache.getStats().memoryUsage).toBe(0);
   });
+
+  it("updates access ordering so gets preserve recently used entries during eviction", () => {
+    const cache = new CacheService(60_000, 2, 10);
+    caches.push(cache);
+
+    cache.set("a", { value: "alpha" }, 60_000);
+    cache.set("b", { value: "beta" }, 60_000);
+
+    expect(cache.get("a")).toEqual({ value: "alpha" });
+
+    cache.set("c", { value: "gamma" }, 60_000);
+
+    expect(cache.get("a")).toEqual({ value: "alpha" });
+    expect(cache.get("b")).toBeNull();
+    expect(cache.get("c")).toEqual({ value: "gamma" });
+  });
 });
