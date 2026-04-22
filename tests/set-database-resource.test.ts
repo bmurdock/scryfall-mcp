@@ -94,4 +94,25 @@ describe("SetDatabaseResource", () => {
     expect(JSON.parse(second).source).toBe("cache");
     expect(JSON.parse(second).total_sets).toBe(2);
   });
+
+  it("keeps icon_svg_uri without downloading and embedding icon payloads", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resource = new SetDatabaseResource(
+      {
+        getSets: vi.fn().mockResolvedValue([
+          createSet({ icon_svg_uri: "https://svgs.scryfall.io/sets/tst.svg" }),
+        ]),
+      } as never,
+      cache
+    );
+
+    const payload = JSON.parse(await resource.getData());
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(payload.data[0].icon_svg_uri).toBe("https://svgs.scryfall.io/sets/tst.svg");
+    expect(payload.data[0].icon_base64).toBeUndefined();
+    vi.unstubAllGlobals();
+  });
 });

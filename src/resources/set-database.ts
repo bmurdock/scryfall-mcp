@@ -3,8 +3,6 @@ import { CacheService } from '../services/cache-service.js';
 import { ScryfallSet } from '../types/scryfall-api.js';
 import { ScryfallAPIError } from '../types/mcp-types.js';
 import { mcpLogger } from '../services/logger.js';
-import { REQUIRED_HEADERS } from '../types/mcp-types.js';
-import { EnvValidators } from '../utils/env-parser.js';
 
 type SetSnapshotMetadata = {
   updatedAt: string;
@@ -126,59 +124,7 @@ export class SetDatabaseResource {
    * Downloads fresh set data
    */
   private async downloadSetData(): Promise<ScryfallSet[]> {
-    const sets = await this.scryfallClient.getSets();
-    
-    // Enhance sets with additional metadata and convert icons to base64
-    return Promise.all(sets.map(set => this.enhanceSetData(set)));
-  }
-
-  /**
-   * Enhances set data with additional metadata
-   */
-  private async enhanceSetData(set: ScryfallSet): Promise<ScryfallSet> {
-    try {
-      // Download and convert icon to base64 if available
-      if (set.icon_svg_uri) {
-        const iconBase64 = await this.downloadIconAsBase64(set.icon_svg_uri);
-        return {
-          ...set,
-          icon_base64: iconBase64
-        } as ScryfallSet & { icon_base64?: string };
-      }
-      
-      return set;
-    } catch (error) {
-      // If icon download fails, just return the set without it
-      mcpLogger.warn({ operation: 'set_icon_download', setCode: set.code, error }, 'Failed to download set icon');
-      return set;
-    }
-  }
-
-  /**
-   * Downloads an SVG icon and converts it to base64
-   */
-  private async downloadIconAsBase64(iconUri: string): Promise<string> {
-    try {
-      const timeoutMs = EnvValidators.scryfallTimeoutMs(process.env.SCRYFALL_TIMEOUT_MS);
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
-      const response = await fetch(iconUri, {
-        headers: {
-          'User-Agent': REQUIRED_HEADERS['User-Agent'],
-          'Accept': 'image/svg+xml',
-        },
-        signal: controller.signal,
-      }).finally(() => clearTimeout(timeout));
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const svgText = await response.text();
-      const base64 = Buffer.from(svgText).toString('base64');
-      return `data:image/svg+xml;base64,${base64}`;
-    } catch (error) {
-      throw new Error(`Failed to download icon: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+    return this.scryfallClient.getSets();
   }
 
   /**
