@@ -83,7 +83,9 @@ export class SuggestManaBaseTool {
     required: ['color_requirements']
   };
 
-  constructor(_scryfallClient: ScryfallClient) {}
+  constructor(_scryfallClient: ScryfallClient) {
+    void _scryfallClient;
+  }
 
   private validateParams(args: unknown): ManaBaseParams {
     if (!args || typeof args !== 'object') {
