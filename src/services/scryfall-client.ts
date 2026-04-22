@@ -45,31 +45,30 @@ export class ScryfallClient {
       { requestId: reqId, url, operation: "scryfall_request" },
       "Scryfall API request started"
     );
-    // Check circuit breaker
-    this.assertCircuitClosed(url, reqId);
+    return this.rateLimiter.execute(async () => {
+      // Check circuit breaker immediately before the request starts.
+      this.assertCircuitClosed(url, reqId);
 
-    // Wait for rate limit clearance
-    await this.rateLimiter.waitForClearance();
+      try {
+        const response = await this.fetchJsonResponse(url);
+        const data = await this.parseJsonResponse<T>(response);
 
-    try {
-      const response = await this.fetchJsonResponse(url);
-      const data = await this.parseJsonResponse<T>(response);
+        if (response.status >= 400) {
+          throw await this.buildHttpError(response, data, url, reqId);
+        }
 
-      if (response.status >= 400) {
-        throw await this.buildHttpError(response, data, url, reqId);
+        this.rateLimiter.recordSuccess();
+        this.logRequestCompletion(url, reqId, response.status, startTime);
+
+        return data;
+      } catch (error) {
+        if (error instanceof ScryfallAPIError || error instanceof RateLimitError) {
+          throw error;
+        }
+
+        throw this.buildNetworkError(error, url, reqId);
       }
-
-      this.rateLimiter.recordSuccess();
-      this.logRequestCompletion(url, reqId, response.status, startTime);
-
-      return data;
-    } catch (error) {
-      if (error instanceof ScryfallAPIError || error instanceof RateLimitError) {
-        throw error;
-      }
-
-      throw this.buildNetworkError(error, url, reqId);
-    }
+    });
   }
 
   private assertCircuitClosed(url: string, requestId: string): void {

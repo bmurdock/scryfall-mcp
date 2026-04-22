@@ -2,7 +2,8 @@ import { RATE_LIMIT_CONFIG, RateLimitError } from '../types/mcp-types.js';
 import { EnvValidators } from '../utils/env-parser.js';
 
 interface QueuedRequest {
-  resolve: (value: void) => void;
+  run: () => Promise<unknown>;
+  resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timestamp: number;
 }
@@ -29,14 +30,15 @@ export class RateLimiter {
   }
 
   /**
-   * Waits for rate limit clearance before proceeding
+   * Queues an operation so rate limiting and request completion stay serialized
    */
-  async waitForClearance(): Promise<void> {
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
       if (this.queue.length >= this.maxQueueSize) {
         return reject(new RateLimitError('Queue capacity exceeded'));
       }
       this.queue.push({
+        run: operation as () => Promise<unknown>,
         resolve,
         reject,
         timestamp: Date.now()
@@ -65,8 +67,8 @@ export class RateLimiter {
         
         try {
           await this.enforceRateLimit();
-          request.resolve();
-          this.consecutiveErrors = 0; // Reset error count on success
+          const result = await request.run();
+          request.resolve(result);
         } catch (error) {
           request.reject(error instanceof Error ? error : new Error('Unknown rate limit error'));
         }
@@ -75,6 +77,13 @@ export class RateLimiter {
       // Ensure processing flag is always reset
       this.processing = false;
     }
+  }
+
+  /**
+   * Waits for rate limit clearance before proceeding
+   */
+  async waitForClearance(): Promise<void> {
+    await this.execute(async () => undefined);
   }
 
   /**
