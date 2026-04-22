@@ -1,8 +1,16 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { CacheService } from '../services/cache-service.js';
-import { ScryfallCard } from '../types/scryfall-api.js';
+import { BulkDataInfo, ScryfallCard } from '../types/scryfall-api.js';
 import { ScryfallAPIError } from '../types/mcp-types.js';
 import { mcpLogger } from '../services/logger.js';
+
+type BulkSnapshotMetadata = {
+  updatedAt: string;
+  totalCards: number;
+};
+
+const BULK_PAYLOAD_KEY = CacheService.createBulkKey('cards:serialized');
+const BULK_METADATA_KEY = CacheService.createBulkKey('cards:metadata');
 
 /**
  * MCP Resource for accessing bulk card database
@@ -15,6 +23,7 @@ export class CardDatabaseResource {
 
   private lastUpdateCheck = 0;
   private readonly updateCheckInterval = 24 * 60 * 60 * 1000; // 24 hours
+  private rebuildInFlight?: Promise<string>;
 
   constructor(
     private readonly scryfallClient: ScryfallClient,
@@ -26,44 +35,32 @@ export class CardDatabaseResource {
    */
   async getData(): Promise<string> {
     try {
-      const now = Date.now();
-      
-      // Check if we need to update
-      if (now - this.lastUpdateCheck > this.updateCheckInterval) {
-        await this.checkForUpdates();
-        this.lastUpdateCheck = now;
+      const bulkInfo = await this.getBulkInfoIfUpdateCheckDue();
+      const cachedPayload = this.cache.getWithStats<string>(BULK_PAYLOAD_KEY);
+      const cachedMetadata = this.cache.get<BulkSnapshotMetadata>(BULK_METADATA_KEY);
+      const cachedIsCurrent = Boolean(
+        cachedPayload &&
+        cachedMetadata &&
+        (!bulkInfo || cachedMetadata.updatedAt === bulkInfo.updated_at)
+      );
+
+      if (cachedPayload && cachedIsCurrent) {
+        return cachedPayload;
       }
 
-      // Try to get from cache first
-      const cacheKey = CacheService.createBulkKey('cards');
-      const cached = this.cache.getWithStats<ScryfallCard[]>(cacheKey);
-      
-      if (cached) {
-        return JSON.stringify({
-          object: 'bulk_data',
-          type: 'oracle_cards',
-          updated_at: new Date().toISOString(),
-          total_cards: cached.length,
-          data: cached,
-          source: 'cache'
-        }, null, 2);
+      try {
+        return await this.rebuildSerializedSnapshotOnce(bulkInfo);
+      } catch (error) {
+        if (cachedPayload) {
+          mcpLogger.warn(
+            { operation: 'bulk_snapshot_refresh', error },
+            'Serving stale bulk snapshot after refresh failure'
+          );
+          return cachedPayload;
+        }
+
+        throw error;
       }
-
-      // If not in cache, download fresh data
-      const cards = await this.downloadBulkData();
-      
-      // Cache the result
-      this.cache.setWithType(cacheKey, cards, 'bulk_data');
-
-      return JSON.stringify({
-        object: 'bulk_data',
-        type: 'oracle_cards',
-        updated_at: new Date().toISOString(),
-        total_cards: cards.length,
-        data: cards,
-        source: 'fresh'
-      }, null, 2);
-
     } catch (error) {
       throw new ScryfallAPIError(
         `Failed to retrieve card database: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -74,50 +71,73 @@ export class CardDatabaseResource {
   }
 
   /**
-   * Checks for updates to bulk data
+   * Returns remote bulk metadata when the update check interval has elapsed.
    */
-  private async checkForUpdates(): Promise<void> {
+  private async getBulkInfoIfUpdateCheckDue(): Promise<BulkDataInfo | undefined> {
+    const now = Date.now();
+    if (now - this.lastUpdateCheck <= this.updateCheckInterval) {
+      return undefined;
+    }
+
+    this.lastUpdateCheck = now;
+
     try {
-      const bulkDataInfo = await this.scryfallClient.getBulkDataInfo();
-      const oracleCards = bulkDataInfo.find(item => item.type === 'oracle_cards');
-      
-      if (!oracleCards) {
-        throw new Error('Oracle cards bulk data not found');
-      }
-
-      // Check if we have this version cached
-      const cacheKey = CacheService.createBulkKey('cards');
-      const lastUpdateKey = CacheService.createBulkKey('last_update');
-      
-      const lastUpdate = this.cache.get<string>(lastUpdateKey);
-      
-      if (!lastUpdate || lastUpdate !== oracleCards.updated_at) {
-        // Clear old cache and mark for refresh
-        this.cache.delete(cacheKey);
-        this.cache.set(lastUpdateKey, oracleCards.updated_at, 7 * 24 * 60 * 60 * 1000); // 1 week
-      }
-
+      return await this.getOracleCardsBulkInfo();
     } catch (error) {
-      // Log error but don't fail - we can still serve cached data
       mcpLogger.warn({ operation: 'bulk_update_check', error }, 'Failed to check for bulk data updates');
+      return undefined;
     }
   }
 
   /**
-   * Downloads fresh bulk card data
+   * Returns the oracle cards bulk metadata entry from Scryfall.
    */
-  private async downloadBulkData(): Promise<ScryfallCard[]> {
+  private async getOracleCardsBulkInfo(): Promise<BulkDataInfo> {
     const bulkDataInfo = await this.scryfallClient.getBulkDataInfo();
     const oracleCards = bulkDataInfo.find(item => item.type === 'oracle_cards');
-    
+
     if (!oracleCards) {
       throw new Error('Oracle cards bulk data not found');
     }
 
+    return oracleCards;
+  }
+
+  private rebuildSerializedSnapshotOnce(knownBulkInfo?: BulkDataInfo): Promise<string> {
+    if (!this.rebuildInFlight) {
+      this.rebuildInFlight = this.rebuildSerializedSnapshot(knownBulkInfo)
+        .finally(() => {
+          this.rebuildInFlight = undefined;
+        });
+    }
+
+    return this.rebuildInFlight;
+  }
+
+  /**
+   * Downloads fresh bulk card data and stores the serialized resource snapshot.
+   */
+  private async rebuildSerializedSnapshot(knownBulkInfo?: BulkDataInfo): Promise<string> {
+    const oracleCards = knownBulkInfo ?? await this.getOracleCardsBulkInfo();
     const cards = await this.scryfallClient.downloadBulkData(oracleCards.download_uri);
-    
+
     // Filter out unnecessary fields to reduce memory usage
-    return cards.map(card => this.filterCardFields(card));
+    const filteredCards = cards.map(card => this.filterCardFields(card));
+    const payload = JSON.stringify({
+      object: 'bulk_data',
+      type: 'oracle_cards',
+      updated_at: oracleCards.updated_at,
+      total_cards: filteredCards.length,
+      data: filteredCards,
+    });
+
+    this.cache.setWithType(BULK_PAYLOAD_KEY, payload, 'bulk_data');
+    this.cache.setWithType(BULK_METADATA_KEY, {
+      updatedAt: oracleCards.updated_at,
+      totalCards: filteredCards.length,
+    }, 'bulk_data');
+
+    return payload;
   }
 
   /**
@@ -190,8 +210,7 @@ export class CardDatabaseResource {
    */
   getMetadata() {
     const stats = this.cache.getStats();
-    const cacheKey = CacheService.createBulkKey('cards');
-    const ttl = this.cache.getTTL(cacheKey);
+    const ttl = this.cache.getTTL(BULK_PAYLOAD_KEY);
     
     return {
       uri: this.uri,
@@ -209,8 +228,8 @@ export class CardDatabaseResource {
    * Forces a refresh of the bulk data
    */
   async forceRefresh(): Promise<void> {
-    const cacheKey = CacheService.createBulkKey('cards');
-    this.cache.delete(cacheKey);
+    this.cache.delete(BULK_PAYLOAD_KEY);
+    this.cache.delete(BULK_METADATA_KEY);
     this.lastUpdateCheck = 0;
     await this.getData(); // This will trigger a fresh download
   }

@@ -325,8 +325,10 @@ export class CacheService {
    */
   private calculateEntrySize(key: string, entry: CacheEntry<unknown>): number {
     try {
-      // Estimate size by JSON serialization length * 2 (for UTF-16 encoding)
-      const dataSize = JSON.stringify(entry.data).length * 2;
+      // Fast-path strings to avoid re-serializing already-materialized payloads.
+      const dataSize = typeof entry.data === 'string'
+        ? entry.data.length * 2
+        : JSON.stringify(entry.data).length * 2;
       const keySize = key.length * 2;
       const metadataSize = 24; // timestamp (8) + ttl (8) + overhead (8)
       return dataSize + keySize + metadataSize;
