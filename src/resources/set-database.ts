@@ -48,16 +48,15 @@ export class SetDatabaseResource {
 
       const sets = await this.getSetDataModel();
       const updatedAt = new Date().toISOString();
-      const freshPayload = this.serializeSetPayload(sets, updatedAt, 'fresh');
-      const cachedSnapshot = this.serializeSetPayload(sets, updatedAt, 'cache');
+      const payload = this.serializeSetPayload(sets, updatedAt);
 
-      this.cache.setWithType(SET_PAYLOAD_KEY, cachedSnapshot, 'set_data');
+      this.cache.setWithType(SET_PAYLOAD_KEY, payload, 'set_data');
       this.cache.setWithType(SET_METADATA_KEY, {
         updatedAt,
         totalSets: sets.length,
       } satisfies SetSnapshotMetadata, 'set_data');
 
-      return freshPayload;
+      return payload;
 
     } catch (error) {
       throw new ScryfallAPIError(
@@ -81,16 +80,14 @@ export class SetDatabaseResource {
 
   private serializeSetPayload(
     sets: ScryfallSet[],
-    updatedAt: string,
-    source: 'cache' | 'fresh'
+    updatedAt: string
   ): string {
     return JSON.stringify({
       object: 'list',
       type: 'sets',
       updated_at: updatedAt,
       total_sets: sets.length,
-      data: sets,
-      source
+      data: sets
     }, null, 2);
   }
 

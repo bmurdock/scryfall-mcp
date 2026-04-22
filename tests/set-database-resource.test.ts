@@ -90,9 +90,9 @@ describe("SetDatabaseResource", () => {
 
     expect(getSets).toHaveBeenCalledTimes(1);
     expect(typeof second).toBe("string");
-    expect(JSON.parse(first).source).toBe("fresh");
-    expect(JSON.parse(second).source).toBe("cache");
+    expect(first).toBe(second);
     expect(JSON.parse(second).total_sets).toBe(2);
+    expect(JSON.parse(second).source).toBeUndefined();
   });
 
   it("keeps icon_svg_uri without downloading and embedding icon payloads", async () => {
