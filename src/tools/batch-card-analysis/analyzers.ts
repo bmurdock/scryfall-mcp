@@ -9,37 +9,65 @@ export function analyzeLegality(cards: ScryfallCard[], format?: ValidatedBatchCa
   result += `**Total Cards:** ${cards.length}\n\n`;
 
   if (format) {
-    const legal = cards.filter(card => card.legalities[format] === 'legal');
-    const banned = cards.filter(card => card.legalities[format] === 'banned');
-    const restricted = cards.filter(card => card.legalities[format] === 'restricted');
-    const notLegal = cards.filter(card => !['legal', 'banned', 'restricted'].includes(card.legalities[format]));
+    let legalCount = 0;
+    let bannedCount = 0;
+    let restrictedCount = 0;
+    let notLegalCount = 0;
+    const bannedCards: ScryfallCard[] = [];
+    const restrictedCards: ScryfallCard[] = [];
+
+    for (const card of cards) {
+      const legality = card.legalities[format];
+      if (legality === 'legal') {
+        legalCount += 1;
+      } else if (legality === 'banned') {
+        bannedCount += 1;
+        bannedCards.push(card);
+      } else if (legality === 'restricted') {
+        restrictedCount += 1;
+        restrictedCards.push(card);
+      } else {
+        notLegalCount += 1;
+      }
+    }
 
     result += `**${format.toUpperCase()} Legality:**\n`;
-    result += `- Legal: ${legal.length} cards\n`;
-    result += `- Banned: ${banned.length} cards\n`;
-    result += `- Restricted: ${restricted.length} cards\n`;
-    result += `- Not Legal: ${notLegal.length} cards\n\n`;
+    result += `- Legal: ${legalCount} cards\n`;
+    result += `- Banned: ${bannedCount} cards\n`;
+    result += `- Restricted: ${restrictedCount} cards\n`;
+    result += `- Not Legal: ${notLegalCount} cards\n\n`;
 
-    if (banned.length > 0) {
+    if (bannedCards.length > 0) {
       result += `**Banned Cards:**\n`;
-      banned.forEach(card => { result += `- ${card.name}\n`; });
+      bannedCards.forEach(card => { result += `- ${card.name}\n`; });
       result += '\n';
     }
 
-    if (restricted.length > 0) {
+    if (restrictedCards.length > 0) {
       result += `**Restricted Cards:**\n`;
-      restricted.forEach(card => { result += `- ${card.name}\n`; });
+      restrictedCards.forEach(card => { result += `- ${card.name}\n`; });
       result += '\n';
     }
   } else {
     const formats: NonNullable<ValidatedBatchCardAnalysisParams['format']>[] = [
       'standard', 'modern', 'legacy', 'vintage', 'commander', 'pioneer'
     ];
+    const legalCounts = new Map<NonNullable<ValidatedBatchCardAnalysisParams['format']>, number>(
+      formats.map(fmt => [fmt, 0])
+    );
+
+    for (const card of cards) {
+      for (const fmt of formats) {
+        if (card.legalities[fmt] === 'legal') {
+          legalCounts.set(fmt, (legalCounts.get(fmt) || 0) + 1);
+        }
+      }
+    }
+
     result += `**Format Legality Summary:**\n`;
 
     for (const fmt of formats) {
-      const legal = cards.filter(card => card.legalities[fmt] === 'legal').length;
-      result += `- ${fmt.charAt(0).toUpperCase() + fmt.slice(1)}: ${legal}/${cards.length} legal\n`;
+      result += `- ${fmt.charAt(0).toUpperCase() + fmt.slice(1)}: ${legalCounts.get(fmt) || 0}/${cards.length} legal\n`;
     }
   }
 
@@ -49,43 +77,64 @@ export function analyzeLegality(cards: ScryfallCard[], format?: ValidatedBatchCa
 export function analyzePrices(cards: ScryfallCard[], currency: string): string {
   let result = `# Price Analysis (${currency.toUpperCase()})\n\n`;
 
-  const cardsWithPrices = cards.filter(card => getPriceForCurrency(card.prices, currency));
-  const prices = cardsWithPrices.map(card => parseFloat(getPriceForCurrency(card.prices, currency) || '0'));
+  const pricedCards: Array<{ card: ScryfallCard; price: number; priceLabel: string }> = [];
+  let totalValue = 0;
+  let minPrice = Number.POSITIVE_INFINITY;
+  let maxPrice = Number.NEGATIVE_INFINITY;
+  let expensiveCount = 0;
+  let moderateCount = 0;
+  let budgetCount = 0;
 
-  if (prices.length === 0) {
+  for (const card of cards) {
+    const priceLabel = getPriceForCurrency(card.prices, currency);
+    if (!priceLabel) {
+      continue;
+    }
+
+    const price = parseFloat(priceLabel);
+    if (Number.isNaN(price)) {
+      continue;
+    }
+
+    pricedCards.push({ card, price, priceLabel });
+    totalValue += price;
+    minPrice = Math.min(minPrice, price);
+    maxPrice = Math.max(maxPrice, price);
+
+    if (price >= 10) {
+      expensiveCount += 1;
+    } else if (price >= 1) {
+      moderateCount += 1;
+    } else {
+      budgetCount += 1;
+    }
+  }
+
+  if (pricedCards.length === 0) {
     return result + 'No price data available for the specified currency.\n';
   }
 
-  const totalValue = prices.reduce((sum, price) => sum + price, 0);
-  const averagePrice = totalValue / prices.length;
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
+  const averagePrice = totalValue / pricedCards.length;
 
   result += `**Summary:**\n`;
   result += `- Total Value: ${currency.toUpperCase()} ${totalValue.toFixed(2)}\n`;
   result += `- Average Price: ${currency.toUpperCase()} ${averagePrice.toFixed(2)}\n`;
   result += `- Price Range: ${currency.toUpperCase()} ${minPrice.toFixed(2)} - ${currency.toUpperCase()} ${maxPrice.toFixed(2)}\n`;
-  result += `- Cards with Prices: ${cardsWithPrices.length}/${cards.length}\n\n`;
-
-  const expensive = cardsWithPrices.filter(card => parseFloat(getPriceForCurrency(card.prices, currency) || '0') >= 10);
-  const moderate = cardsWithPrices.filter(card => {
-    const price = parseFloat(getPriceForCurrency(card.prices, currency) || '0');
-    return price >= 1 && price < 10;
-  });
-  const budget = cardsWithPrices.filter(card => parseFloat(getPriceForCurrency(card.prices, currency) || '0') < 1);
+  result += `- Cards with Prices: ${pricedCards.length}/${cards.length}\n\n`;
 
   result += `**Price Categories:**\n`;
-  result += `- Expensive (≥$10): ${expensive.length} cards\n`;
-  result += `- Moderate ($1-$10): ${moderate.length} cards\n`;
-  result += `- Budget (<$1): ${budget.length} cards\n\n`;
+  result += `- Expensive (≥$10): ${expensiveCount} cards\n`;
+  result += `- Moderate ($1-$10): ${moderateCount} cards\n`;
+  result += `- Budget (<$1): ${budgetCount} cards\n\n`;
 
-  if (expensive.length > 0) {
+  if (expensiveCount > 0) {
     result += `**Most Expensive Cards:**\n`;
-    expensive
-      .sort((a, b) => parseFloat(getPriceForCurrency(b.prices, currency) || '0') - parseFloat(getPriceForCurrency(a.prices, currency) || '0'))
+    pricedCards
+      .filter(entry => entry.price >= 10)
+      .sort((a, b) => b.price - a.price)
       .slice(0, 5)
-      .forEach(card => {
-        result += `- ${card.name}: ${currency.toUpperCase()} ${getPriceForCurrency(card.prices, currency) || 'N/A'}\n`;
+      .forEach(({ card, priceLabel }) => {
+        result += `- ${card.name}: ${currency.toUpperCase()} ${priceLabel}\n`;
       });
   }
 
