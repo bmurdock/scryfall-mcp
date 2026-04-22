@@ -38,7 +38,9 @@ export class QueryBuilderEngine {
     const baseQuery = buildBaseQuery(mappings);
     const formatQuery = applyFormat(baseQuery, options.format);
     const optimizedQuery = applyOptimization(formatQuery, options.optimize_for);
-    const testedQuery = await testAndAdjustQuery(this.scryfallClient, optimizedQuery, options);
+    const testedQuery = options.test_query
+      ? await testAndAdjustQuery(this.scryfallClient, optimizedQuery, options)
+      : { query: optimizedQuery, optimizations: [] };
     const explanation = generateExplanation(mappings, options);
     const alternatives = generateAlternatives(parsed, mappings, options, buildBaseQuery);
 

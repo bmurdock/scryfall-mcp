@@ -230,6 +230,7 @@ export interface BuildOptions {
   format?: string;
   max_results?: number;
   price_budget?: PriceBudget;
+  test_query?: boolean;
 }
 
 // Price budget constraints

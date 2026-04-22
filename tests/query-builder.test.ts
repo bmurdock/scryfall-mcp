@@ -161,6 +161,7 @@ describe('Natural-Language Query Builder', () => {
         optimize_for: 'precision',
         format: 'modern',
         max_results: 20,
+        test_query: true,
       });
 
       expect(result.query).toContain('f:modern');
@@ -190,6 +191,7 @@ describe('Natural-Language Query Builder', () => {
         optimize_for: 'precision',
         format: 'commander',
         max_results: 20,
+        test_query: true,
       });
 
       expect(result.query).toContain('t:artifact');
@@ -197,6 +199,30 @@ describe('Natural-Language Query Builder', () => {
       expect(result.query).toContain('usd:<=10');
       expect(result.optimizations.some((optimization) => optimization.type === 'narrowing')).toBe(true);
       expect(result.explanation).toContain('artifact cards');
+    });
+
+    it('skips live query testing when test_query is disabled', async () => {
+      const parser = new NaturalLanguageParser();
+      const mockClient = {
+        searchCards: vi.fn(),
+      };
+      const builder = new QueryBuilderEngine(new ConceptExtractor(), mockClient as never);
+
+      const parsed = parser.parse('blue counterspells under $5 for modern', {
+        targetFormat: 'modern',
+        optimizationStrategy: 'precision',
+        maxResults: 20,
+      });
+      const result = await builder.build(parsed, {
+        optimize_for: 'precision',
+        format: 'modern',
+        max_results: 20,
+        test_query: false,
+      });
+
+      expect(mockClient.searchCards).not.toHaveBeenCalled();
+      expect(result.optimizations).toEqual([]);
+      expect(result.query).toContain('f:modern');
     });
   });
 });

@@ -131,7 +131,8 @@ export class BuildScryfallQueryTool {
         optimize_for: params.optimize_for,
         format: params.format,
         max_results: params.max_results,
-        price_budget: params.price_budget
+        price_budget: params.price_budget,
+        test_query: params.test_query,
       };
       
       const buildResult = await this.queryBuilder.build(parsed, buildOptions);
