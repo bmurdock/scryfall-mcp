@@ -263,6 +263,7 @@ export interface CacheEntry<T> {
   data: T;
   timestamp: number;
   ttl: number;
+  sizeBytes?: number;
 }
 
 // Formatted Response Types

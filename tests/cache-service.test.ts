@@ -27,4 +27,25 @@ describe("CacheService", () => {
     expect(afterExpiry.size).toBe(0);
     expect(afterExpiry.memoryUsage).toBe(0);
   });
+
+  it("reuses the stored entry size instead of reserializing cached objects on delete", () => {
+    const cache = new CacheService(60_000, 100, 10);
+    caches.push(cache);
+
+    let serializeCount = 0;
+    const payload = {
+      value: "cached",
+      toJSON() {
+        serializeCount++;
+        return { value: "cached" };
+      },
+    };
+
+    cache.set("json-key", payload, 60_000);
+    expect(serializeCount).toBe(1);
+
+    cache.delete("json-key");
+    expect(serializeCount).toBe(1);
+    expect(cache.getStats().memoryUsage).toBe(0);
+  });
 });

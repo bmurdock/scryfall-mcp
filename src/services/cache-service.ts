@@ -37,7 +37,7 @@ export class CacheService {
 
     const now = Date.now();
     if (now - entry.timestamp > entry.ttl) {
-      this.currentMemoryUsage -= this.calculateEntrySize(key, entry);
+      this.currentMemoryUsage -= this.getEntrySize(key, entry);
       this.cache.delete(key);
       return null;
     }
@@ -57,6 +57,7 @@ export class CacheService {
 
     // Calculate entry size
     const entrySize = this.calculateEntrySize(key, entry);
+    entry.sizeBytes = entrySize;
     
     // Check if adding this entry would exceed limits
     if (this.cache.size >= this.maxSize || 
@@ -67,7 +68,7 @@ export class CacheService {
     // Remove existing entry if updating
     if (this.cache.has(key)) {
       const existingEntry = this.cache.get(key)!;
-      this.currentMemoryUsage -= this.calculateEntrySize(key, existingEntry);
+      this.currentMemoryUsage -= this.getEntrySize(key, existingEntry);
     }
 
     this.cache.set(key, entry);
@@ -95,7 +96,7 @@ export class CacheService {
   delete(key: string): boolean {
     const entry = this.cache.get(key);
     if (entry) {
-      this.currentMemoryUsage -= this.calculateEntrySize(key, entry);
+      this.currentMemoryUsage -= this.getEntrySize(key, entry);
     }
     return this.cache.delete(key);
   }
@@ -163,7 +164,7 @@ export class CacheService {
     keysToDelete.forEach(key => {
       const entry = this.cache.get(key);
       if (entry) {
-        this.currentMemoryUsage -= this.calculateEntrySize(key, entry);
+        this.currentMemoryUsage -= this.getEntrySize(key, entry);
       }
       this.cache.delete(key);
     });
@@ -184,7 +185,7 @@ export class CacheService {
     for (const key of keysToDelete) {
       const entry = this.cache.get(key);
       if (entry) {
-        this.currentMemoryUsage -= this.calculateEntrySize(key, entry);
+        this.currentMemoryUsage -= this.getEntrySize(key, entry);
       }
       this.cache.delete(key);
     }
@@ -339,6 +340,10 @@ export class CacheService {
     }
   }
 
+  private getEntrySize(key: string, entry: CacheEntry<unknown>): number {
+    return entry.sizeBytes ?? this.calculateEntrySize(key, entry);
+  }
+
   /**
    * Evicts the least recently used entries to make room for new ones
    */
@@ -357,7 +362,7 @@ export class CacheService {
         break;
       }
       
-      this.currentMemoryUsage -= this.calculateEntrySize(key, entry);
+      this.currentMemoryUsage -= this.getEntrySize(key, entry);
       this.cache.delete(key);
     }
   }
