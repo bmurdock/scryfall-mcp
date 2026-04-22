@@ -28,34 +28,7 @@ export class SetDatabaseResource {
    */
   async getData(): Promise<string> {
     try {
-      const now = Date.now();
-      
-      // Check if we need to update
-      if (now - this.lastUpdateCheck > this.updateCheckInterval) {
-        await this.checkForUpdates();
-        this.lastUpdateCheck = now;
-      }
-
-      // Try to get from cache first
-      const cacheKey = CacheService.createSetKey();
-      const cached = this.cache.getWithStats<ScryfallSet[]>(cacheKey);
-      
-      if (cached) {
-        return JSON.stringify({
-          object: 'list',
-          type: 'sets',
-          updated_at: new Date().toISOString(),
-          total_sets: cached.length,
-          data: cached,
-          source: 'cache'
-        }, null, 2);
-      }
-
-      // If not in cache, download fresh data
-      const sets = await this.downloadSetData();
-      
-      // Cache the result
-      this.cache.setWithType(cacheKey, sets, 'set_data');
+      const sets = await this.getSetDataModel();
 
       return JSON.stringify({
         object: 'list',
@@ -73,6 +46,25 @@ export class SetDatabaseResource {
         'resource_error'
       );
     }
+  }
+
+  private async getSetDataModel(): Promise<ScryfallSet[]> {
+    const now = Date.now();
+
+    if (now - this.lastUpdateCheck > this.updateCheckInterval) {
+      await this.checkForUpdates();
+      this.lastUpdateCheck = now;
+    }
+
+    const cacheKey = CacheService.createSetKey();
+    const cached = this.cache.getWithStats<ScryfallSet[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const sets = await this.downloadSetData();
+    this.cache.setWithType(cacheKey, sets, 'set_data');
+    return sets;
   }
 
   /**
@@ -167,10 +159,8 @@ export class SetDatabaseResource {
     released_before?: string;
     digital?: boolean;
   }): Promise<string> {
-    const allSetsData = await this.getData();
-    const allSets = JSON.parse(allSetsData);
-    
-    let filteredSets = allSets.data as ScryfallSet[];
+    const allSets = await this.getSetDataModel();
+    let filteredSets = allSets;
     
     // Apply filters
     if (filters.type) {
@@ -196,7 +186,8 @@ export class SetDatabaseResource {
     }
 
     return JSON.stringify({
-      ...allSets,
+      object: 'list',
+      type: 'sets',
       total_sets: filteredSets.length,
       data: filteredSets,
       filters_applied: filters
@@ -244,11 +235,8 @@ export class SetDatabaseResource {
    * Gets available set types
    */
   async getSetTypes(): Promise<string[]> {
-    const allSetsData = await this.getData();
-    const allSets = JSON.parse(allSetsData);
-    
     const types = new Set<string>();
-    (allSets.data as ScryfallSet[]).forEach(set => {
+    (await this.getSetDataModel()).forEach(set => {
       types.add(set.set_type);
     });
     
