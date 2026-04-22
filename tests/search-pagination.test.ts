@@ -1,0 +1,168 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CacheService } from "../src/services/cache-service.js";
+import { ScryfallClient } from "../src/services/scryfall-client.js";
+import type { ScryfallCard, ScryfallSearchResponse } from "../src/types/scryfall-api.js";
+
+function createCard(index: number): ScryfallCard {
+  return {
+    object: "card",
+    id: `card-${index}`,
+    oracle_id: `oracle-${index}`,
+    name: `Card ${index}`,
+    lang: "en",
+    released_at: "2026-04-22",
+    uri: `https://api.scryfall.com/cards/card-${index}`,
+    scryfall_uri: `https://scryfall.com/card/tst/${index}/card-${index}`,
+    layout: "normal",
+    highres_image: true,
+    image_status: "highres_scan",
+    cmc: 1,
+    type_line: "Creature — Test",
+    colors: ["U"],
+    color_identity: ["U"],
+    keywords: [],
+    legalities: {
+      standard: "legal",
+      future: "legal",
+      historic: "legal",
+      timeless: "legal",
+      gladiator: "legal",
+      pioneer: "legal",
+      explorer: "legal",
+      modern: "legal",
+      legacy: "legal",
+      pauper: "legal",
+      vintage: "legal",
+      penny: "legal",
+      commander: "legal",
+      oathbreaker: "legal",
+      standardbrawl: "legal",
+      brawl: "legal",
+      historicbrawl: "legal",
+      alchemy: "legal",
+      paupercommander: "legal",
+      duel: "legal",
+      oldschool: "legal",
+      premodern: "legal",
+      predh: "legal",
+    },
+    games: ["paper"],
+    reserved: false,
+    foil: true,
+    nonfoil: true,
+    finishes: ["foil", "nonfoil"],
+    oversized: false,
+    promo: false,
+    reprint: false,
+    variation: false,
+    set_id: "set-id",
+    set: "tst",
+    set_name: "Test Set",
+    set_type: "expansion",
+    set_uri: "https://api.scryfall.com/sets/tst",
+    set_search_uri: "https://api.scryfall.com/cards/search?order=set&q=e%3Atst&unique=prints",
+    scryfall_set_uri: "https://scryfall.com/sets/tst",
+    rulings_uri: `https://api.scryfall.com/cards/card-${index}/rulings`,
+    prints_search_uri: `https://api.scryfall.com/cards/search?order=released&q=oracleid%3Aoracle-${index}&unique=prints`,
+    collector_number: `${index}`,
+    digital: false,
+    rarity: "common",
+    border_color: "black",
+    frame: "1993",
+    full_art: false,
+    textless: false,
+    booster: true,
+    story_spotlight: false,
+    prices: {},
+    related_uris: {},
+  };
+}
+
+function createSearchResponse(start: number, count: number, totalCards = 220): ScryfallSearchResponse {
+  return {
+    object: "list",
+    total_cards: totalCards,
+    has_more: start + count < totalCards,
+    data: Array.from({ length: count }, (_, index) => createCard(start + index)),
+  };
+}
+
+function createFetchResponse(payload: ScryfallSearchResponse) {
+  return {
+    status: 200,
+    ok: true,
+    headers: new Headers(),
+    json: vi.fn().mockResolvedValue(payload),
+    clone: vi.fn().mockReturnValue({
+      text: vi.fn().mockResolvedValue(JSON.stringify(payload)),
+    }),
+  };
+}
+
+describe("ScryfallClient search pagination", () => {
+  let cache: CacheService;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    cache = new CacheService(60_000, 100, 25);
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cache.destroy();
+    vi.unstubAllGlobals();
+  });
+
+  it("maps logical page 2 with a small limit onto the first Scryfall API page", async () => {
+    fetchMock.mockResolvedValue({
+      ...createFetchResponse(createSearchResponse(0, 175)),
+    });
+
+    const client = new ScryfallClient(
+      {
+        waitForClearance: vi.fn().mockResolvedValue(undefined),
+        recordSuccess: vi.fn(),
+        recordError: vi.fn(),
+        handleRateLimitResponse: vi.fn(),
+        isCircuitOpen: vi.fn().mockReturnValue(false),
+      } as never,
+      cache
+    );
+
+    const result = await client.searchCards({ query: "type:creature", limit: 20, page: 2 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0].toString()).not.toContain("page=2");
+    expect(result.data).toHaveLength(20);
+    expect(result.data[0].name).toBe("Card 20");
+    expect(result.data[19].name).toBe("Card 39");
+    expect(result.has_more).toBe(true);
+  });
+
+  it("fetches adjacent Scryfall pages when a logical page spans the API page boundary", async () => {
+    fetchMock
+      .mockResolvedValueOnce(createFetchResponse(createSearchResponse(0, 175)))
+      .mockResolvedValueOnce(createFetchResponse(createSearchResponse(175, 45)));
+
+    const client = new ScryfallClient(
+      {
+        waitForClearance: vi.fn().mockResolvedValue(undefined),
+        recordSuccess: vi.fn(),
+        recordError: vi.fn(),
+        handleRateLimitResponse: vi.fn(),
+        isCircuitOpen: vi.fn().mockReturnValue(false),
+      } as never,
+      cache
+    );
+
+    const result = await client.searchCards({ query: "type:creature", limit: 20, page: 9 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0].toString()).toContain("page=2");
+    expect(result.data).toHaveLength(20);
+    expect(result.data[0].name).toBe("Card 160");
+    expect(result.data[19].name).toBe("Card 179");
+    expect(result.has_more).toBe(true);
+  });
+});

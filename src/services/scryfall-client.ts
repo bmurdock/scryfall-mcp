@@ -19,6 +19,7 @@ import { EnvValidators } from "../utils/env-parser.js";
  */
 export class ScryfallClient {
   private readonly baseUrl = "https://api.scryfall.com";
+  private readonly searchApiPageSize = 175;
   private rateLimiter: RateLimiter;
   private cache: CacheService;
   private readonly timeoutMs = () =>
@@ -237,10 +238,12 @@ export class ScryfallClient {
     requestId?: string
   ): Promise<ScryfallSearchResponse> {
     const reqId = requestId || generateRequestId();
+    const requestedPage = params.page || 1;
+    const requestedLimit = params.limit || 20;
     const cacheKey = CacheService.createSearchKey(
       params.query,
-      params.page || 1,
-      params.limit || 20,
+      requestedPage,
+      requestedLimit,
       params.unique,
       params.direction,
       params.include_multilingual,
@@ -249,7 +252,7 @@ export class ScryfallClient {
     );
 
     mcpLogger.debug(
-      { requestId: reqId, operation: "search_cards", query: params.query },
+      { requestId: reqId, operation: "search_cards", query: params.query, page: requestedPage, limit: requestedLimit },
       "Card search started"
     );
 
@@ -263,8 +266,6 @@ export class ScryfallClient {
       return cached;
     }
 
-    const url = new URL(`${this.baseUrl}/cards/search`);
-
     // Build query with price filtering if specified
     let query = params.query;
     if (params.price_range) {
@@ -277,11 +278,77 @@ export class ScryfallClient {
       }
     }
 
-    url.searchParams.set("q", query);
+    const requestedOffset = (requestedPage - 1) * requestedLimit;
+    const startingApiPage = Math.floor(requestedOffset / this.searchApiPageSize) + 1;
+    const relativeOffset = requestedOffset - ((startingApiPage - 1) * this.searchApiPageSize);
 
-    // Note: Scryfall does not support custom page size on search; we slice in formatters
-    if (params.page && params.page > 1) {
-      url.searchParams.set("page", params.page.toString());
+    const firstPage = await this.fetchSearchPage(
+      {
+        ...params,
+        query,
+      },
+      startingApiPage,
+      reqId
+    );
+    const totalCards = firstPage.total_cards ?? firstPage.data.length;
+    const requiredCount = Math.max(0, Math.min(requestedLimit, totalCards - requestedOffset));
+    const combinedCards = [...firstPage.data];
+    const warningSet = new Set(firstPage.warnings ?? []);
+    let currentPage = firstPage;
+    let nextApiPage = startingApiPage + 1;
+
+    while (combinedCards.length < relativeOffset + requiredCount && currentPage.has_more) {
+      const nextPage = await this.fetchSearchPage(
+        {
+          ...params,
+          query,
+        },
+        nextApiPage,
+        reqId
+      );
+      combinedCards.push(...nextPage.data);
+      nextPage.warnings?.forEach((warning) => warningSet.add(warning));
+      currentPage = nextPage;
+      nextApiPage++;
+    }
+
+    const slicedCards = combinedCards.slice(relativeOffset, relativeOffset + requiredCount);
+    const data: ScryfallSearchResponse = {
+      object: firstPage.object,
+      total_cards: totalCards,
+      has_more: requestedOffset + slicedCards.length < totalCards,
+      data: slicedCards,
+      warnings: warningSet.size > 0 ? Array.from(warningSet) : undefined,
+    };
+
+    // Cache the result
+    this.cache.setWithType(cacheKey, data, "card_search");
+    mcpLogger.debug(
+      { requestId: reqId, operation: "search_cards", resultCount: data.data?.length },
+      "Card search completed"
+    );
+
+    return data;
+  }
+
+  private async fetchSearchPage(
+    params: {
+      query: string;
+      include_extras?: boolean;
+      order?: string;
+      unique?: string;
+      direction?: string;
+      include_multilingual?: boolean;
+      include_variations?: boolean;
+    },
+    apiPage: number,
+    requestId: string
+  ): Promise<ScryfallSearchResponse> {
+    const url = new URL(`${this.baseUrl}/cards/search`);
+    url.searchParams.set("q", params.query);
+
+    if (apiPage > 1) {
+      url.searchParams.set("page", apiPage.toString());
     }
     if (params.include_extras) {
       url.searchParams.set("include_extras", "true");
@@ -302,16 +369,7 @@ export class ScryfallClient {
       url.searchParams.set("dir", params.direction);
     }
 
-    const data = await this.makeRequest<ScryfallSearchResponse>(url.toString(), reqId);
-
-    // Cache the result
-    this.cache.setWithType(cacheKey, data, "card_search");
-    mcpLogger.debug(
-      { requestId: reqId, operation: "search_cards", resultCount: data.data?.length },
-      "Card search completed"
-    );
-
-    return data;
+    return this.makeRequest<ScryfallSearchResponse>(url.toString(), requestId);
   }
 
   /**
