@@ -111,17 +111,13 @@ export class ScryfallClient {
   }
 
   private async parseJsonResponse<T>(response: Response): Promise<T> {
-    let responseText: string | null = null;
-
     try {
-      responseText = await response.clone().text();
-      return JSON.parse(responseText) as T;
+      return await response.json() as T;
     } catch (jsonError) {
       const originalError = jsonError instanceof Error ? jsonError.message : "Unknown JSON error";
-      const debugText = responseText ? responseText.substring(0, 200) : "Unable to read response";
 
       throw new Error(
-        `Failed to parse JSON response. Original error: ${originalError}. Response preview: ${debugText}...`
+        `Failed to parse JSON response. Original error: ${originalError}.`
       );
     }
   }
