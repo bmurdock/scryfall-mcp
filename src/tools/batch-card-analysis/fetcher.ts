@@ -4,14 +4,20 @@ import { ScryfallCard } from '../../types/scryfall-api.js';
 
 const DEFAULT_CONCURRENCY = 4;
 
-export async function fetchCardsWithConcurrency(
+interface FetchCardsMapOptions {
+  concurrency?: number;
+  skipNotFound?: boolean;
+}
+
+export async function fetchCardMapWithConcurrency(
   scryfallClient: ScryfallClient,
   cardList: string[],
-  concurrency = DEFAULT_CONCURRENCY
-): Promise<ScryfallCard[]> {
-  const cards: ScryfallCard[] = [];
+  options: FetchCardsMapOptions = {}
+): Promise<Map<string, ScryfallCard>> {
+  const cards = new Map<string, ScryfallCard>();
   const notFound: string[] = [];
   let nextIndex = 0;
+  const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
 
   const workerCount = Math.min(Math.max(1, concurrency), cardList.length);
   const workers = Array.from({ length: workerCount }, async () => {
@@ -22,7 +28,7 @@ export async function fetchCardsWithConcurrency(
 
       try {
         const card = await scryfallClient.getCard({ identifier: cardName });
-        cards[currentIndex] = card;
+        cards.set(cardName, card);
       } catch (error) {
         if (error instanceof ScryfallAPIError && error.status === 404) {
           notFound.push(cardName);
@@ -36,9 +42,21 @@ export async function fetchCardsWithConcurrency(
 
   await Promise.all(workers);
 
-  if (notFound.length > 0) {
+  if (notFound.length > 0 && !options.skipNotFound) {
     throw new ValidationError(`Cards not found: ${notFound.join(', ')}`);
   }
 
-  return cards.filter(Boolean);
+  return cards;
+}
+
+export async function fetchCardsWithConcurrency(
+  scryfallClient: ScryfallClient,
+  cardList: string[],
+  concurrency = DEFAULT_CONCURRENCY
+): Promise<ScryfallCard[]> {
+  const cardMap = await fetchCardMapWithConcurrency(scryfallClient, cardList, { concurrency });
+  return cardList.flatMap(cardName => {
+    const card = cardMap.get(cardName);
+    return card ? [card] : [];
+  });
 }

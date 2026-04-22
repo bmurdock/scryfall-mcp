@@ -2,6 +2,7 @@ import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError } from '../types/mcp-types.js';
 import { Color, Rarity, ScryfallCard } from '../types/scryfall-api.js';
 import { normalizeLowercaseString, normalizeTrimmedString } from '../utils/input-normalization.js';
+import { fetchCardMapWithConcurrency } from './batch-card-analysis/fetcher.js';
 
 interface AnalyzeDeckCompositionInput {
   deck_list: string;
@@ -208,19 +209,11 @@ export class AnalyzeDeckCompositionTool {
    * Fetch card data for all cards in the deck
    */
   private async fetchCardData(deckEntries: DeckCardEntry[]): Promise<Map<string, ScryfallCard>> {
-    const cardData = new Map<string, ScryfallCard>();
-    
-    for (const { name } of deckEntries) {
-      try {
-        const card = await this.scryfallClient.getCard({ identifier: name });
-        cardData.set(name, card);
-      } catch (error) {
-        // Skip cards that can't be found
-        continue;
-      }
-    }
-    
-    return cardData;
+    return fetchCardMapWithConcurrency(
+      this.scryfallClient,
+      deckEntries.map(({ name }) => name),
+      { skipNotFound: true }
+    );
   }
 
   /**

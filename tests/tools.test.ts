@@ -10,7 +10,17 @@ import { BatchCardAnalysisTool } from '../src/tools/batch-card-analysis.js';
 import { AnalyzeDeckCompositionTool } from '../src/tools/analyze-deck-composition.js';
 import { SuggestManaBaseTool } from '../src/tools/suggest-mana-base.js';
 import { ScryfallAPIError } from '../src/types/mcp-types.js';
-import { ScryfallClient } from '../src/services/scryfall-client.js';
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
 
 // Mock the ScryfallClient
 vi.mock('../src/services/scryfall-client.js');
@@ -969,6 +979,71 @@ describe('MCP Tools', () => {
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Strategy: aggro');
       expect(result.content[0].text).toContain('Format: modern');
+    });
+
+    it('should fetch unique deck cards concurrently while preserving output', async () => {
+      const boltLookup = createDeferred<{
+        id: string;
+        name: string;
+        cmc: number;
+        type_line: string;
+        oracle_text: string;
+        rarity: 'common';
+        prices: { usd: string };
+        color_identity: ['R'];
+      }>();
+      const mountainLookup = createDeferred<{
+        id: string;
+        name: string;
+        cmc: number;
+        type_line: string;
+        rarity: 'common';
+        prices: { usd: string };
+        color_identity: ['R'];
+      }>();
+
+      mockScryfallClient.getCard.mockImplementation(({ identifier }: { identifier: string }) => {
+        if (identifier === 'Lightning Bolt') {
+          return boltLookup.promise;
+        }
+
+        return mountainLookup.promise;
+      });
+
+      const execution = tool.execute({
+        deck_list: '4 Lightning Bolt\n20 Mountain',
+        format: 'modern',
+        strategy: 'aggro'
+      });
+
+      await Promise.resolve();
+      expect(mockScryfallClient.getCard).toHaveBeenCalledTimes(2);
+      expect(mockScryfallClient.getCard).toHaveBeenNthCalledWith(1, { identifier: 'Lightning Bolt' });
+      expect(mockScryfallClient.getCard).toHaveBeenNthCalledWith(2, { identifier: 'Mountain' });
+
+      mountainLookup.resolve({
+        id: 'mountain-id',
+        name: 'Mountain',
+        cmc: 0,
+        type_line: 'Basic Land — Mountain',
+        rarity: 'common',
+        prices: { usd: '0.10' },
+        color_identity: ['R']
+      });
+      boltLookup.resolve({
+        id: 'bolt-id',
+        name: 'Lightning Bolt',
+        cmc: 1,
+        type_line: 'Instant',
+        oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+        rarity: 'common',
+        prices: { usd: '1.00' },
+        color_identity: ['R']
+      });
+
+      const result = await execution;
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Total Cards: 24');
     });
 
     it('should surface actionable warnings for an under-landed high-curve aggro shell', async () => {
