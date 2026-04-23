@@ -169,6 +169,7 @@ describe('Natural-Language Query Builder', () => {
       expect(result.query).toContain('c:>=u');
       expect(result.query).toContain('instant OR sorcery');
       expect(result.optimizations.some((optimization) => optimization.type === 'broadening')).toBe(true);
+      expect(result.testSummary).toEqual({ total_cards: 0, has_more: false });
       expect(result.explanation).toContain('priced <=$5');
     });
 
@@ -198,6 +199,7 @@ describe('Natural-Language Query Builder', () => {
       expect(result.query).toContain('f:commander');
       expect(result.query).toContain('usd:<=10');
       expect(result.optimizations.some((optimization) => optimization.type === 'narrowing')).toBe(true);
+      expect(result.testSummary).toEqual({ total_cards: 350, has_more: false });
       expect(result.explanation).toContain('artifact cards');
     });
 
@@ -222,6 +224,7 @@ describe('Natural-Language Query Builder', () => {
 
       expect(mockClient.searchCards).not.toHaveBeenCalled();
       expect(result.optimizations).toEqual([]);
+      expect(result.testSummary).toBeUndefined();
       expect(result.query).toContain('f:modern');
     });
   });

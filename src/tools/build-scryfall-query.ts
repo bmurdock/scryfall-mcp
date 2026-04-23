@@ -10,13 +10,11 @@ import { NaturalLanguageParser } from '../natural-language/parser.js';
 import { QueryBuilderEngine } from '../natural-language/query-builder.js';
 import { ConceptExtractor } from '../natural-language/concept-extractor.js';
 import { validateBuildQueryParams } from '../utils/validators.js';
-import { sanitizeQuery } from '../utils/query-sanitizer.js';
 import { 
   ValidationError, 
   ScryfallAPIError,
   BuildQueryParams
 } from '../types/mcp-types.js';
-import { ScryfallSearchResponse } from '../types/scryfall-api.js';
 import { 
   ParsedQuery, 
   BuildResult 
@@ -136,13 +134,7 @@ export class BuildScryfallQueryTool {
       };
       
       const buildResult = await this.queryBuilder.build(parsed, buildOptions);
-      
-      // Test query if requested (sanitize the generated query before testing)
-      let testResult: ScryfallSearchResponse | null = null;
-      if (params.test_query) {
-        const sanitizedTestQuery = sanitizeQuery(buildResult.query);
-        testResult = await this.testQuery(sanitizedTestQuery);
-      }
+      const testResult = params.test_query ? (buildResult.testSummary ?? null) : null;
       
       // Format response
       const responseText = this.formatResponse(
@@ -165,25 +157,11 @@ export class BuildScryfallQueryTool {
   }
   
   /**
-   * Test a generated query with a small sample
-   */
-  private async testQuery(query: string) {
-    try {
-      return await this.scryfallClient.searchCards({
-        query,
-        limit: 5 // Small test to check viability
-      });
-    } catch (error) {
-      return null; // Query failed, but we'll still return the generated query
-    }
-  }
-  
-  /**
    * Format the complete response
    */
   private formatResponse(
     buildResult: BuildResult,
-    testResult: ScryfallSearchResponse | null,
+    testResult: BuildResult["testSummary"] | null,
     params: BuildQueryParams,
     parsed: ParsedQuery
   ): string {
@@ -192,7 +170,7 @@ export class BuildScryfallQueryTool {
     // Add test results
     if (testResult) {
       response += `**Query Test Results:**\n`;
-      const totalCards = testResult.total_cards ?? testResult.data.length;
+      const totalCards = testResult.total_cards;
       response += `✅ Query is valid and returns ${totalCards} cards\n`;
       
       if (totalCards === 0) {

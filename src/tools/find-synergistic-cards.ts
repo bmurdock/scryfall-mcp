@@ -312,42 +312,36 @@ export class FindSynergisticCardsTool {
   ): Promise<SynergyCard[]> {
     const allResults: SynergyCard[] = [];
     const uniqueResultIds = new Set<string>();
-    let nextIndex = 0;
     const perQueryLimit = this.getPerQueryLimit(queries.length, targetUniqueResults);
-    const workerCount = Math.min(Math.max(1, SEARCH_CONCURRENCY), queries.length);
 
-    const workers = Array.from({ length: workerCount }, async () => {
-      while (nextIndex < queries.length && uniqueResultIds.size < stopAfterUniqueResults) {
-        const currentIndex = nextIndex;
-        nextIndex += 1;
-        const query = queries[currentIndex];
-
-        try {
-          const results = await this.scryfallClient.searchCards({
-            query,
-            limit: perQueryLimit,
-            order: 'edhrec'
-          });
-
-          const layer = getLayer(currentIndex);
-          for (const card of results.data) {
-            if (!uniqueResultIds.has(card.id)) {
-              uniqueResultIds.add(card.id);
-            }
-
-            allResults.push({
-              ...card,
-              _synergy_layer: layer,
-              _synergy_query: query
-            });
-          }
-        } catch (error) {
-          continue;
-        }
+    for (const [index, query] of queries.entries()) {
+      if (uniqueResultIds.size >= stopAfterUniqueResults) {
+        break;
       }
-    });
 
-    await Promise.all(workers);
+      try {
+        const results = await this.scryfallClient.searchCards({
+          query,
+          limit: perQueryLimit,
+          order: 'edhrec'
+        });
+
+        const layer = getLayer(index);
+        for (const card of results.data) {
+          if (!uniqueResultIds.has(card.id)) {
+            uniqueResultIds.add(card.id);
+          }
+
+          allResults.push({
+            ...card,
+            _synergy_layer: layer,
+            _synergy_query: query
+          });
+        }
+      } catch {
+        continue;
+      }
+    }
 
     return allResults;
   }

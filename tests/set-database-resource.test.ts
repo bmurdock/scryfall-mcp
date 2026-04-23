@@ -55,6 +55,24 @@ describe("SetDatabaseResource", () => {
     expect(parsed.data[0].name).toBe("Digital Set");
   });
 
+  it("shares string-based release filtering with the client path", async () => {
+    const resource = new SetDatabaseResource(
+      {
+        getSets: vi.fn().mockResolvedValue([
+          createSet({ id: "set-old", code: "old", name: "Old Set", released_at: "2020-01-01" }),
+          createSet({ id: "set-new", code: "new", name: "New Set", released_at: "2025-01-01" }),
+        ]),
+      } as never,
+      cache
+    );
+
+    const result = await resource.getFilteredSets({ released_after: "2024-01-01" });
+    const parsed = JSON.parse(result);
+
+    expect(parsed.total_sets).toBe(1);
+    expect(parsed.data.map((set: ScryfallSet) => set.code)).toEqual(["new"]);
+  });
+
   it("collects set types from cached set models without parsing the serialized payload", async () => {
     const resource = new SetDatabaseResource(
       {

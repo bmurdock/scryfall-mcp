@@ -6,6 +6,7 @@ import { QueryRulesTool } from '../src/tools/query-rules.js';
 import { SearchFormatStaplesTool } from '../src/tools/search-format-staples.js';
 import { SearchAlternativesTool } from '../src/tools/search-alternatives.js';
 import { FindSynergisticCardsTool } from '../src/tools/find-synergistic-cards.js';
+import { BuildScryfallQueryTool } from '../src/tools/build-scryfall-query.js';
 import { buildSynergyQueries } from '../src/tools/find-synergistic-cards/query-builder.js';
 import { BatchCardAnalysisTool } from '../src/tools/batch-card-analysis.js';
 import { AnalyzeDeckCompositionTool } from '../src/tools/analyze-deck-composition.js';
@@ -204,6 +205,24 @@ describe('MCP Tools', () => {
         price_range: { min: 0.5, max: 2.0, currency: 'usd' }
       }));
       expect(result.content[0].text.trim().startsWith('{')).toBe(true);
+    });
+  });
+
+  describe('BuildScryfallQueryTool', () => {
+    it('reuses builder test metadata instead of issuing a second preview search', async () => {
+      const tool = new BuildScryfallQueryTool({ searchCards: mockScryfallClient.searchCards } as never);
+
+      mockScryfallClient.searchCards.mockResolvedValue({
+        object: 'list',
+        total_cards: 12,
+        has_more: false,
+        data: [],
+      });
+
+      const result = await tool.execute({ natural_query: 'blue counterspells under $5 for modern' });
+
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledTimes(1);
+      expect(result.content[0].text).toContain('returns 12 cards');
     });
   });
 

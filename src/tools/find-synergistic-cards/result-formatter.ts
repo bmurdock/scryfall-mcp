@@ -112,10 +112,15 @@ export function formatResultsWithSynergyExplanations(
   let output = '';
 
   const resultsByLayer = {
-    semantic: searchResponse.data.filter((card): card is SynergyCard => (card as SynergyCard)._synergy_layer === 'semantic'),
-    exact: searchResponse.data.filter((card): card is SynergyCard => (card as SynergyCard)._synergy_layer === 'exact'),
-    thematic: searchResponse.data.filter((card): card is SynergyCard => (card as SynergyCard)._synergy_layer === 'thematic')
+    semantic: [] as SynergyCard[],
+    exact: [] as SynergyCard[],
+    thematic: [] as SynergyCard[],
   };
+
+  for (const card of searchResponse.data as SynergyCard[]) {
+    const layer = card._synergy_layer ?? 'thematic';
+    resultsByLayer[layer].push(card);
+  }
 
   if (resultsByLayer.semantic.length > 0) {
     output += '**🎯 Strategic Synergies:**\n';
@@ -165,6 +170,7 @@ export function filterAndDeduplicateResults(
 ): SynergyCard[] {
   const seen = new Set<string>();
   const filtered: SynergyCard[] = [];
+  const focusCardNameLower = focusCardName.toLowerCase();
 
   for (const card of results) {
     if (seen.has(card.id)) {
@@ -176,7 +182,7 @@ export function filterAndDeduplicateResults(
       continue;
     }
 
-    if (card.name.toLowerCase() === focusCardName.toLowerCase()) {
+    if (card.name.toLowerCase() === focusCardNameLower) {
       continue;
     }
 

@@ -64,4 +64,22 @@ describe("CacheService", () => {
     expect(cache.get("b")).toBeNull();
     expect(cache.get("c")).toEqual({ value: "gamma" });
   });
+
+  it("accepts an explicit size hint so large cached objects do not require JSON serialization", () => {
+    const cache = new CacheService(60_000, 100, 10);
+    caches.push(cache);
+
+    let serializeCount = 0;
+    const payload = {
+      toJSON() {
+        serializeCount++;
+        return { value: "large" };
+      },
+    };
+
+    cache.set("hinted", payload, 60_000, { sizeBytes: 256 });
+
+    expect(serializeCount).toBe(0);
+    expect(cache.getStats().memoryUsage).toBeGreaterThan(0);
+  });
 });

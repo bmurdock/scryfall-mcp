@@ -205,6 +205,17 @@ describe("CardDatabaseResource", () => {
     expect(downloadBulkData).toHaveBeenCalledTimes(1);
   });
 
+  it("serializes filtered cards into the final payload shape without requiring a second array result", () => {
+    const payload = (resource as CardDatabaseResource & {
+      serializeBulkSnapshot: (bulkInfo: BulkDataInfo, cards: ScryfallCard[]) => string;
+    }).serializeBulkSnapshot(mockBulkInfo, mockCards);
+    const parsed = JSON.parse(payload);
+
+    expect(parsed.updated_at).toBe(mockBulkInfo.updated_at);
+    expect(parsed.total_cards).toBe(mockCards.length);
+    expect(parsed.data[0].name).toBe("Lightning Bolt");
+  });
+
   it("forceRefresh clears the cached snapshot and rebuilds it", async () => {
     await resource.getData();
 

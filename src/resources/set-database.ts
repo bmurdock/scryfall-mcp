@@ -3,6 +3,7 @@ import { CacheService } from '../services/cache-service.js';
 import { ScryfallSet } from '../types/scryfall-api.js';
 import { ScryfallAPIError } from '../types/mcp-types.js';
 import { mcpLogger } from '../services/logger.js';
+import { filterSets } from '../utils/set-filters.js';
 
 type SetSnapshotMetadata = {
   updatedAt: string;
@@ -128,36 +129,14 @@ export class SetDatabaseResource {
    * Gets sets filtered by criteria
    */
   async getFilteredSets(filters: {
+    query?: string;
     type?: string;
     released_after?: string;
     released_before?: string;
     digital?: boolean;
   }): Promise<string> {
     const allSets = await this.getSetDataModel();
-    let filteredSets = allSets;
-    
-    // Apply filters
-    if (filters.type) {
-      filteredSets = filteredSets.filter(set => set.set_type === filters.type);
-    }
-    
-    if (filters.digital !== undefined) {
-      filteredSets = filteredSets.filter(set => set.digital === filters.digital);
-    }
-    
-    if (filters.released_after) {
-      const afterDate = new Date(filters.released_after);
-      filteredSets = filteredSets.filter(set => 
-        set.released_at && new Date(set.released_at) >= afterDate
-      );
-    }
-    
-    if (filters.released_before) {
-      const beforeDate = new Date(filters.released_before);
-      filteredSets = filteredSets.filter(set => 
-        set.released_at && new Date(set.released_at) <= beforeDate
-      );
-    }
+    const filteredSets = filterSets(allSets, filters);
 
     return JSON.stringify({
       object: 'list',

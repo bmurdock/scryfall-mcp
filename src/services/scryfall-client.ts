@@ -13,6 +13,7 @@ import { CacheService } from "./cache-service.js";
 import { mcpLogger } from "./logger.js";
 import { generateRequestId } from "../types/mcp-errors.js";
 import { EnvValidators } from "../utils/env-parser.js";
+import { filterSets } from "../utils/set-filters.js";
 
 /**
  * HTTP client for Scryfall API with rate limiting and caching
@@ -439,48 +440,18 @@ export class ScryfallClient {
     released_after?: string;
     released_before?: string;
   }): Promise<ScryfallSet[]> {
-    const cacheKey = CacheService.createSetKey(params?.query, params?.type);
+    const cacheKey = CacheService.createSetKey();
 
-    // Check cache first
     const cached = this.cache.getWithStats<{ data: ScryfallSet[] }>(cacheKey);
-    if (cached) {
-      return cached.data;
+    const allSets = cached?.data ?? (
+      await this.makeRequest<ScryfallListResponse<ScryfallSet>>(`${this.baseUrl}/sets`)
+    ).data;
+
+    if (!cached) {
+      this.cache.setWithType(cacheKey, { data: allSets }, "set_data");
     }
 
-    const url = new URL(`${this.baseUrl}/sets`);
-
-    // Note: Scryfall doesn't support query/type filtering on sets endpoint
-    // We'll filter client-side if needed
-    const data = await this.makeRequest<ScryfallListResponse<ScryfallSet>>(url.toString());
-
-    let sets = data.data;
-
-    // Apply client-side filtering
-    if (params?.query) {
-      const query = params.query.toLowerCase();
-      sets = sets.filter(
-        (set) => set.name.toLowerCase().includes(query) || set.code.toLowerCase().includes(query)
-      );
-    }
-
-    if (params?.type) {
-      sets = sets.filter((set) => set.set_type === params.type);
-    }
-
-    if (params?.released_after) {
-      const afterDate = new Date(params.released_after);
-      sets = sets.filter((set) => set.released_at && new Date(set.released_at) >= afterDate);
-    }
-
-    if (params?.released_before) {
-      const beforeDate = new Date(params.released_before);
-      sets = sets.filter((set) => set.released_at && new Date(set.released_at) <= beforeDate);
-    }
-
-    // Cache the filtered result
-    this.cache.setWithType(cacheKey, { data: sets }, "set_data");
-
-    return sets;
+    return filterSets(allSets, params ?? {});
   }
 
   /**

@@ -25,6 +25,8 @@ export class CacheService {
     }, this.cleanupIntervalMs);
   }
 
+  // Large object producers may pass sizeBytes when they already know the payload size
+  // or can compute it cheaply. Smaller caches can keep using the generic fallback.
   /**
    * Gets a value from cache if it exists and hasn't expired
    */
@@ -49,15 +51,15 @@ export class CacheService {
   /**
    * Sets a value in cache with TTL and enforces size limits
    */
-  set<T>(key: string, value: T, ttl: number): void {
+  set<T>(key: string, value: T, ttl: number, options?: { sizeBytes?: number }): void {
     const entry: CacheEntry<T> = {
       data: value,
       timestamp: Date.now(),
-      ttl
+      ttl,
+      sizeBytes: options?.sizeBytes,
     };
 
-    // Calculate entry size
-    const entrySize = this.calculateEntrySize(key, entry);
+    const entrySize = entry.sizeBytes ?? this.calculateEntrySize(key, entry);
     entry.sizeBytes = entrySize;
 
     // Remove existing entry if updating
@@ -75,9 +77,14 @@ export class CacheService {
   /**
    * Sets a value with predefined TTL based on data type
    */
-  setWithType<T>(key: string, value: T, type: keyof typeof CACHE_DURATIONS): void {
+  setWithType<T>(
+    key: string,
+    value: T,
+    type: keyof typeof CACHE_DURATIONS,
+    options?: { sizeBytes?: number }
+  ): void {
     const ttl = CACHE_DURATIONS[type];
-    this.set(key, value, ttl);
+    this.set(key, value, ttl, options);
   }
 
   /**

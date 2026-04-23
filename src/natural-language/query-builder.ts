@@ -50,6 +50,7 @@ export class QueryBuilderEngine {
       confidence: this.calculateBuildConfidence(parsed, mappings, testedQuery),
       alternatives,
       optimizations: testedQuery.optimizations,
+      testSummary: testedQuery.testSummary,
     };
   }
 

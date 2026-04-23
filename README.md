@@ -1,100 +1,47 @@
 # Scryfall MCP Server
 
-A comprehensive Model Context Protocol (MCP) server that integrates with the Scryfall API to provide Magic: The Gathering card data and functionality to AI assistants.
+Scryfall-backed MCP server for Magic: The Gathering search, rules lookup, pricing, set discovery, and deckbuilding workflows.
 
-This repository currently supports:
+The project currently supports:
 
-- `stdio` as the stable default transport for local MCP clients
-- experimental `Streamable HTTP` as an additive transport for local-first HTTP workflows
+- `stdio` as the primary transport for local MCP clients
+- local-first Streamable HTTP via `src/http.ts`
+- 14 MCP tools, 2 resources, and 2 prompts
 
-The core product remains the same in both modes: Scryfall-backed search, rules, and deckbuilding workflows for MTG.
+## What It Exposes
 
-## Features
+### Tools
 
-### 🔧 MCP Tools
+- `search_cards`: Run Scryfall card searches with paging, sorting, and optional price filtering.
+- `get_card`: Fetch one card by name, set/collector number, or Scryfall ID.
+- `get_card_prices`: Return price data with optional format context and alternatives.
+- `random_card`: Get a random card with optional filters.
+- `search_sets`: Search and filter Magic sets.
+- `query_rules`: Search the local comprehensive rules file with context.
+- `build_scryfall_query`: Convert natural language into an explainable Scryfall query.
+- `search_format_staples`: Find staples and role players for a format.
+- `search_alternatives`: Find cheaper, upgraded, or similar cards.
+- `find_synergistic_cards`: Find synergy pieces for a card, theme, or archetype.
+- `batch_card_analysis`: Analyze multiple cards for legality, prices, synergy, or composition.
+- `validate_brawl_commander`: Check Brawl and Standard Brawl commander legality.
+- `analyze_deck_composition`: Evaluate deck lists for curve, colors, and structural issues.
+- `suggest_mana_base`: Recommend land counts and fixing packages from color requirements.
 
-#### Query Building
-- **build_scryfall_query**: Convert natural language requests into optimized Scryfall search queries
-  - Input: Natural language description, format preferences, optimization strategy
-  - Output: Optimized Scryfall query with explanation and alternatives
-  - Example: "red creatures under $5 for aggressive decks" → "c:r t:creature usd<=5 pow>=2 cmc<=3"
+### Resources
 
-#### Core Search Tools
-- **search_cards**: Search for cards using Scryfall's powerful search syntax
-- **get_card**: Get detailed information about specific cards
-- **get_card_prices**: Retrieve current price data for cards
-- **random_card**: Get random cards with optional filters
-- **search_sets**: Search and filter Magic sets
+- `card-database://bulk`: Cached Oracle bulk snapshot.
+- `set-database://all`: Cached set list snapshot.
 
-#### Discovery And Analysis Tools
-- **query_rules**: Search the MTG comprehensive rules with context
-- **search_format_staples**: Find staples, role players, and meta cards for a format
-- **search_alternatives**: Find budget replacements, upgrades, or similar cards
-- **find_synergistic_cards**: Discover synergy pieces for a card, theme, or archetype
-- **batch_card_analysis**: Analyze multiple cards for legality, prices, synergy, or composition
+### Prompts
 
-#### Deck Building Tools
-- **validate_brawl_commander**: Check whether a card is a legal Brawl or Standard Brawl commander
-- **analyze_deck_composition**: Evaluate mana curve, card mix, colors, and recommendations from a deck list
-- **suggest_mana_base**: Recommend land counts and mana-fixing packages from color requirements
+- `analyze_card`
+- `build_deck`
 
-### 📚 MCP Resources
-- **card-database://bulk**: Complete Scryfall bulk card database with daily updates
-- **set-database://all**: All Magic sets with metadata and icons
+## Transports
 
-### 💡 MCP Prompts
-- **analyze_card**: Generate comprehensive card analysis including competitive viability, synergies, and meta positioning
-- **build_deck**: Create deck building guides centered around specific cards
+### STDIO
 
-### ⚡ Performance Features
-- **Rate Limiting**: Respects Scryfall's API limits with 100ms minimum intervals
-- **Intelligent Caching**: Reduces API calls by >70% with configurable TTL
-- **Error Handling**: Graceful handling of all API error conditions
-- **Circuit Breaker**: Prevents cascading failures during API outages
-
-### 🔍 Simple Validation System
-- **Lightweight Validation**: Basic query syntax validation with helpful error messages
-- **Essential Checks**: Balanced parentheses, quotes, and common syntax errors
-- **Operator Recognition**: Validates known Scryfall operators with suggestions for typos
-- **Performance Optimized**: Fast validation with minimal overhead
-
-## Installation
-
-### Prerequisites
-- Node.js 18+
-- npm or yarn
-
-### Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/bmurdock/scryfall-mcp.git
-   cd scryfall-mcp
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment** (optional)
-   ```bash
-   cp .env.example .env
-   # Edit .env with your preferences
-   ```
-
-4. **Build the project**
-   ```bash
-   npm run build
-   ```
-
-## Usage
-
-### Transport Modes
-
-#### STDIO (stable default)
-
-Use stdio for local MCP clients such as Claude Desktop, Codex, and MCP Inspector. This remains the primary and best-supported transport.
+Recommended for Claude Desktop, Codex, MCP Inspector, and most local MCP clients.
 
 ```bash
 npm run dev
@@ -104,9 +51,9 @@ npm run dev
 npm start
 ```
 
-#### Streamable HTTP (experimental)
+### Streamable HTTP
 
-An additive HTTP entrypoint is available for local-first `Streamable HTTP` usage.
+Available as a separate entrypoint for local or explicitly controlled environments.
 
 ```bash
 npm run dev:http
@@ -116,62 +63,143 @@ npm run dev:http
 npm run start:http
 ```
 
-### Testing
-```bash
-# Run all tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Run tests with UI
-npm run test:ui
-```
-
-### MCP Inspector
-```bash
-npm run inspector
-```
-
-## HTTP Transport Status
-
-HTTP support is currently **experimental**.
-
-What that means:
-
-- stdio remains the recommended default
-- HTTP is additive, not a replacement
-- the implementation follows the official MCP `Streamable HTTP` transport path
-- the first implementation is intentionally local-first and conservative in scope
-
 Current HTTP behavior:
 
 - binds to `127.0.0.1` by default
-- exposes `POST|GET|DELETE /mcp`
-- exposes `GET /health`
-- rejects non-loopback browser-style `Origin` headers by default
-- can be configured with `HTTP_ALLOWED_ORIGINS` when a different origin policy is intentionally needed
+- serves `POST|GET|DELETE` on `/mcp`
+- serves `GET /health`
+- rejects non-loopback `Origin` headers by default unless `HTTP_ALLOWED_ORIGINS` is set
 
-Current non-goals:
+The HTTP entrypoint is useful today, but it is still documented conservatively. It is not presented here as a public-hosting story.
 
-- public internet deployment guidance
-- auth middleware or hosted production hardening
-- replacing stdio examples throughout the repo
+## Setup
 
-If you need a public-facing deployment model, treat the current HTTP support as a foundation rather than a finished hosting story.
+### Prerequisites
 
-## Project Docs
+- Node.js 18+
+- npm
 
-- [CONTRIBUTING.md](./CONTRIBUTING.md)
-- [SECURITY.md](./SECURITY.md)
-- [SCRYFALL_COMPLIANCE.md](./SCRYFALL_COMPLIANCE.md)
+### Install
+
+```bash
+git clone https://github.com/bmurdock/scryfall-mcp.git
+cd scryfall-mcp
+npm install
+cp .env.example .env
+```
+
+### Validate
+
+```bash
+npm run lint
+npm run type-check
+npm test
+```
+
+### Build
+
+```bash
+npm run build
+```
+
+## Common Commands
+
+```bash
+npm run dev
+npm run dev:http
+npm start
+npm run start:http
+npm test
+npm run test:watch
+npm run test:ui
+npm run lint
+npm run type-check
+npm run inspector
+```
+
+## Configuration
+
+See [.env.example](./.env.example) for the canonical values. The main variables in active use are:
+
+- `SCRYFALL_USER_AGENT`
+- `RATE_LIMIT_MS`
+- `RATE_LIMIT_QUEUE_MAX`
+- `SCRYFALL_TIMEOUT_MS`
+- `CACHE_MAX_SIZE`
+- `CACHE_MAX_MEMORY_MB`
+- `LOG_LEVEL`
+- `NODE_ENV`
+- `HEALTHCHECK_DEEP`
+- `HTTP_HOST`
+- `HTTP_PORT`
+- `HTTP_MCP_PATH`
+- `HTTP_HEALTH_PATH`
+- `HTTP_ALLOWED_ORIGINS`
+
+Example local HTTP startup:
+
+```bash
+HTTP_HOST=127.0.0.1 HTTP_PORT=3000 npm run start:http
+```
+
+## Example Tool Calls
+
+### `build_scryfall_query`
+
+```json
+{
+  "natural_query": "blue counterspells under $20 for modern",
+  "optimize_for": "precision"
+}
+```
+
+### `search_cards`
+
+```json
+{
+  "query": "c:r t:instant mv=1",
+  "limit": 10,
+  "order": "name"
+}
+```
+
+### `search_sets`
+
+```json
+{
+  "type": "expansion",
+  "released_after": "2020-01-01"
+}
+```
+
+### `find_synergistic_cards`
+
+```json
+{
+  "focus_card": "Obeka, Splitter of Seconds",
+  "synergy_type": "theme",
+  "format": "commander",
+  "limit": 12
+}
+```
+
+### `analyze_deck_composition`
+
+```json
+{
+  "deck_list": "4 Lightning Bolt\n4 Monastery Swiftspear\n20 Mountain",
+  "format": "modern",
+  "strategy": "aggro"
+}
+```
 
 ## Claude Desktop Integration
 
-Add the following to your Claude Desktop configuration file:
+Add the built stdio entrypoint to your Claude Desktop configuration.
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%/Claude/claude_desktop_config.json`
+macOS path: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+Windows path: `%APPDATA%/Claude/claude_desktop_config.json`
 
 ```json
 {
@@ -184,554 +212,23 @@ Add the following to your Claude Desktop configuration file:
 }
 ```
 
-Replace `/absolute/path/to/scryfall-mcp` with the actual path to your installation.
+## Operational Notes
 
-## HTTP Configuration
+- Rate limiting is enforced in-process with a 100 ms default minimum interval between Scryfall requests.
+- Search responses, card details, prices, sets, and bulk snapshots are cached with bounded in-memory limits.
+- The bulk card resource stores a pre-serialized snapshot to keep repeated reads cheap.
+- Set filtering is derived from one canonical cached `/sets` dataset to avoid incorrect filtered cache reuse.
+- Health checks are available through `ScryfallMCPServer.healthCheck()` and the HTTP `/health` endpoint.
 
-Optional HTTP environment variables:
+## Documentation Map
 
-- `HTTP_HOST` default `127.0.0.1`
-- `HTTP_PORT` default `3000`
-- `HTTP_MCP_PATH` default `/mcp`
-- `HTTP_HEALTH_PATH` default `/health`
-- `HTTP_ALLOWED_ORIGINS` optional comma-separated origin allowlist
+Current source-of-truth docs:
 
-Example local HTTP startup:
-
-```bash
-HTTP_HOST=127.0.0.1 HTTP_PORT=3000 npm run start:http
-```
-
-This mode is intended for local or explicitly controlled environments. Do not treat the current HTTP entrypoint as production-ready public exposure without adding auth and deployment hardening.
-
-## Tool Usage Examples
-
-### Natural Language Query Building
-
-Convert natural language to Scryfall syntax:
-
-```javascript
-// Convert natural language to optimized Scryfall query
-{
-  "tool": "build_scryfall_query",
-  "arguments": {
-    "natural_query": "blue counterspells in modern under $20",
-    "optimize_for": "precision"
-  }
-}
-```
-
-Generate budget-friendly queries:
-
-```javascript
-// Budget-focused query generation
-{
-  "tool": "build_scryfall_query",
-  "arguments": {
-    "natural_query": "aggressive red creatures for standard",
-    "optimize_for": "budget",
-    "price_budget": {
-      "max": 5,
-      "currency": "usd"
-    }
-  }
-}
-```
-
-Discover interesting cards:
-
-```javascript
-// Discovery-optimized search
-{
-  "tool": "build_scryfall_query",
-  "arguments": {
-    "natural_query": "legendary artifacts that produce mana",
-    "format": "commander",
-    "optimize_for": "discovery"
-  }
-}
-```
-
-### Query Rules
-```javascript
-{
-  "tool": "query_rules",
-  "arguments": {
-    "query": "state-based actions",
-    "context_lines": 2
-  }
-}
-```
-
-### Search Format Staples
-```javascript
-{
-  "tool": "search_format_staples",
-  "arguments": {
-    "format": "commander",
-    "role": "ramp",
-    "tier": "competitive",
-    "limit": 10
-  }
-}
-```
-
-### Search Alternatives
-```javascript
-{
-  "tool": "search_alternatives",
-  "arguments": {
-    "target_card": "Rhystic Study",
-    "direction": "cheaper",
-    "format": "commander",
-    "max_price": 10
-  }
-}
-```
-
-### Find Synergistic Cards
-```javascript
-{
-  "tool": "find_synergistic_cards",
-  "arguments": {
-    "focus_card": "Obeka, Splitter of Seconds",
-    "synergy_type": "theme",
-    "format": "commander",
-    "limit": 12
-  }
-}
-```
-
-### Batch Card Analysis
-```javascript
-{
-  "tool": "batch_card_analysis",
-  "arguments": {
-    "card_list": ["Sol Ring", "Arcane Signet", "Command Tower"],
-    "analysis_type": "prices",
-    "currency": "usd",
-    "include_suggestions": true
-  }
-}
-```
-
-### Validate Brawl Commander
-```javascript
-{
-  "tool": "validate_brawl_commander",
-  "arguments": {
-    "card_identifier": "Ashiok, Nightmare Muse",
-    "format": "brawl"
-  }
-}
-```
-
-### Analyze Deck Composition
-```javascript
-{
-  "tool": "analyze_deck_composition",
-  "arguments": {
-    "deck_list": "4 Lightning Bolt\n4 Monastery Swiftspear\n20 Mountain",
-    "format": "modern",
-    "strategy": "aggro"
-  }
-}
-```
-
-### Suggest Mana Base
-```javascript
-{
-  "tool": "suggest_mana_base",
-  "arguments": {
-    "color_requirements": "WUG",
-    "format": "commander",
-    "strategy": "midrange",
-    "budget": "moderate"
-  }
-}
-```
-
-### Search Cards
-```javascript
-// Basic search
-{
-  "query": "lightning bolt"
-}
-
-// Advanced search with Scryfall syntax
-{
-  "query": "c:red type:instant cmc:1",
-  "limit": 10,
-  "format": "json"
-}
-
-// Format-specific search
-{
-  "query": "legal:modern type:creature power>=4",
-  "order": "cmc"
-}
-```
-
-### Get Card Details
-```javascript
-// By name
-{
-  "identifier": "Lightning Bolt"
-}
-
-// By set and collector number
-{
-  "identifier": "dom/123"
-}
-
-// By Scryfall ID
-{
-  "identifier": "f7a99cc1-2b73-4c9c-8de2-9b6c4c1d8f2a"
-}
-
-// With specific set
-{
-  "identifier": "Lightning Bolt",
-  "set": "m21"
-}
-```
-
-### Get Card Prices
-```javascript
-{
-  "card_identifier": "f7a99cc1-2b73-4c9c-8de2-9b6c4c1d8f2a",
-  "currency": "usd"
-}
-```
-
-### Random Card
-```javascript
-// Completely random
-{}
-
-// Filtered random card
-{
-  "query": "type:creature",
-  "format": "modern"
-}
-```
-
-### Search Sets
-```javascript
-// All sets
-{}
-
-// Filter by type and date
-{
-  "type": "expansion",
-  "released_after": "2020-01-01"
-}
-```
-
-## Scryfall Search Syntax
-
-The server supports Scryfall's full search syntax:
-
-### Basic Operators
-- `c:red` - Color
-- `type:creature` - Type line
-- `set:dom` - Set code
-- `cmc:3` - Converted mana cost
-- `power>=4` - Power/toughness comparisons
-- `legal:modern` - Format legality
-
-### Advanced Operators
-- `is:commander` - Card properties
-- `year:2023` - Release year
-- `rarity:mythic` - Rarity
-- `artist:"john avon"` - Artist name
-- `flavor:"text"` - Flavor text search
-
-### Boolean Logic
-- `red OR blue` - Either condition
-- `creature AND red` - Both conditions
-- `NOT black` - Exclude condition
-- `(red OR blue) type:instant` - Grouping
-
-## Error Handling
-
-The server provides detailed error messages for common issues:
-
-- **404**: Card/resource not found
-- **422**: Invalid search syntax
-- **429**: Rate limit exceeded (automatic retry)
-- **Validation errors**: Parameter validation failures
-
-## Performance Monitoring
-
-### Cache Statistics
-```javascript
-// Get cache performance
-server.getCacheStats()
-```
-
-### Rate Limiter Status
-```javascript
-// Check rate limiting status
-server.getRateLimiterStatus()
-```
-
-### Health Check
-```javascript
-// Overall system health
-server.healthCheck()
-```
-
-## Configuration
-
-### Environment Variables
-```bash
-SCRYFALL_USER_AGENT=ScryfallMCPServer/1.0
-RATE_LIMIT_MS=100
-LOG_LEVEL=info
-NODE_ENV=development
-# Optional timeouts and health/deep checks
-SCRYFALL_TIMEOUT_MS=15000
-HEALTHCHECK_DEEP=false
-# Bound the internal rate limiter queue
-RATE_LIMIT_QUEUE_MAX=500
-```
-
-### Cache Durations
-- **Card Search**: 30 minutes
-- **Card Details**: 24 hours
-- **Card Prices**: 6 hours
-- **Set Data**: 1 week
-- **Bulk Data**: 24 hours
-
-### Logging Configuration
-
-The server uses **Pino** for high-performance structured logging with comprehensive error tracking and monitoring.
-
-#### Log Levels
-```bash
-# Available log levels (default: info)
-LOG_LEVEL=trace    # Most verbose - all operations
-LOG_LEVEL=debug    # Debug information and performance metrics
-LOG_LEVEL=info     # General information (default)
-LOG_LEVEL=warn     # Warnings and degraded performance
-LOG_LEVEL=error    # Errors only
-LOG_LEVEL=fatal    # Critical errors only
-```
-
-#### Development vs Production Logging
-
-**Development Mode** (`NODE_ENV=development`):
-- Pretty-printed, colorized output
-- Human-readable timestamps
-- Request ID and tool name highlighting
-- Automatic log formatting for readability
-
-**Production Mode** (`NODE_ENV=production`):
-- JSON-structured logs for machine processing
-- Optimized for log aggregation systems
-- Minimal overhead for high-performance scenarios
-- Compatible with ELK Stack, Grafana, and monitoring tools
-
-#### Structured Log Format
-
-All logs include structured context for debugging and monitoring:
-
-```json
-{
-  "level": "info",
-  "time": "2025-01-17T19:32:53.123Z",
-  "pid": 12345,
-  "hostname": "server-01",
-  "service": "scryfall-mcp",
-  "version": "1.0.0",
-  "requestId": "req_1737145973123_abc123def",
-  "toolName": "search_cards",
-  "operation": "tool_execution",
-  "duration": 245,
-  "msg": "Tool execution completed"
-}
-```
-
-#### Request Correlation
-
-Every request gets a unique correlation ID for tracking across operations:
-- Format: `req_{timestamp}_{random}`
-- Tracks tool executions, API calls, and errors
-- Enables end-to-end request tracing
-- Automatic cleanup of old correlation data
-
-### Error Handling & Monitoring
-
-#### Error Classification
-
-The server implements comprehensive error handling with structured error classes:
-
-**Base Error Types:**
-- `MCPError` - Base class with structured logging support
-- `ToolExecutionError` - Tool-specific execution failures
-- `ResourceError` - Resource access failures
-- `PromptError` - Prompt generation failures
-
-**Domain-Specific Errors:**
-- `ScryfallAPIError` - Scryfall API-related errors
-- `RateLimitError` - Rate limiting and throttling
-- `ValidationError` - Input validation failures
-
-#### Error Monitoring Features
-
-**Automatic Error Tracking:**
-- Error frequency monitoring by type
-- Performance metrics collection
-- Request correlation tracking
-- Circuit breaker pattern for API failures
-
-**Monitoring Data Access:**
-```javascript
-// Get comprehensive monitoring report
-const status = server.getStatus();
-console.log(status.monitoring);
-
-// Output includes:
-// - Error counts by type
-// - Performance metrics (avg response times)
-// - Request correlation data
-// - Health check status
-```
-
-#### Health Check Monitoring
-
-Enhanced health checks with detailed service status:
-
-```bash
-# Health check includes:
-# - Cache service status
-# - Rate limiter status
-# - Scryfall API connectivity
-# - Error monitoring metrics
-# - Performance statistics
-```
-
-#### Production Monitoring Setup
-
-**Recommended Monitoring Stack:**
-
-1. **Log Aggregation**: ELK Stack (Elasticsearch, Logstash, Kibana)
-2. **Metrics**: Grafana with Prometheus
-3. **Error Tracking**: Sentry with structured error context
-4. **Alerting**: Based on error rates and response times
-
-**Key Metrics to Monitor:**
-- Tool execution success/failure rates
-- API response time distributions
-- Error type frequencies
-- Cache hit/miss ratios
-- Rate limiter status
-
-#### Error Recovery Strategies
-
-**Automatic Recovery:**
-- Exponential backoff for API failures
-- Circuit breaker prevents cascading failures
-- Intelligent retry logic with jitter
-- Graceful degradation during outages
-
-**Manual Recovery:**
-```javascript
-// Reset error monitoring
-server.resetRateLimiter();
-server.clearCaches();
-
-// Check system health
-const health = await server.healthCheck();
-```
-
-## Troubleshooting
-
-### Common Issues
-
-**"Rate limit exceeded"**
-- The server automatically handles rate limiting
-- Wait a moment and try again
-- Check if you're making too many concurrent requests
-
-**"Network error: Unexpected token" or gzip-related errors**
-- This was fixed in v1.0.2 by disabling gzip compression
-- Make sure you're using the latest build: `npm run build`
-- Restart Claude Desktop after rebuilding
-- The server now requests uncompressed responses to avoid parsing issues
-
-**"Card not found"**
-- Verify card name spelling
-- Try using set code + collector number format
-- Check if the card exists in Scryfall
-
-**"Invalid search syntax"**
-- Review Scryfall search syntax documentation
-- Check for unmatched parentheses
-- Avoid starting queries with boolean operators
-
-**Claude Desktop integration not working**
-- Verify the absolute path in configuration
-- Ensure the server builds successfully
-- Check Claude Desktop logs for errors
-
-### Debug Mode
-```bash
-LOG_LEVEL=debug npm run dev
-```
-
-### Clear Cache
-```bash
-# Programmatically
-server.clearCaches()
-
-# Or restart the server
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
-
-### Development Guidelines
-- Follow TypeScript best practices
-- Maintain >80% test coverage
-- Use conventional commit messages
-- Update documentation for new features
-
-## API Rate Limiting & Compliance
-
-This server fully complies with Scryfall's API guidelines:
-- **Rate Limiting**: 100ms minimum between requests (10 requests/second max)
-- **Required Headers**: Proper User-Agent and Accept headers
-- **Caching**: 24+ hour caching for card data, 6 hours for prices
-- **Bulk Data**: Uses daily bulk downloads that don't count against limits
-- **Error Handling**: Respects 429 responses with exponential backoff
-- **Circuit Breaker**: Prevents overloading during API issues
-
-See [SCRYFALL_COMPLIANCE.md](./SCRYFALL_COMPLIANCE.md) for complete compliance details.
+- [PURPOSE.md](./PURPOSE.md)
+- [CONTRIBUTING.md](./CONTRIBUTING.md)
+- [SECURITY.md](./SECURITY.md)
+- [SCRYFALL_COMPLIANCE.md](./SCRYFALL_COMPLIANCE.md)
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Acknowledgments
-
-- [Scryfall](https://scryfall.com/) for providing the excellent Magic: The Gathering API
-- [Model Context Protocol](https://modelcontextprotocol.io/) for the MCP specification
-- The Magic: The Gathering community for inspiration and feedback
-### HTTP Behavior & Headers
-
-- The server sends a descriptive `User-Agent` and `Accept: application/json` on all Scryfall API calls, per Scryfall guidelines.
-- All `fetch` calls have a configurable timeout via `SCRYFALL_TIMEOUT_MS` (default 15000 ms). Aborted requests surface with error code `timeout` in logs.
-- Bulk data and icon downloads also include `User-Agent`; icons set `Accept: image/svg+xml`.
-
-### Search Pagination Notes
-
-- Scryfall’s `/cards/search` endpoint does not support a custom page size. The `limit` parameter in tools controls how many results are displayed from each Scryfall page, client-side.
-- Pagination metadata (like total pages) is computed using Scryfall’s `total_cards` and your requested `limit` for accurate display.
+MIT

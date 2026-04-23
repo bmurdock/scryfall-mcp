@@ -1,10 +1,11 @@
 import { ScryfallClient } from '../../services/scryfall-client.js';
 import { mcpLogger } from '../../services/logger.js';
-import { BuildOptions, QueryOptimization } from '../types.js';
+import { BuildOptions, QueryOptimization, QueryTestSummary } from '../types.js';
 
 export interface TestedQuery {
   query: string;
   optimizations: QueryOptimization[];
+  testSummary?: QueryTestSummary;
 }
 
 export function applyOptimization(query: string, strategy: string): string {
@@ -99,6 +100,10 @@ export async function testAndAdjustQuery(
     const optimizations: QueryOptimization[] = [];
     let adjustedQuery = query;
     const totalCards = testResult.total_cards ?? 0;
+    const testSummary: QueryTestSummary = {
+      total_cards: totalCards,
+      has_more: testResult.has_more ?? false,
+    };
 
     if (totalCards === 0) {
       adjustedQuery = broadenQuery(query);
@@ -116,7 +121,7 @@ export async function testAndAdjustQuery(
       });
     }
 
-    return { query: adjustedQuery, optimizations };
+    return { query: adjustedQuery, optimizations, testSummary };
   } catch (error) {
     mcpLogger.warn(
       { operation: 'query_test', error: error instanceof Error ? error.message : String(error) },

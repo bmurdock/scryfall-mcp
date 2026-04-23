@@ -246,6 +246,12 @@ export interface BuildResult {
   confidence: number;
   alternatives: AlternativeQuery[];
   optimizations: QueryOptimization[];
+  testSummary?: QueryTestSummary;
+}
+
+export interface QueryTestSummary {
+  total_cards: number;
+  has_more: boolean;
 }
 
 // Alternative query suggestions

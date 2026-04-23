@@ -1,141 +1,75 @@
 # Scryfall API Compliance Guide
 
-This document outlines how the Scryfall MCP Server complies with Scryfall's API guidelines and terms of use.
+This document describes the compliance-related behavior that exists in the current implementation. It is intentionally narrower than a legal policy document.
 
-## ✅ API Requirements Compliance
+## What The Server Does Today
 
-### Required Headers
-- **✅ User-Agent**: `ScryfallMCPServer/1.0.2 (https://github.com/bmurdock/scryfall-mcp)`
-- **✅ Accept**: `application/json`
-- **✅ HTTPS Only**: All requests use HTTPS with TLS 1.2+
-- **✅ UTF-8 Encoding**: All responses handled as UTF-8
+### Request Headers
 
-### Rate Limiting Compliance
-- **✅ Request Interval**: 100ms minimum between requests (10 requests/second max)
-- **✅ Respect 429 Responses**: Automatic retry with exponential backoff
-- **✅ Circuit Breaker**: Prevents overloading during API issues
-- **✅ Bulk Data**: Uses bulk downloads that don't count against rate limits
+- Sends `Accept: application/json` on JSON API requests.
+- Sends a configurable `User-Agent` header on Scryfall requests.
+- Uses HTTPS for Scryfall API traffic.
 
-### Caching Strategy
-- **✅ 24+ Hour Caching**: Card details cached for 24 hours minimum
-- **✅ Price Caching**: Prices cached for 6 hours (updated daily by Scryfall)
-- **✅ Bulk Data**: Downloaded daily, cached for 24 hours
-- **✅ Set Data**: Cached for 1 week (infrequent updates)
+The default `User-Agent` is controlled by `.env.example` and can be overridden with `SCRYFALL_USER_AGENT`.
 
-## ✅ Data Usage Compliance
+### Rate Limiting
 
-### Permitted Uses
-- **✅ Magic Software**: Creating additional Magic: The Gathering software
-- **✅ Research**: Performing research on Magic cards and sets
-- **✅ Community Content**: Supporting content creation about Magic
-- **✅ Free Access**: No paywalls or subscription requirements for card data
+- Defaults to a 100 ms minimum interval between Scryfall requests.
+- Retries rate-limited requests with bounded backoff.
+- Tracks repeated failures and uses a circuit-breaker path to avoid hammering an unhealthy upstream.
 
-### Data Handling
-- **✅ No Repackaging**: Server adds value through MCP protocol integration
-- **✅ Magic Context**: All data clearly identified as Magic: The Gathering
-- **✅ No New Games**: Data used only for existing Magic content
-- **✅ Attribution**: Scryfall credited as data source
+### Caching
 
-## ✅ Image Usage Compliance
+Current cache durations in code:
 
-### Image Integrity
-- **✅ No Cropping**: Copyright and artist names preserved
-- **✅ No Distortion**: Images not stretched, skewed, or distorted
-- **✅ No Modification**: No blurring, sharpening, or color changes
-- **✅ No Watermarks**: No additional logos or stamps added
-- **✅ Proper Attribution**: Artist and copyright information maintained
+- card search: 30 minutes
+- card details: 24 hours
+- card prices: 6 hours
+- set data: 1 week
+- bulk data: 24 hours
 
-### Art Crop Usage
-- **✅ Artist Attribution**: Artist name provided when using art crops
-- **✅ Source Identification**: Users can identify image source
-- **✅ Copyright Respect**: Wizards of the Coast copyright maintained
+Important implementation notes:
 
-## 🔧 Implementation Details
+- bulk card data is fetched through the bulk endpoint and cached as a serialized snapshot
+- set filtering is derived from one canonical cached `/sets` dataset
+- cache size and memory usage are bounded in-process
 
-### Rate Limiter Configuration
-```typescript
-export const RATE_LIMIT_CONFIG = {
-  minInterval: 100, // 100ms minimum (complies with 50-100ms requirement)
-  maxRetries: 3,
-  backoffMultiplier: 2,
-  maxBackoffMs: 5000
-};
-```
+### Bulk Data
 
-### Cache Durations
-```typescript
-export const CACHE_DURATIONS = {
-  card_search: 30 * 60 * 1000,      // 30 minutes
-  card_details: 24 * 60 * 60 * 1000, // 24 hours (minimum required)
-  card_prices: 6 * 60 * 60 * 1000,   // 6 hours (prices updated daily)
-  set_data: 7 * 24 * 60 * 60 * 1000, // 1 week
-  bulk_data: 24 * 60 * 60 * 1000,    // 24 hours
-};
-```
+- Uses Scryfall bulk data for the card database resource.
+- Treats bulk downloads separately from ordinary card-search traffic.
 
-### User-Agent Customization
-Users can customize the User-Agent header via environment variable:
-```bash
-SCRYFALL_USER_AGENT="YourAppName/1.0 (your-contact@email.com)"
-```
+## Developer Guidance
 
-## 📋 Usage Guidelines for Developers
+Do:
 
-### Do's
-- ✅ Cache data for at least 24 hours
-- ✅ Use bulk data downloads when possible
-- ✅ Respect rate limits (50-100ms between requests)
-- ✅ Provide accurate User-Agent headers
-- ✅ Credit Scryfall as the data source
-- ✅ Preserve image integrity and copyright information
+- keep using `ScryfallClient` instead of ad hoc fetch code
+- preserve the configured `User-Agent`
+- keep rate limiting and caching in place when adding new Scryfall-backed features
+- prefer bulk data when the use case needs a large card corpus
 
-### Don'ts
-- ❌ Don't paywall access to Scryfall data
-- ❌ Don't modify or crop card images
-- ❌ Don't add watermarks to images
-- ❌ Don't exceed rate limits
-- ❌ Don't use data for non-Magic games
-- ❌ Don't simply repackage Scryfall data
+Do not:
 
-## 🚨 Compliance Monitoring
+- bypass the shared rate limiter
+- add duplicate network calls when existing code already fetched equivalent metadata
+- treat filtered cache entries as reusable unless every result-affecting dimension is represented
 
-The server includes built-in compliance monitoring:
+## Useful Runtime Checks
 
-### Rate Limit Monitoring
-```typescript
-// Check rate limiter status
-const status = server.getRateLimiterStatus();
-console.log(`Queue length: ${status.queueLength}`);
-console.log(`Consecutive errors: ${status.consecutiveErrors}`);
-```
+The current public server helpers are:
 
-### Cache Performance
-```typescript
-// Monitor cache hit rates
-const cacheStats = server.getCacheStats();
-console.log(`Cache hit rate: ${cacheStats.hitRate * 100}%`);
-```
-
-### Health Checks
-```typescript
-// Overall system health
+```ts
+const status = server.getStatus();
 const health = await server.healthCheck();
-console.log(`Status: ${health.status}`);
 ```
 
-## 📞 Contact and Support
+`getStatus()` exposes cache, rate limiter, tool, resource, prompt, and monitoring state. `healthCheck()` performs the current health probe flow.
 
-If you have questions about compliance or need to report issues:
+## Scope
 
-1. **GitHub Issues**: [https://github.com/bmurdock/scryfall-mcp/issues](https://github.com/bmurdock/scryfall-mcp/issues)
-2. **Scryfall Support**: Follow Scryfall's official channels for API questions
-3. **Documentation**: Refer to [Scryfall's official API documentation](https://scryfall.com/docs/api)
+This guide is about implementation behavior in this repository. It is not legal advice, and it does not replace Scryfall's own terms or documentation.
 
-## 📄 Legal Notice
+Primary external references:
 
-This software is provided under the MIT License and complies with:
-- Scryfall's Terms of Service
-- Wizards of the Coast Fan Content Policy
-- Magic: The Gathering intellectual property guidelines
-
-Users are responsible for ensuring their usage complies with all applicable terms and policies.
+- [Scryfall API Documentation](https://scryfall.com/docs/api)
+- Scryfall's terms and policy documents
