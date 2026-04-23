@@ -9,7 +9,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createSdkServer, MCP_SERVER_INFO, ScryfallMCPServer } from "./server.js";
 import { mcpLogger } from "./services/logger.js";
-import { parseEnvInt, parseEnvString } from "./utils/env-parser.js";
+import { EnvValidators, parseEnvInt, parseEnvString } from "./utils/env-parser.js";
 
 type SessionTransportRecord = {
   sdkServer: ReturnType<typeof createSdkServer>;
@@ -37,6 +37,13 @@ const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "127.0.0.1";
 const DEFAULT_MCP_PATH = "/mcp";
 const DEFAULT_HEALTH_PATH = "/health";
+
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super("Payload Too Large");
+    this.name = "PayloadTooLargeError";
+  }
+}
 
 function parseAllowedOrigins(envValue?: string): string[] {
   if (!envValue?.trim()) {
@@ -84,11 +91,22 @@ function isOriginAllowed(origin: string | undefined, allowedOrigins: string[]): 
   return isLoopbackOrigin(origin);
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+async function readJsonBody(
+  req: IncomingMessage,
+  maxBytes = EnvValidators.httpMaxBodyBytes(process.env.HTTP_MAX_BODY_BYTES)
+): Promise<unknown> {
   const chunks: Buffer[] = [];
+  let bytesRead = 0;
 
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytesRead += buffer.byteLength;
+
+    if (bytesRead > maxBytes) {
+      throw new PayloadTooLargeError();
+    }
+
+    chunks.push(buffer);
   }
 
   const body = Buffer.concat(chunks).toString("utf-8");
@@ -164,6 +182,11 @@ async function handleMcpRequest(
     try {
       parsedBody = await readJsonBody(req);
     } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        sendJsonRpcError(res, 413, "Payload Too Large");
+        return;
+      }
+
       mcpLogger.warn({ operation: "http_transport", error }, "Invalid JSON body for HTTP MCP request");
       sendJsonRpcError(res, 400, "Bad Request: Invalid JSON body");
       return;

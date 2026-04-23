@@ -9,6 +9,10 @@ interface FetchCardsMapOptions {
   skipNotFound?: boolean;
 }
 
+export function uniqueInOrder(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
 export async function fetchCardMapWithConcurrency(
   scryfallClient: ScryfallClient,
   cardList: string[],
@@ -54,7 +58,9 @@ export async function fetchCardsWithConcurrency(
   cardList: string[],
   concurrency = DEFAULT_CONCURRENCY
 ): Promise<ScryfallCard[]> {
-  const cardMap = await fetchCardMapWithConcurrency(scryfallClient, cardList, { concurrency });
+  const uniqueCardList = uniqueInOrder(cardList);
+  const cardMap = await fetchCardMapWithConcurrency(scryfallClient, uniqueCardList, { concurrency });
+
   return cardList.flatMap(cardName => {
     const card = cardMap.get(cardName);
     return card ? [card] : [];

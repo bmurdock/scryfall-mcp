@@ -110,4 +110,22 @@ describe("HTTP transport entrypoint", () => {
       },
     });
   });
+
+  it("rejects oversized JSON request bodies", async () => {
+    const response = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: "x".repeat(2_000_000),
+    });
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        message: "Payload Too Large",
+      },
+    });
+  });
 });

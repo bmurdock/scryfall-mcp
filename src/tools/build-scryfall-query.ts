@@ -83,7 +83,7 @@ export class BuildScryfallQueryTool {
       },
       test_query: {
         type: 'boolean',
-        default: true,
+        default: false,
         description: 'Whether to test the generated query and optimize based on results'
       }
     },

@@ -81,10 +81,28 @@ function createCard(): ScryfallCard {
 describe("ScryfallClient JSON parsing", () => {
   let cache: CacheService;
   let fetchMock: ReturnType<typeof vi.fn>;
+  let rateLimiter: {
+    execute: ReturnType<typeof vi.fn>;
+    recordSuccess: ReturnType<typeof vi.fn>;
+    recordError: ReturnType<typeof vi.fn>;
+    handleRateLimitResponse: ReturnType<typeof vi.fn>;
+    isCircuitOpen: ReturnType<typeof vi.fn>;
+  };
+
+  function createClient(): ScryfallClient {
+    return new ScryfallClient(rateLimiter as never, cache);
+  }
 
   beforeEach(() => {
     cache = new CacheService(60_000, 100, 25);
     fetchMock = vi.fn();
+    rateLimiter = {
+      execute: vi.fn(async (operation: () => Promise<unknown>) => operation()),
+      recordSuccess: vi.fn(),
+      recordError: vi.fn(),
+      handleRateLimitResponse: vi.fn(),
+      isCircuitOpen: vi.fn().mockReturnValue(false),
+    };
     vi.stubGlobal("fetch", fetchMock);
   });
 
@@ -108,20 +126,45 @@ describe("ScryfallClient JSON parsing", () => {
       json: vi.fn().mockResolvedValue(payload),
     });
 
-    const client = new ScryfallClient(
-      {
-        execute: vi.fn(async (operation: () => Promise<unknown>) => operation()),
-        recordSuccess: vi.fn(),
-        recordError: vi.fn(),
-        handleRateLimitResponse: vi.fn(),
-        isCircuitOpen: vi.fn().mockReturnValue(false),
-      } as never,
-      cache
-    );
+    const client = createClient();
 
     await expect(client.searchCards({ query: "type:creature", limit: 1, page: 1 })).resolves.toMatchObject({
       total_cards: 1,
       has_more: false,
     });
+  });
+
+  it("reuses cached card details for equivalent name casing and whitespace", async () => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue(createCard()),
+    });
+
+    const client = createClient();
+
+    await client.getCard({ identifier: " Lightning Bolt " });
+    await client.getCard({ identifier: "lightning bolt" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("coalesces concurrent equivalent card lookups", async () => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue(createCard()),
+    });
+
+    const client = createClient();
+
+    await Promise.all([
+      client.getCard({ identifier: "Lightning Bolt" }),
+      client.getCard({ identifier: " lightning bolt " }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

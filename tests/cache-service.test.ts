@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CacheService } from "../src/services/cache-service.js";
 
 describe("CacheService", () => {
@@ -99,6 +99,29 @@ describe("CacheService", () => {
 
     expect(serializeCount).toBe(0);
     expect(cache.getStats().memoryUsage).toBeGreaterThan(0);
+  });
+
+  it("selects eviction victims with at most one least-recently-used scan", () => {
+    const cache = new CacheService(60_000, 10, 1);
+    caches.push(cache);
+
+    cache.set("a", "a".repeat(150_000), 60_000);
+    cache.set("b", "b".repeat(150_000), 60_000);
+    cache.set("c", "c".repeat(150_000), 60_000);
+    expect(cache.get("c")).toBe("c".repeat(150_000));
+
+    const cacheInternals = cache as unknown as {
+      findLeastRecentlyUsedKey: () => string | undefined;
+    };
+    const originalFind = cacheInternals.findLeastRecentlyUsedKey.bind(cache);
+    const findSpy = vi.fn(originalFind);
+    cacheInternals.findLeastRecentlyUsedKey = findSpy;
+
+    cache.set("large", "large".repeat(60_000), 60_000);
+
+    expect(cache.get("large")).toBe("large".repeat(60_000));
+    expect(cache.get("c")).toBe("c".repeat(150_000));
+    expect(findSpy.mock.calls.length).toBeLessThanOrEqual(1);
   });
 
   it("estimates object size without invoking toJSON when no size hint is provided", () => {

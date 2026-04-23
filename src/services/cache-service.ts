@@ -433,23 +433,31 @@ export class CacheService {
    * Evicts least recently used entries until the new entry fits.
    */
   private evictToFit(requiredBytes: number): void {
-    while (
-      this.cache.size > 0 &&
-      (this.cache.size >= this.maxSize || this.currentMemoryUsage + requiredBytes > this.maxMemoryBytes)
+    if (
+      this.cache.size === 0 ||
+      (this.cache.size < this.maxSize && this.currentMemoryUsage + requiredBytes <= this.maxMemoryBytes)
     ) {
-      const oldestKey = this.findLeastRecentlyUsedKey();
-      if (!oldestKey) {
+      return;
+    }
+
+    const candidates = Array.from(this.cache.entries())
+      .map(([key, entry]) => ({
+        key,
+        entry,
+        accessTime: entry.lastAccessedAt ?? entry.timestamp,
+      }))
+      .sort((a, b) => a.accessTime - b.accessTime);
+
+    for (const { key, entry } of candidates) {
+      this.currentMemoryUsage -= this.getEntrySize(key, entry);
+      this.cache.delete(key);
+
+      if (
+        this.cache.size < this.maxSize &&
+        this.currentMemoryUsage + requiredBytes <= this.maxMemoryBytes
+      ) {
         break;
       }
-
-      const oldestEntry = this.cache.get(oldestKey);
-      if (!oldestEntry) {
-        this.cache.delete(oldestKey);
-        continue;
-      }
-
-      this.currentMemoryUsage -= this.getEntrySize(oldestKey, oldestEntry);
-      this.cache.delete(oldestKey);
     }
   }
 }

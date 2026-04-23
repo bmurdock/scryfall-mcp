@@ -3,11 +3,14 @@ import { CacheService } from '../services/cache-service.js';
 import { ScryfallSet } from '../types/scryfall-api.js';
 import { ScryfallAPIError } from '../types/mcp-types.js';
 import { mcpLogger } from '../services/logger.js';
+import { filterSets } from '../utils/set-filters.js';
 
 type SetSnapshotMetadata = {
   updatedAt: string;
   totalSets: number;
 };
+
+type CachedSetData = ScryfallSet[] | { data: ScryfallSet[] };
 
 const SET_DATA_KEY = CacheService.createSetKey();
 const SET_PAYLOAD_KEY = CacheService.createSetKey('serialized');
@@ -68,9 +71,9 @@ export class SetDatabaseResource {
   }
 
   private async getSetDataModel(): Promise<ScryfallSet[]> {
-    const cached = this.cache.getWithStats<ScryfallSet[]>(SET_DATA_KEY);
+    const cached = this.cache.getWithStats<CachedSetData>(SET_DATA_KEY);
     if (cached) {
-      return cached;
+      return Array.isArray(cached) ? cached : cached.data;
     }
 
     const sets = await this.downloadSetData();
@@ -140,7 +143,7 @@ export class SetDatabaseResource {
       return cachedPayload;
     }
 
-    const filteredSets = await this.scryfallClient.getSets(filters);
+    const filteredSets = filterSets(await this.getSetDataModel(), filters);
     const payload = JSON.stringify({
       object: 'list',
       type: 'sets',
@@ -149,7 +152,7 @@ export class SetDatabaseResource {
       filters_applied: filters
     });
 
-    this.cache.setWithType(cacheKey, payload, 'set_data');
+    this.cache.setWithType(cacheKey, payload, 'set_data', { sizeBytes: payload.length * 2 });
     return payload;
   }
 

@@ -15,7 +15,22 @@ import { generateRequestId } from "../types/mcp-errors.js";
 import { EnvValidators } from "../utils/env-parser.js";
 import { filterSets } from "../utils/set-filters.js";
 import { iterateArrayStream } from "./bulk-json-stream.js";
-import { collectRequestedWindow } from "./search-window.js";
+import { createSearchWindowCollector } from "./search-window.js";
+
+export interface CardLookupParams {
+  identifier: string;
+  set?: string;
+  lang?: string;
+  face?: "front" | "back";
+}
+
+export function canonicalCardCacheKey(params: CardLookupParams): string {
+  const canonicalIdentifier = params.identifier.trim().toLowerCase();
+  const set = params.set?.trim().toLowerCase();
+  const lang = params.lang?.trim().toLowerCase();
+
+  return CacheService.createCardKey(canonicalIdentifier, set, lang || "en");
+}
 
 /**
  * HTTP client for Scryfall API with rate limiting and caching
@@ -23,6 +38,7 @@ import { collectRequestedWindow } from "./search-window.js";
 export class ScryfallClient {
   private readonly baseUrl = "https://api.scryfall.com";
   private readonly searchApiPageSize = 175;
+  private readonly inFlightCardLookups = new Map<string, Promise<ScryfallCard>>();
   private rateLimiter: RateLimiter;
   private cache: CacheService;
   private readonly timeoutMs = () =>
@@ -291,11 +307,16 @@ export class ScryfallClient {
     const totalCards = firstPage.total_cards ?? firstPage.data.length;
     const requiredCount = Math.max(0, Math.min(requestedLimit, totalCards - requestedOffset));
     let fetchedCards = firstPage.data.length;
-    const pages = [firstPage];
+    const collector = createSearchWindowCollector<ScryfallCard>(relativeOffset, requiredCount);
+    collector.addPage(firstPage);
     let currentPage = firstPage;
     let nextApiPage = startingApiPage + 1;
 
-    while (fetchedCards < relativeOffset + requiredCount && currentPage.has_more) {
+    while (
+      !collector.isComplete() &&
+      fetchedCards < relativeOffset + requiredCount &&
+      currentPage.has_more
+    ) {
       currentPage = await this.fetchSearchPage(
         {
           ...params,
@@ -304,12 +325,12 @@ export class ScryfallClient {
         nextApiPage,
         reqId
       );
-      pages.push(currentPage);
+      collector.addPage(currentPage);
       fetchedCards += currentPage.data.length;
       nextApiPage++;
     }
 
-    const window = collectRequestedWindow(pages, relativeOffset, requiredCount);
+    const window = collector.finish();
     const data: ScryfallSearchResponse = {
       object: firstPage.object,
       total_cards: totalCards,
@@ -372,13 +393,9 @@ export class ScryfallClient {
   /**
    * Gets a card by name, set code+number, or Scryfall ID
    */
-  async getCard(params: {
-    identifier: string;
-    set?: string;
-    lang?: string;
-    face?: "front" | "back";
-  }): Promise<ScryfallCard> {
-    const cacheKey = CacheService.createCardKey(params.identifier, params.set, params.lang || "en");
+  async getCard(params: CardLookupParams): Promise<ScryfallCard> {
+    const normalizedParams = this.normalizeCardLookupParams(params);
+    const cacheKey = canonicalCardCacheKey(normalizedParams);
 
     // Check cache first
     const cached = this.cache.getWithStats<ScryfallCard>(cacheKey);
@@ -386,6 +403,36 @@ export class ScryfallClient {
       return cached;
     }
 
+    const inFlight = this.inFlightCardLookups.get(cacheKey);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const lookupPromise = this.fetchCard(normalizedParams)
+      .then((data) => {
+        // Cache the result
+        this.cache.setWithType(cacheKey, data, "card_details");
+        return data;
+      })
+      .finally(() => {
+        this.inFlightCardLookups.delete(cacheKey);
+      });
+
+    this.inFlightCardLookups.set(cacheKey, lookupPromise);
+
+    return lookupPromise;
+  }
+
+  private normalizeCardLookupParams(params: CardLookupParams): CardLookupParams {
+    return {
+      ...params,
+      identifier: params.identifier.trim(),
+      set: params.set?.trim().toLowerCase(),
+      lang: params.lang?.trim().toLowerCase() || "en",
+    };
+  }
+
+  private async fetchCard(params: CardLookupParams): Promise<ScryfallCard> {
     let url: URL;
 
     // Check if identifier is a UUID (Scryfall ID)
@@ -411,12 +458,7 @@ export class ScryfallClient {
       url.searchParams.set("lang", params.lang);
     }
 
-    const data = await this.makeRequest<ScryfallCard>(url.toString());
-
-    // Cache the result
-    this.cache.setWithType(cacheKey, data, "card_details");
-
-    return data;
+    return this.makeRequest<ScryfallCard>(url.toString());
   }
 
   /**

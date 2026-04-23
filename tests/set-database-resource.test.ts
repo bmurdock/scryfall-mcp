@@ -81,6 +81,41 @@ describe("SetDatabaseResource", () => {
     expect(parsed.data.map((set: ScryfallSet) => set.code)).toEqual(["new"]);
   });
 
+  it("isolates serialized resource filter cache from client filtered set cache", async () => {
+    const sets = [
+      createSet({ id: "set-old", code: "old", name: "Old Set", released_at: "2020-01-01" }),
+      createSet({ id: "set-new", code: "new", name: "New Set", released_at: "2025-01-01" }),
+    ];
+    const getSets = vi.fn().mockResolvedValue(sets);
+    const resource = new SetDatabaseResource({ getSets } as never, cache);
+
+    const first = await resource.getFilteredSets({ released_after: "2024-01-01" });
+    const second = await resource.getFilteredSets({ released_after: "2024-01-01" });
+
+    expect(first).toBe(second);
+    expect(getSets).toHaveBeenCalledTimes(1);
+    expect(
+      cache.get<ScryfallSet[]>(CacheService.createSetFilterKey({ released_after: "2024-01-01" }))
+    ).toBeNull();
+  });
+
+  it("filters from a client-shaped shared set cache entry", async () => {
+    const sets = [
+      createSet({ id: "set-old", code: "old", name: "Old Set", released_at: "2020-01-01" }),
+      createSet({ id: "set-new", code: "new", name: "New Set", released_at: "2025-01-01" }),
+    ];
+    const getSets = vi.fn().mockRejectedValue(new Error("shared cache should satisfy resource read"));
+    cache.setWithType(CacheService.createSetKey(), { data: sets }, "set_data");
+    const resource = new SetDatabaseResource({ getSets } as never, cache);
+
+    const result = await resource.getFilteredSets({ released_after: "2024-01-01" });
+    const parsed = JSON.parse(result);
+
+    expect(parsed.total_sets).toBe(1);
+    expect(parsed.data.map((set: ScryfallSet) => set.code)).toEqual(["new"]);
+    expect(getSets).not.toHaveBeenCalled();
+  });
+
   it("caches serialized filtered set payloads by filter signature", async () => {
     let serializeCount = 0;
     const resource = new SetDatabaseResource(
