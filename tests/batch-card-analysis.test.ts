@@ -68,6 +68,37 @@ describe('fetchCardsWithConcurrency', () => {
       )
     ).rejects.toThrow('Cards not found: Missing Card');
   });
+
+  it('fetches duplicate card names once while preserving requested output order', async () => {
+    const mockClient = {
+      getCard: vi.fn(async ({ identifier }: { identifier: string }) => ({
+        id: identifier,
+        name: identifier,
+        mana_cost: '',
+        type_line: 'Instant',
+        oracle_text: '',
+        cmc: 1,
+        legalities: { modern: 'legal' },
+        prices: { usd: '1.00' },
+        color_identity: ['R']
+      }))
+    };
+
+    const cards = await fetchCardsWithConcurrency(
+      mockClient as never,
+      ['Lightning Bolt', 'Lightning Bolt', 'Counterspell'],
+      2
+    );
+
+    expect(mockClient.getCard).toHaveBeenCalledTimes(2);
+    expect(mockClient.getCard).toHaveBeenNthCalledWith(1, { identifier: 'Lightning Bolt' });
+    expect(mockClient.getCard).toHaveBeenNthCalledWith(2, { identifier: 'Counterspell' });
+    expect(cards.map(card => card.name)).toEqual([
+      'Lightning Bolt',
+      'Lightning Bolt',
+      'Counterspell'
+    ]);
+  });
 });
 
 describe('batch card analyzers', () => {

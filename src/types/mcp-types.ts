@@ -146,7 +146,7 @@ export const BuildQueryParamsSchema = z.object({
 
   explain_mapping: z.boolean().default(true),
 
-  test_query: z.boolean().default(true),
+  test_query: z.boolean().default(false),
 });
 
 export type BuildQueryParams = z.infer<typeof BuildQueryParamsSchema>;

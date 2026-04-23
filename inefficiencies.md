@@ -2,135 +2,136 @@
 
 Validated against the current workspace on 2026-04-23.
 
-This is a code-inspection audit, not a benchmark report. Rankings favor work that is both expensive and likely to recur on real request paths. All six ranked items below are now resolved in the current workspace.
+This is a static code-inspection audit, not a benchmark report. Rankings favor targets that can multiply latency, memory, CPU, or Scryfall API usage on real MCP request paths.
 
-## Validation Scope
-
-- Re-checked each listed issue against the current implementation in `src/` after Tasks 1-5 landed.
-- Ran the Task 6 focused verification suite:
-  `npm test -- tests/cache-service.test.ts tests/scryfall-client-bulk-stream.test.ts tests/card-database-resource.test.ts tests/scryfall-client-sets-cache.test.ts tests/set-database-resource.test.ts tests/find-synergistic-cards.test.ts tests/search-window.test.ts tests/search-pagination.test.ts`
-- Current state: all six ranked items below are resolved on 2026-04-23, with targeted regression coverage in place for each subsystem.
+Remediation plan: `docs/superpowers/plans/2026-04-23-verified-inefficiency-remediation.md`
 
 ## Skills Check
 
-I checked the available skill inventory from this session and the on-disk Superpowers plugin skills.
-
-Most relevant or beneficial for follow-up work:
+Relevant or beneficial skills checked for this task:
 
 - `superpowers:using-superpowers`
-  Why: process skill for deciding which follow-up workflow to apply before changing code.
-- `superpowers:receiving-code-review`
-  Why: closest fit to this task's review mindset; useful for validating findings against the actual code instead of agreeing with prior notes.
-- `superpowers:verification-before-completion`
-  Why: the right guardrail for any future remediation so performance claims are backed by fresh measurements or test output.
+  - Used to select applicable workflows before inspecting or editing.
+- `native-static-review`
+  - Used because the request is an evidence-based code review of the workspace.
 - `superpowers:systematic-debugging`
-  Why: useful if any ranked item needs profiling or evidence-gathering before refactoring.
+  - Used because performance and inefficiency investigations benefit from root-cause evidence before proposing fixes.
+- `superpowers:verification-before-completion`
+  - Beneficial before claiming any future remediation is complete; performance claims should be backed by tests, profiling, or focused measurements.
 - `superpowers:writing-plans`
-  Why: useful if this ranked list is turned into a remediation plan.
+  - Beneficial if this ranked list is converted into a multi-step remediation plan.
 - `superpowers:test-driven-development`
-  Why: useful when implementing fixes that need regression coverage.
+  - Beneficial when implementing fixes that need regression coverage.
 - `superpowers:requesting-code-review`
-  Why: useful after remediation work, not during this read-only audit.
+  - Beneficial after remediation work, not needed for this document-only audit.
 
-Not materially relevant for this task:
+Other available skills were checked by inventory. The frontend, web-app, game, mobile, macOS, Google Drive, OpenAI docs, Hugging Face, image, PDF, Office document, GitHub publishing, and plugin/skill creation skills are not materially relevant to a static TypeScript inefficiency audit for this MCP server.
 
-- Non-Superpowers skills in this session are mostly OpenAI docs, frontend/web, mobile, game, office-document, image, GitHub, or deployment workflows.
-- No generic non-Superpowers performance-audit skill is exposed here.
-- Superpowers skills such as `dispatching-parallel-agents`, `subagent-driven-development`, `using-git-worktrees`, and `finishing-a-development-branch` are process options for later execution, not for this audit itself.
+## 1. Bulk card resource rebuild still accumulates the full dataset as many strings, then joins into a second huge string
 
-## 1. Bulk card resource rebuild does a full-download, full-transform, full-stringify pass in one giant heap path
-
-- Location: `src/resources/card-database.ts:120-146`, `src/resources/card-database.ts:152-211`
+- Location: `src/resources/card-database.ts:120-134`
+- Status: resolved on 2026-04-23.
+- Evidence:
+  `rebuildSerializedSnapshot()` streams cards from `streamBulkData()`, but it pushes every projected card string into `parts` and then builds `payload` with `parts.join(',')`.
 - Why it is inefficient:
-  `rebuildSerializedSnapshot()` downloads the entire oracle-card bulk array into memory, then `serializeBulkSnapshot()` walks that array and `JSON.stringify()`s a freshly projected object for every card into one giant string.
+  The streaming parser avoids holding the parsed Scryfall bulk array, but the rebuild still holds all per-card JSON strings plus the final joined payload during the join. The card database is the largest dataset this server handles, so this is the highest-impact heap and GC target.
 - Impact:
-  This path holds the parsed bulk array plus the growing serialized payload at the same time, and it creates a large amount of transient allocation while rebuilding the snapshot.
-  Daily refreshes will pay the full CPU and GC cost again.
-- Why it ranks first:
-  It scales with the entire Scryfall bulk dataset and is the most obviously memory-heavy path in the codebase.
-- Status: resolved on 2026-04-23
-- Verification:
-  `tests/scryfall-client-bulk-stream.test.ts` and `tests/card-database-resource.test.ts` now cover streamed bulk parsing and streamed snapshot rebuild behavior. The full Task 6 verification suite passed on 2026-04-23.
+  A cold read or forced refresh of `card-database://bulk` can create a large transient memory spike and extra allocation churn. The final string is required by the current MCP resource contract, but the intermediate `parts` array is avoidable.
+- Candidate fix:
+  Build the serialized payload through a single append-oriented path or a bounded chunk builder, and cache with an explicit size hint for the final string. If the MCP layer eventually supports streaming resources, this is the first candidate.
 
-## 2. Cache hits mutate the LRU map on every read
+## 2. Batch card fetching does not deduplicate names before queuing card lookups
 
-- Location: `src/services/cache-service.ts:33-48`, `src/services/cache-service.ts:352-355`
+- Location: `src/tools/batch-card-analysis.ts:123-136`, `src/tools/batch-card-analysis/fetcher.ts:12-43`
+- Status: resolved on 2026-04-23.
+- Evidence:
+  `validateParams()` trims `card_list` but preserves duplicates. `fetchCardMapWithConcurrency()` then iterates every item and calls `scryfallClient.getCard()` for each name before returning a `Map`, where duplicate keys overwrite prior entries.
 - Why it is inefficient:
-  Every successful `get()` calls `touchEntry()`, which does `delete()` plus `set()` on the backing `Map` just to preserve LRU order.
+  Duplicate cards in a deck or batch can queue duplicate lookups. Because calls are started by workers before the first duplicate response has populated the cache, duplicate misses can become duplicate Scryfall requests rather than cache hits.
 - Impact:
-  The hottest cached paths in the project, including card lookups, search results, set reads, and resource payload reads, all pay an extra mutating write on cache hit instead of a pure read.
-  That adds churn to the common case and couples read volume directly to cache bookkeeping cost.
-- Why it ranks second:
-  This is systemic overhead on many request paths rather than a rare maintenance path.
-- Status: resolved on 2026-04-23
-- Verification:
-  `tests/cache-service.test.ts` now covers stable map iteration on cache hits and LRU eviction by explicit recency metadata. The full Task 6 verification suite passed on 2026-04-23.
+  Common deck-list inputs can contain repeated card names. With the current 100-card limit, duplicates can waste queue slots, rate-limited request time, and cache churn.
+- Candidate fix:
+  Deduplicate normalized card names before fetching, preserve original order or quantities separately for analysis, and optionally coalesce in-flight identical `getCard()` calls in `ScryfallClient`.
 
-## 3. Cache writes re-serialize non-string payloads just to estimate size
+## 3. Natural-language query building performs a live Scryfall search by default
 
-- Location: `src/services/cache-service.ts:54-63`, `src/services/cache-service.ts:333-350`
+- Location: `src/tools/build-scryfall-query.ts:84-88`, `src/tools/build-scryfall-query.ts:127-137`, `src/natural-language/query-builder/query-optimization.ts:89-124`
+- Status: resolved on 2026-04-23.
+- Evidence:
+  The tool schema defaults `test_query` to `true`. When enabled, `QueryBuilderEngine.build()` calls `testAndAdjustQuery()`, which performs `scryfallClient.searchCards({ query, limit: 1 })`.
 - Why it is inefficient:
-  `calculateEntrySize()` calls `JSON.stringify(entry.data)` for every non-string cache write when `sizeBytes` is not provided.
+  A tool whose main job is local parsing and query construction consumes a rate-limited external API call on the default path, even when the caller only needs the generated Scryfall syntax.
 - Impact:
-  Large search responses, set payloads, and other object caches pay an extra full serialization pass that does no user-visible work.
-  This compounds with already expensive producer paths.
-- Correction:
-  The cache layer already has a `sizeBytes` escape hatch and tests for it. The remaining issue is that current production call sites do not use that hint on the heavy paths, so the fallback serializer still runs in practice.
-- Why it ranks third:
-  It is not as costly as the bulk snapshot rebuild, but it is broad and avoidable CPU work across the cache layer.
-- Status: resolved on 2026-04-23
-- Verification:
-  `tests/cache-service.test.ts` now covers non-serializing fallback size estimation and the cache implementation uses approximate sizing instead of hot-path `JSON.stringify()`. The full Task 6 verification suite passed on 2026-04-23.
+  This adds user-visible latency and Scryfall quota pressure to exploratory query-building workflows. It can also serialize behind unrelated queued Scryfall calls due to the global rate limiter.
+- Candidate fix:
+  Consider defaulting `test_query` to `false`, or split "build query" from "validate query" behavior. If default validation is important, cache test summaries by final query string.
 
-## 4. Synergy search still uses a concurrency-tuned fetch budget even though requests are globally serialized
+## 4. The HTTP transport buffers request bodies without a size limit
 
-- Location: `src/tools/find-synergistic-cards.ts:307-357`, `src/services/rate-limiter.ts:28-69`
+- Location: `src/http.ts:87-95`
+- Status: resolved on 2026-04-23.
+- Evidence:
+  `readJsonBody()` pushes every incoming chunk into an array, concatenates all chunks, converts the full buffer to a string, and parses JSON. There is no maximum byte count before buffering completes.
 - Why it is inefficient:
-  `getPerQueryLimit()` divides the target result budget using `SEARCH_CONCURRENCY`, but the shared `RateLimiter` executes requests one at a time. In practice, the tool is using a smaller per-query page size as if several searches were happening in parallel, even though they are serialized.
+  Large or accidental request bodies allocate at least the chunk array, concatenated `Buffer`, UTF-8 string, and parsed object. The server does this before rejecting oversized input.
 - Impact:
-  If the first ranked query could have satisfied most or all of the target results, the smaller serialized page size can force additional round trips and more dedup work before the tool stops.
-  This is a user-facing latency issue, but the root cause is the stale concurrency heuristic rather than missing `Promise.all`.
-- Correction:
-  An earlier framing of this issue described it as absent network concurrency. The current codebase does not permit that anyway because `RateLimiter.execute()` serializes request execution. The real inefficiency is the mismatch between a concurrency-based page-size heuristic and a serialized request scheduler.
-- Why it ranks fourth:
-  It affects a narrower feature than the cache items above, but it can still create unnecessary serialized search traffic on a user-facing tool path.
-- Status: resolved on 2026-04-23
-- Verification:
-  `tests/find-synergistic-cards.test.ts` now covers larger first-query budgeting and shrinking follow-up budgets under serialized execution. The full Task 6 verification suite passed on 2026-04-23.
+  For local or HTTP MCP use, a single oversized POST can create avoidable memory pressure. This is both an efficiency problem and a basic resilience gap.
+- Candidate fix:
+  Track accumulated bytes while reading, reject with 413 once a configurable cap is exceeded, and avoid `Buffer.concat()` for bodies that are already too large.
 
-## 5. Set filtering repeatedly rescans and reserializes the full set catalog for filtered reads
+## 5. Cache eviction can scan the whole cache once per evicted entry
 
-- Location: `src/services/scryfall-client.ts:437-455`, `src/resources/set-database.ts:71-79`, `src/resources/set-database.ts:131-147`
+- Location: `src/services/cache-service.ts:417-454`
+- Status: resolved on 2026-04-23.
+- Evidence:
+  `evictToFit()` calls `findLeastRecentlyUsedKey()` inside a loop. `findLeastRecentlyUsedKey()` scans every cache entry to find the oldest access timestamp, then only one entry is removed per scan.
 - Why it is inefficient:
-  `ScryfallClient.getSets(filters)` performs a full-list filter for direct callers, while `SetDatabaseResource.getFilteredSets()` performs its own full-list filter on the cached set model before serializing a fresh JSON payload. On cold resource reads, `getSetDataModel()` also populates from `getSets()` first, so the initial path pays for both the client’s no-op filter and the resource’s real filter.
+  When a large insertion requires many evictions, eviction cost becomes O(cache_size * evicted_entries). The default cache size can be large enough for this to matter during bulk payload or large search-response cache writes.
 - Impact:
-  The set list is smaller than card bulk data, but repeated filtered requests still rescan the whole catalog and rebuild full response strings each time.
-  The pretty-printed `JSON.stringify(..., null, 2)` path also adds avoidable output-allocation overhead.
-- Correction:
-  The older cache-collision bug is no longer present. `ScryfallClient.getSets()` now caches only the canonical unfiltered `/sets` payload, so the current problem is repeated local filtering and serialization cost rather than wrong cached results.
-- Why it ranks fifth:
-  Real work is being repeated, but the dataset is modest enough that it stays below the bulk-data and hot-cache items.
-- Status: resolved on 2026-04-23
-- Verification:
-  `tests/scryfall-client-sets-cache.test.ts` and `tests/set-database-resource.test.ts` now cover filtered-view caching and serialized payload reuse. The full Task 6 verification suite passed on 2026-04-23.
+  Cache writes that should be cheap bookkeeping can become CPU-heavy under memory pressure, adding latency to request paths that are already doing expensive work.
+- Candidate fix:
+  Maintain an ordered LRU structure or collect eviction candidates in one pass, then delete enough entries to fit the new item.
 
-## 6. Search pagination buffers whole API pages before slicing even when the caller only needs a narrow window
+## 6. ScryfallClient card cache keys do not canonicalize all service-level identifiers
 
-- Location: `src/services/scryfall-client.ts:277-317`
+- Location: `src/services/scryfall-client.ts:375-417`, `src/services/cache-service.ts:307-310`
+- Status: resolved on 2026-04-23.
+- Evidence:
+  `getCard()` passes `params.identifier`, `params.set`, and `lang` directly into `CacheService.createCardKey()`. Several tool schemas trim or lowercase before calling the service, but prompts and direct `ScryfallClient` callers can still produce separate keys for semantically equivalent card lookups.
 - Why it is inefficient:
-  `searchCards()` fetches the starting Scryfall page, copies its entire `data` array into `combinedCards`, may append another full page, and only then slices down to the requested window.
+  Semantically equivalent service-level lookups such as different card-name casing, prompt-provided whitespace, UUID casing, or set-code casing can create distinct cache entries for the same Scryfall card.
 - Impact:
-  The waste is bounded because `limit` is capped, but the hot search path still over-allocates and copies more card objects than the caller asked for.
-  This also adds avoidable work to the cache payload stored for that request.
-- Correction:
-  This is not an unbounded paginator problem. Because logical `limit` is capped at 175 and Scryfall API pages are also 175, the current implementation will at most retain roughly two API pages for one request window. The issue is still real, but it is a bounded allocation/copy inefficiency.
-- Why it ranks sixth:
-  The overhead is real but bounded, so it matters less than the higher-ranked bulk, cache, and sequential-network issues.
-- Status: resolved on 2026-04-23
-- Verification:
-  `tests/search-window.test.ts` and `tests/search-pagination.test.ts` now cover window-only collection and preserved pagination behavior. The full Task 6 verification suite passed on 2026-04-23.
+  Repeated card lookups from prompts, batch tools, and direct service callers can miss cache unnecessarily and consume extra rate-limited requests.
+- Candidate fix:
+  Canonicalize card keys by trimming identifiers, lowercasing set codes and UUIDs, normalizing language, and using the resolved Scryfall ID as an alias after the first fetch when possible.
+
+## 7. Filtered set resources duplicate client-level filter and serialization caches
+
+- Location: `src/services/scryfall-client.ts:461-469`, `src/resources/set-database.ts:137-152`
+- Status: resolved on 2026-04-23.
+- Evidence:
+  `ScryfallClient.getSets(filters)` caches a filtered `ScryfallSet[]`. `SetDatabaseResource.getFilteredSets()` then wraps that filtered array in a serialized JSON payload and caches the string separately.
+- Why it is inefficient:
+  The set catalog is small, but filtered resource reads can represent the same filtered view twice in cache: once as client-level data and once as a resource payload. Cold filtered resource reads also perform filter work in the client and serialization work in the resource.
+- Impact:
+  This is modest compared with bulk-card paths, but it is repeated local CPU and memory for a path whose output is deterministic.
+- Candidate fix:
+  Decide whether filtered set caching belongs in the client or resource layer. For resource-only consumers, caching just the serialized payload may be enough.
+
+## 8. Search pagination retains full fetched pages before extracting the requested window
+
+- Location: `src/services/scryfall-client.ts:279-322`
+- Status: resolved on 2026-04-23.
+- Evidence:
+  `searchCards()` stores fetched Scryfall pages in `pages`, then calls `collectRequestedWindow()` to slice out the requested logical page.
+- Why it is inefficient:
+  The implementation can retain more card objects than the caller requested. This is bounded by the Scryfall page size and local limit rules, but it is still avoidable allocation on the hottest search path.
+- Impact:
+  For high-page or boundary-crossing requests, the service keeps whole API pages and then caches only the smaller result window. The overhead is lower than the higher-ranked items, but the path is common.
+- Candidate fix:
+  Collect the requested window incrementally as each API page arrives, keeping only the cards needed for the response plus warning metadata.
 
 ## Notes
 
-- This file now serves as a closed audit record for the 2026-04-23 remediation pass rather than an open issues list.
-- I did not rank `AnalyzeDeckCompositionTool`, the parser helpers, or the test-only `src/utils/query-validator.ts` in the top six because their current inefficiencies are either bounded by small inputs or not on a production request path.
+- I did not rank parser loops, formatter loops, or rules-file scanning higher because their input sizes are bounded or local-only compared with Scryfall API and bulk-data paths.
+- I did not run benchmarks for this audit. The remediation plan requires focused regression tests and, where practical, lightweight measurements for request count, cache behavior, and heap growth.

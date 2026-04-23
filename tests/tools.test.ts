@@ -209,7 +209,7 @@ describe('MCP Tools', () => {
   });
 
   describe('BuildScryfallQueryTool', () => {
-    it('reuses builder test metadata instead of issuing a second preview search', async () => {
+    it('builds queries without live validation by default', async () => {
       const tool = new BuildScryfallQueryTool({ searchCards: mockScryfallClient.searchCards } as never);
 
       mockScryfallClient.searchCards.mockResolvedValue({
@@ -221,8 +221,9 @@ describe('MCP Tools', () => {
 
       const result = await tool.execute({ natural_query: 'blue counterspells under $5 for modern' });
 
-      expect(mockScryfallClient.searchCards).toHaveBeenCalledTimes(1);
-      expect(result.content[0].text).toContain('returns 12 cards');
+      expect(mockScryfallClient.searchCards).not.toHaveBeenCalled();
+      expect(result.content[0].text).toContain('Generated Scryfall Query');
+      expect(result.content[0].text).not.toContain('Query Test Results');
     });
   });
 

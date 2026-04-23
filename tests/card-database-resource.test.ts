@@ -220,6 +220,19 @@ describe("CardDatabaseResource", () => {
     expect(parsed.data[0].name).toBe("Lightning Bolt");
   });
 
+  it("reports builder diagnostics after rebuilding the serialized snapshot", async () => {
+    await resource.getData();
+
+    const diagnostics = (
+      resource as unknown as {
+        getLastBuildDiagnostics: () => { totalCards: number; retainedChunks: number };
+      }
+    ).getLastBuildDiagnostics();
+
+    expect(diagnostics.totalCards).toBe(mockCards.length);
+    expect(diagnostics.retainedChunks).toBeLessThanOrEqual(mockCards.length);
+  });
+
   it("forceRefresh clears the cached snapshot and rebuilds it", async () => {
     await resource.getData();
 

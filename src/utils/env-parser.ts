@@ -151,6 +151,11 @@ export const EnvValidators = {
    * Timeout configuration
    */
   scryfallTimeoutMs: (value?: string) => parseEnvInt(value, 15000, 1000, 300000),
+
+  /**
+   * HTTP transport configuration
+   */
+  httpMaxBodyBytes: (value?: string) => parseEnvInt(value, 1_048_576, 1024, 10 * 1024 * 1024),
   
   /**
    * Log level configuration

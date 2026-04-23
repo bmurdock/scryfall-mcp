@@ -9,8 +9,54 @@ type BulkSnapshotMetadata = {
   totalCards: number;
 };
 
+type BulkBuildDiagnostics = {
+  totalCards: number;
+  retainedChunks: number;
+};
+
 const BULK_PAYLOAD_KEY = CacheService.createBulkKey('cards:serialized');
 const BULK_METADATA_KEY = CacheService.createBulkKey('cards:metadata');
+const MAX_JSON_CHUNK_SIZE = 1_000_000;
+
+class JsonChunkBuilder {
+  private readonly chunks: string[] = [];
+  private currentParts: string[] = [];
+  private currentSize = 0;
+  private hasItems = false;
+
+  constructor(private readonly maxChunkSize = MAX_JSON_CHUNK_SIZE) {}
+
+  append(serializedJson: string): void {
+    const part = this.hasItems ? `,${serializedJson}` : serializedJson;
+
+    if (this.currentSize > 0 && this.currentSize + part.length > this.maxChunkSize) {
+      this.flush();
+    }
+
+    this.currentParts.push(part);
+    this.currentSize += part.length;
+    this.hasItems = true;
+  }
+
+  finish(prefix: string, totalCards: number): { payload: string; chunks: number } {
+    this.flush();
+
+    return {
+      payload: `${prefix}${totalCards},"data":[${this.chunks.join('')}]}`,
+      chunks: this.chunks.length,
+    };
+  }
+
+  private flush(): void {
+    if (this.currentSize === 0) {
+      return;
+    }
+
+    this.chunks.push(this.currentParts.join(''));
+    this.currentParts = [];
+    this.currentSize = 0;
+  }
+}
 
 /**
  * MCP Resource for accessing bulk card database
@@ -24,6 +70,10 @@ export class CardDatabaseResource {
   private lastUpdateCheck = 0;
   private readonly updateCheckInterval = 24 * 60 * 60 * 1000; // 24 hours
   private rebuildInFlight?: Promise<string>;
+  private lastBuildDiagnostics: BulkBuildDiagnostics = {
+    totalCards: 0,
+    retainedChunks: 0,
+  };
 
   constructor(
     private readonly scryfallClient: ScryfallClient,
@@ -119,19 +169,26 @@ export class CardDatabaseResource {
    */
   private async rebuildSerializedSnapshot(knownBulkInfo?: BulkDataInfo): Promise<string> {
     const oracleCards = knownBulkInfo ?? await this.getOracleCardsBulkInfo();
-    const parts: string[] = [];
+    const builder = new JsonChunkBuilder();
     let totalCards = 0;
 
     for await (const card of this.scryfallClient.streamBulkData(oracleCards.download_uri)) {
-      parts.push(JSON.stringify(this.filterCardFields(card)));
+      builder.append(JSON.stringify(this.filterCardFields(card)));
       totalCards++;
     }
 
-    const payload =
+    const finished = builder.finish(
       `{"object":"bulk_data","type":"oracle_cards","updated_at":"${oracleCards.updated_at}",` +
-      `"total_cards":${totalCards},"data":[${parts.join(',')}]}`;
+      '"total_cards":',
+      totalCards
+    );
+    const payload = finished.payload;
+    this.lastBuildDiagnostics = {
+      totalCards,
+      retainedChunks: finished.chunks,
+    };
 
-    this.cache.setWithType(BULK_PAYLOAD_KEY, payload, 'bulk_data');
+    this.cache.setWithType(BULK_PAYLOAD_KEY, payload, 'bulk_data', { sizeBytes: payload.length * 2 });
     this.cache.setWithType(BULK_METADATA_KEY, {
       updatedAt: oracleCards.updated_at,
       totalCards,
@@ -239,5 +296,9 @@ export class CardDatabaseResource {
    */
   getCacheStats() {
     return this.cache.getStats();
+  }
+
+  getLastBuildDiagnostics(): BulkBuildDiagnostics {
+    return this.lastBuildDiagnostics;
   }
 }
