@@ -3,7 +3,6 @@ import { CacheService } from '../services/cache-service.js';
 import { ScryfallSet } from '../types/scryfall-api.js';
 import { ScryfallAPIError } from '../types/mcp-types.js';
 import { mcpLogger } from '../services/logger.js';
-import { filterSets } from '../utils/set-filters.js';
 
 type SetSnapshotMetadata = {
   updatedAt: string;
@@ -89,7 +88,7 @@ export class SetDatabaseResource {
       updated_at: updatedAt,
       total_sets: sets.length,
       data: sets
-    }, null, 2);
+    });
   }
 
   /**
@@ -135,16 +134,23 @@ export class SetDatabaseResource {
     released_before?: string;
     digital?: boolean;
   }): Promise<string> {
-    const allSets = await this.getSetDataModel();
-    const filteredSets = filterSets(allSets, filters);
+    const cacheKey = CacheService.createSetFilterKey({ ...filters, serialized: true });
+    const cachedPayload = this.cache.getWithStats<string>(cacheKey);
+    if (cachedPayload) {
+      return cachedPayload;
+    }
 
-    return JSON.stringify({
+    const filteredSets = await this.scryfallClient.getSets(filters);
+    const payload = JSON.stringify({
       object: 'list',
       type: 'sets',
       total_sets: filteredSets.length,
       data: filteredSets,
       filters_applied: filters
-    }, null, 2);
+    });
+
+    this.cache.setWithType(cacheKey, payload, 'set_data');
+    return payload;
   }
 
   /**

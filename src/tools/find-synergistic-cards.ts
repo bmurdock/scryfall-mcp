@@ -16,7 +16,6 @@ import {
   SynergyLayer
 } from './find-synergistic-cards/types.js';
 
-const SEARCH_CONCURRENCY = 3;
 const MAX_PRIMARY_QUERY_CANDIDATES = 15;
 const MAX_FALLBACK_QUERY_CANDIDATES = 6;
 
@@ -312,7 +311,6 @@ export class FindSynergisticCardsTool {
   ): Promise<SynergyCard[]> {
     const allResults: SynergyCard[] = [];
     const uniqueResultIds = new Set<string>();
-    const perQueryLimit = this.getPerQueryLimit(queries.length, targetUniqueResults);
 
     for (const [index, query] of queries.entries()) {
       if (uniqueResultIds.size >= stopAfterUniqueResults) {
@@ -320,6 +318,11 @@ export class FindSynergisticCardsTool {
       }
 
       try {
+        const perQueryLimit = this.getPerQueryLimit(
+          index,
+          targetUniqueResults,
+          uniqueResultIds.size
+        );
         const results = await this.scryfallClient.searchCards({
           query,
           limit: perQueryLimit,
@@ -346,14 +349,16 @@ export class FindSynergisticCardsTool {
     return allResults;
   }
 
-  private getPerQueryLimit(queryCount: number, targetUniqueResults: number): number {
-    if (queryCount === 0) {
-      return targetUniqueResults;
+  private getPerQueryLimit(
+    queryIndex: number,
+    targetUniqueResults: number,
+    currentUniqueResults: number
+  ): number {
+    if (queryIndex === 0) {
+      return Math.min(targetUniqueResults + 5, 20);
     }
 
-    return Math.min(
-      targetUniqueResults + 5,
-      Math.max(5, Math.ceil(targetUniqueResults / Math.min(queryCount, SEARCH_CONCURRENCY)) + 4)
-    );
+    const remaining = Math.max(0, targetUniqueResults - currentUniqueResults);
+    return Math.min(Math.max(5, remaining + 4), targetUniqueResults + 5);
   }
 }

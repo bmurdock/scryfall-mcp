@@ -42,10 +42,10 @@ describe("CacheService", () => {
     };
 
     cache.set("json-key", payload, 60_000);
-    expect(serializeCount).toBe(1);
+    expect(serializeCount).toBe(0);
 
     cache.delete("json-key");
-    expect(serializeCount).toBe(1);
+    expect(serializeCount).toBe(0);
     expect(cache.getStats().memoryUsage).toBe(0);
   });
 
@@ -65,6 +65,24 @@ describe("CacheService", () => {
     expect(cache.get("c")).toEqual({ value: "gamma" });
   });
 
+  it("updates recency without rewriting map iteration order on get", () => {
+    const cache = new CacheService(60_000, 2, 10);
+    caches.push(cache);
+
+    cache.set("a", { value: "alpha" }, 60_000);
+    cache.set("b", { value: "beta" }, 60_000);
+    cache.get("a");
+
+    const keys = Array.from(
+      (cache as unknown as { cache: Map<string, unknown> }).cache.keys()
+    );
+    expect(keys).toEqual(["a", "b"]);
+
+    cache.set("c", { value: "gamma" }, 60_000);
+    expect(cache.get("a")).toEqual({ value: "alpha" });
+    expect(cache.get("b")).toBeNull();
+  });
+
   it("accepts an explicit size hint so large cached objects do not require JSON serialization", () => {
     const cache = new CacheService(60_000, 100, 10);
     caches.push(cache);
@@ -78,6 +96,25 @@ describe("CacheService", () => {
     };
 
     cache.set("hinted", payload, 60_000, { sizeBytes: 256 });
+
+    expect(serializeCount).toBe(0);
+    expect(cache.getStats().memoryUsage).toBeGreaterThan(0);
+  });
+
+  it("estimates object size without invoking toJSON when no size hint is provided", () => {
+    const cache = new CacheService(60_000, 100, 10);
+    caches.push(cache);
+
+    let serializeCount = 0;
+    const payload = {
+      nested: { value: "cached" },
+      toJSON() {
+        serializeCount++;
+        return { nested: { value: "cached" } };
+      },
+    };
+
+    cache.set("json-key", payload, 60_000);
 
     expect(serializeCount).toBe(0);
     expect(cache.getStats().memoryUsage).toBeGreaterThan(0);

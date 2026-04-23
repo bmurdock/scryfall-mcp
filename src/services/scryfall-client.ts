@@ -14,6 +14,8 @@ import { mcpLogger } from "./logger.js";
 import { generateRequestId } from "../types/mcp-errors.js";
 import { EnvValidators } from "../utils/env-parser.js";
 import { filterSets } from "../utils/set-filters.js";
+import { iterateArrayStream } from "./bulk-json-stream.js";
+import { collectRequestedWindow } from "./search-window.js";
 
 /**
  * HTTP client for Scryfall API with rate limiting and caching
@@ -288,13 +290,13 @@ export class ScryfallClient {
     );
     const totalCards = firstPage.total_cards ?? firstPage.data.length;
     const requiredCount = Math.max(0, Math.min(requestedLimit, totalCards - requestedOffset));
-    const combinedCards = [...firstPage.data];
-    const warningSet = new Set(firstPage.warnings ?? []);
+    let fetchedCards = firstPage.data.length;
+    const pages = [firstPage];
     let currentPage = firstPage;
     let nextApiPage = startingApiPage + 1;
 
-    while (combinedCards.length < relativeOffset + requiredCount && currentPage.has_more) {
-      const nextPage = await this.fetchSearchPage(
+    while (fetchedCards < relativeOffset + requiredCount && currentPage.has_more) {
+      currentPage = await this.fetchSearchPage(
         {
           ...params,
           query,
@@ -302,19 +304,18 @@ export class ScryfallClient {
         nextApiPage,
         reqId
       );
-      combinedCards.push(...nextPage.data);
-      nextPage.warnings?.forEach((warning) => warningSet.add(warning));
-      currentPage = nextPage;
+      pages.push(currentPage);
+      fetchedCards += currentPage.data.length;
       nextApiPage++;
     }
 
-    const slicedCards = combinedCards.slice(relativeOffset, relativeOffset + requiredCount);
+    const window = collectRequestedWindow(pages, relativeOffset, requiredCount);
     const data: ScryfallSearchResponse = {
       object: firstPage.object,
       total_cards: totalCards,
-      has_more: requestedOffset + slicedCards.length < totalCards,
-      data: slicedCards,
-      warnings: warningSet.size > 0 ? Array.from(warningSet) : undefined,
+      has_more: requestedOffset + window.data.length < totalCards,
+      data: window.data,
+      warnings: window.warnings,
     };
 
     // Cache the result
@@ -439,19 +440,33 @@ export class ScryfallClient {
     type?: string;
     released_after?: string;
     released_before?: string;
+    digital?: boolean;
   }): Promise<ScryfallSet[]> {
-    const cacheKey = CacheService.createSetKey();
+    const rawSetsKey = CacheService.createSetKey();
 
-    const cached = this.cache.getWithStats<{ data: ScryfallSet[] }>(cacheKey);
-    const allSets = cached?.data ?? (
+    const cachedRaw = this.cache.getWithStats<{ data: ScryfallSet[] }>(rawSetsKey);
+    const allSets = cachedRaw?.data ?? (
       await this.makeRequest<ScryfallListResponse<ScryfallSet>>(`${this.baseUrl}/sets`)
     ).data;
 
-    if (!cached) {
-      this.cache.setWithType(cacheKey, { data: allSets }, "set_data");
+    if (!cachedRaw) {
+      this.cache.setWithType(rawSetsKey, { data: allSets }, "set_data");
     }
 
-    return filterSets(allSets, params ?? {});
+    const filters = params ?? {};
+    if (Object.values(filters).every((value) => value === undefined)) {
+      return allSets;
+    }
+
+    const filteredKey = CacheService.createSetFilterKey(filters);
+    const cachedFiltered = this.cache.getWithStats<ScryfallSet[]>(filteredKey);
+    if (cachedFiltered) {
+      return cachedFiltered;
+    }
+
+    const filteredSets = filterSets(allSets, filters);
+    this.cache.setWithType(filteredKey, filteredSets, "set_data");
+    return filteredSets;
   }
 
   /**
@@ -495,6 +510,40 @@ export class ScryfallClient {
 
       return (await response.json()) as ScryfallCard[];
     } catch (error) {
+      throw new ScryfallAPIError(
+        `Bulk data download error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        0,
+        (error instanceof Error && error.name === 'AbortError') ? "timeout" : "bulk_download_error"
+      );
+    }
+  }
+
+  /**
+   * Streams bulk card data (doesn't count against rate limits)
+   */
+  async *streamBulkData(downloadUri: string): AsyncGenerator<ScryfallCard> {
+    try {
+      const response = await this.fetchWithTimeout(
+        downloadUri,
+        { "User-Agent": this.userAgent },
+        this.timeoutMs() * 2
+      );
+
+      if (response.status >= 400 || !response.body) {
+        throw new ScryfallAPIError(
+          `Failed to download bulk data: HTTP ${response.status}`,
+          response.status
+        );
+      }
+
+      for await (const card of iterateArrayStream<ScryfallCard>(response.body)) {
+        yield card;
+      }
+    } catch (error) {
+      if (error instanceof ScryfallAPIError) {
+        throw error;
+      }
+
       throw new ScryfallAPIError(
         `Bulk data download error: ${error instanceof Error ? error.message : "Unknown error"}`,
         0,

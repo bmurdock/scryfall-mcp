@@ -36,12 +36,15 @@ describe("SetDatabaseResource", () => {
   });
 
   it("filters sets without routing through getData serialization", async () => {
+    const sets = [
+      createSet(),
+      createSet({ id: "set-2", code: "dig", name: "Digital Set", digital: true, set_type: "alchemy" }),
+    ];
     const resource = new SetDatabaseResource(
       {
-        getSets: vi.fn().mockResolvedValue([
-          createSet(),
-          createSet({ id: "set-2", code: "dig", name: "Digital Set", digital: true, set_type: "alchemy" }),
-        ]),
+        getSets: vi.fn().mockImplementation(async (filters?: { digital?: boolean }) =>
+          filters?.digital === undefined ? sets : sets.filter((set) => set.digital === filters.digital)
+        ),
       } as never,
       cache
     );
@@ -56,12 +59,17 @@ describe("SetDatabaseResource", () => {
   });
 
   it("shares string-based release filtering with the client path", async () => {
+    const sets = [
+      createSet({ id: "set-old", code: "old", name: "Old Set", released_at: "2020-01-01" }),
+      createSet({ id: "set-new", code: "new", name: "New Set", released_at: "2025-01-01" }),
+    ];
     const resource = new SetDatabaseResource(
       {
-        getSets: vi.fn().mockResolvedValue([
-          createSet({ id: "set-old", code: "old", name: "Old Set", released_at: "2020-01-01" }),
-          createSet({ id: "set-new", code: "new", name: "New Set", released_at: "2025-01-01" }),
-        ]),
+        getSets: vi.fn().mockImplementation(async (filters?: { released_after?: string }) =>
+          !filters?.released_after
+            ? sets
+            : sets.filter((set) => Boolean(set.released_at && set.released_at >= filters.released_after!))
+        ),
       } as never,
       cache
     );
@@ -71,6 +79,33 @@ describe("SetDatabaseResource", () => {
 
     expect(parsed.total_sets).toBe(1);
     expect(parsed.data.map((set: ScryfallSet) => set.code)).toEqual(["new"]);
+  });
+
+  it("caches serialized filtered set payloads by filter signature", async () => {
+    let serializeCount = 0;
+    const resource = new SetDatabaseResource(
+      {
+        getSets: vi.fn().mockResolvedValue([
+          createSet({
+            id: "set-digital",
+            code: "dig",
+            name: "Digital Set",
+            digital: true,
+            toJSON() {
+              serializeCount++;
+              return this;
+            },
+          }),
+        ]),
+      } as never,
+      cache
+    );
+
+    const first = await resource.getFilteredSets({ digital: true });
+    const second = await resource.getFilteredSets({ digital: true });
+
+    expect(first).toBe(second);
+    expect(serializeCount).toBe(1);
   });
 
   it("collects set types from cached set models without parsing the serialized payload", async () => {

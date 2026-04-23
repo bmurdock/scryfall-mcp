@@ -167,4 +167,40 @@ describe("ScryfallClient search pagination", () => {
     expect(result.data[19].name).toBe("Card 179");
     expect(result.has_more).toBe(true);
   });
+
+  it("deduplicates warnings collected across fetched API pages", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        createFetchResponse({
+          ...createSearchResponse(0, 175),
+          warnings: ["shared warning", "first page warning"],
+        })
+      )
+      .mockResolvedValueOnce(
+        createFetchResponse({
+          ...createSearchResponse(175, 45),
+          warnings: ["shared warning", "second page warning"],
+        })
+      );
+
+    const client = new ScryfallClient(
+      {
+        execute: vi.fn(async (operation: () => Promise<unknown>) => operation()),
+        waitForClearance: vi.fn().mockResolvedValue(undefined),
+        recordSuccess: vi.fn(),
+        recordError: vi.fn(),
+        handleRateLimitResponse: vi.fn(),
+        isCircuitOpen: vi.fn().mockReturnValue(false),
+      } as never,
+      cache
+    );
+
+    const result = await client.searchCards({ query: "type:creature", limit: 20, page: 9 });
+
+    expect(result.warnings).toEqual([
+      "shared warning",
+      "first page warning",
+      "second page warning",
+    ]);
+  });
 });

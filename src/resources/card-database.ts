@@ -119,30 +119,24 @@ export class CardDatabaseResource {
    */
   private async rebuildSerializedSnapshot(knownBulkInfo?: BulkDataInfo): Promise<string> {
     const oracleCards = knownBulkInfo ?? await this.getOracleCardsBulkInfo();
-    const cards = await this.scryfallClient.downloadBulkData(oracleCards.download_uri);
-    const payload = this.serializeBulkSnapshot(oracleCards, cards);
+    const parts: string[] = [];
+    let totalCards = 0;
+
+    for await (const card of this.scryfallClient.streamBulkData(oracleCards.download_uri)) {
+      parts.push(JSON.stringify(this.filterCardFields(card)));
+      totalCards++;
+    }
+
+    const payload =
+      `{"object":"bulk_data","type":"oracle_cards","updated_at":"${oracleCards.updated_at}",` +
+      `"total_cards":${totalCards},"data":[${parts.join(',')}]}`;
 
     this.cache.setWithType(BULK_PAYLOAD_KEY, payload, 'bulk_data');
     this.cache.setWithType(BULK_METADATA_KEY, {
       updatedAt: oracleCards.updated_at,
-      totalCards: cards.length,
+      totalCards,
     }, 'bulk_data');
 
-    return payload;
-  }
-
-  private serializeBulkSnapshot(oracleCards: BulkDataInfo, cards: ScryfallCard[]): string {
-    let payload = `{"object":"bulk_data","type":"oracle_cards","updated_at":"${oracleCards.updated_at}","total_cards":${cards.length},"data":[`;
-
-    for (const [index, card] of cards.entries()) {
-      if (index > 0) {
-        payload += ",";
-      }
-
-      payload += JSON.stringify(this.filterCardFields(card));
-    }
-
-    payload += "]}";
     return payload;
   }
 

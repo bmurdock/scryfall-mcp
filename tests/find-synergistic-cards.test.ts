@@ -80,6 +80,34 @@ function createCard(id: string, layer?: SynergyCard["_synergy_layer"]): SynergyC
 }
 
 describe("FindSynergisticCardsTool", () => {
+  it("uses a larger first-query budget because synergy searches are serialized", () => {
+    const tool = new FindSynergisticCardsTool({} as never);
+
+    expect(
+      (tool as unknown as {
+        getPerQueryLimit: (
+          queryIndex: number,
+          targetUniqueResults: number,
+          currentUniqueResults: number
+        ) => number;
+      }).getPerQueryLimit(0, 15, 0)
+    ).toBe(20);
+  });
+
+  it("shrinks later query budgets to the remaining unique-result need", () => {
+    const tool = new FindSynergisticCardsTool({} as never);
+
+    expect(
+      (tool as unknown as {
+        getPerQueryLimit: (
+          queryIndex: number,
+          targetUniqueResults: number,
+          currentUniqueResults: number
+        ) => number;
+      }).getPerQueryLimit(2, 15, 11)
+    ).toBe(8);
+  });
+
   it("stops searching once the first query already returns enough unique results", async () => {
     const searchCards = vi.fn().mockResolvedValueOnce({
       object: "list",

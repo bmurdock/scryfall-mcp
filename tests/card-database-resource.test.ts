@@ -107,7 +107,7 @@ describe("CardDatabaseResource", () => {
   let cache: CacheService;
   let resource: CardDatabaseResource;
   let getBulkDataInfo: ReturnType<typeof vi.fn>;
-  let downloadBulkData: ReturnType<typeof vi.fn>;
+  let streamBulkData: ReturnType<typeof vi.fn>;
   let mockBulkInfo: BulkDataInfo;
   let mockCards: ScryfallCard[];
 
@@ -116,12 +116,14 @@ describe("CardDatabaseResource", () => {
     mockBulkInfo = createBulkInfo("2026-04-19T00:00:00Z");
     mockCards = [createMockCard(), createMockCard({ id: "card-id-2", oracle_id: "oracle-id-2", name: "Counterspell" })];
     getBulkDataInfo = vi.fn().mockResolvedValue([mockBulkInfo]);
-    downloadBulkData = vi.fn().mockResolvedValue(mockCards);
+    streamBulkData = vi.fn().mockImplementation(async function* () {
+      yield* mockCards;
+    });
 
     resource = new CardDatabaseResource(
       {
         getBulkDataInfo,
-        downloadBulkData,
+        streamBulkData,
       } as never,
       cache
     );
@@ -131,7 +133,7 @@ describe("CardDatabaseResource", () => {
     const result = await resource.getData();
 
     expect(getBulkDataInfo).toHaveBeenCalledTimes(1);
-    expect(downloadBulkData).toHaveBeenCalledTimes(1);
+    expect(streamBulkData).toHaveBeenCalledTimes(1);
     expect(typeof result).toBe("string");
 
     const parsed = JSON.parse(result);
@@ -148,7 +150,7 @@ describe("CardDatabaseResource", () => {
     const first = await resource.getData();
     const second = await resource.getData();
 
-    expect(downloadBulkData).toHaveBeenCalledTimes(1);
+    expect(streamBulkData).toHaveBeenCalledTimes(1);
     expect(second).toEqual(first);
 
     const secondParsed = JSON.parse(second);
@@ -162,12 +164,14 @@ describe("CardDatabaseResource", () => {
 
     const refreshedBulkInfo = createBulkInfo("2026-04-20T00:00:00Z");
     getBulkDataInfo.mockResolvedValue([refreshedBulkInfo]);
-    downloadBulkData.mockResolvedValueOnce(mockCards);
+    streamBulkData.mockImplementationOnce(async function* () {
+      yield* mockCards;
+    });
     (resource as unknown as { lastUpdateCheck: number }).lastUpdateCheck = 0;
 
     const refreshed = await resource.getData();
 
-    expect(downloadBulkData).toHaveBeenCalledTimes(2);
+    expect(streamBulkData).toHaveBeenCalledTimes(2);
     expect(JSON.parse(refreshed).updated_at).toBe("2026-04-20T00:00:00Z");
   });
 
@@ -175,40 +179,40 @@ describe("CardDatabaseResource", () => {
     const originalPayload = await resource.getData();
 
     getBulkDataInfo.mockResolvedValue([createBulkInfo("2026-04-20T00:00:00Z")]);
-    downloadBulkData.mockRejectedValueOnce(new Error("download failed"));
+    streamBulkData.mockImplementationOnce(async function* () {
+      throw new Error("download failed");
+    });
     (resource as unknown as { lastUpdateCheck: number }).lastUpdateCheck = 0;
 
     await expect(resource.getData()).resolves.toEqual(originalPayload);
-    expect(downloadBulkData).toHaveBeenCalledTimes(2);
+    expect(streamBulkData).toHaveBeenCalledTimes(2);
   });
 
   it("coalesces concurrent cold reads into one rebuild", async () => {
-    let resolveDownload: ((cards: ScryfallCard[]) => void) | undefined;
-    downloadBulkData.mockImplementationOnce(
-      () =>
-        new Promise<ScryfallCard[]>((resolve) => {
-          resolveDownload = resolve;
-        })
-    );
+    let resolveStreamStart: (() => void) | undefined;
+    streamBulkData.mockImplementationOnce(async function* () {
+      await new Promise<void>((resolve) => {
+        resolveStreamStart = resolve;
+      });
+      yield* mockCards;
+    });
 
     const firstPromise = resource.getData();
     const secondPromise = resource.getData();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(downloadBulkData).toHaveBeenCalledTimes(1);
+    expect(streamBulkData).toHaveBeenCalledTimes(1);
 
-    resolveDownload?.(mockCards);
+    resolveStreamStart?.();
 
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
 
     expect(first).toEqual(second);
-    expect(downloadBulkData).toHaveBeenCalledTimes(1);
+    expect(streamBulkData).toHaveBeenCalledTimes(1);
   });
 
-  it("serializes filtered cards into the final payload shape without requiring a second array result", () => {
-    const payload = (resource as CardDatabaseResource & {
-      serializeBulkSnapshot: (bulkInfo: BulkDataInfo, cards: ScryfallCard[]) => string;
-    }).serializeBulkSnapshot(mockBulkInfo, mockCards);
+  it("serializes filtered streamed cards into the final payload shape", async () => {
+    const payload = await resource.getData();
     const parsed = JSON.parse(payload);
 
     expect(parsed.updated_at).toBe(mockBulkInfo.updated_at);
@@ -221,7 +225,7 @@ describe("CardDatabaseResource", () => {
 
     await resource.forceRefresh();
 
-    expect(downloadBulkData).toHaveBeenCalledTimes(2);
+    expect(streamBulkData).toHaveBeenCalledTimes(2);
     expect(getBulkDataInfo).toHaveBeenCalledTimes(2);
   });
 });

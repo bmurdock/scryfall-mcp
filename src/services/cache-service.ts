@@ -10,6 +10,7 @@ export class CacheService {
   private readonly maxSize: number;
   private readonly maxMemoryBytes: number;
   private currentMemoryUsage = 0;
+  private lastAccessTime = 0;
 
   constructor(
     private cleanupIntervalMs: number = 5 * 60 * 1000, // 5 minutes
@@ -44,7 +45,7 @@ export class CacheService {
       return null;
     }
 
-    this.touchEntry(key, entry);
+    entry.lastAccessedAt = this.getNextAccessTime(now);
     return entry.data as T;
   }
 
@@ -52,11 +53,13 @@ export class CacheService {
    * Sets a value in cache with TTL and enforces size limits
    */
   set<T>(key: string, value: T, ttl: number, options?: { sizeBytes?: number }): void {
+    const now = Date.now();
     const entry: CacheEntry<T> = {
       data: value,
-      timestamp: Date.now(),
+      timestamp: now,
       ttl,
       sizeBytes: options?.sizeBytes,
+      lastAccessedAt: this.getNextAccessTime(now),
     };
 
     const entrySize = entry.sizeBytes ?? this.calculateEntrySize(key, entry);
@@ -220,9 +223,10 @@ export class CacheService {
       return false;
     }
 
+    const now = Date.now();
     entry.ttl = newTtl;
-    entry.timestamp = Date.now(); // Reset timestamp
-    this.touchEntry(key, entry);
+    entry.timestamp = now; // Reset timestamp
+    entry.lastAccessedAt = this.getNextAccessTime(now);
     return true;
   }
 
@@ -321,6 +325,28 @@ export class CacheService {
   }
 
   /**
+   * Creates a cache key for filtered set views and serialized payloads
+   */
+  static createSetFilterKey(filters: {
+    query?: string;
+    type?: string;
+    released_after?: string;
+    released_before?: string;
+    digital?: boolean;
+    serialized?: boolean;
+  }): string {
+    return [
+      'sets',
+      filters.serialized ? 'serialized' : 'data',
+      filters.query || 'all',
+      filters.type || 'all',
+      filters.released_after || 'any',
+      filters.released_before || 'any',
+      filters.digital === undefined ? 'both' : filters.digital ? 'digital' : 'paper',
+    ].join(':');
+  }
+
+  /**
    * Creates a cache key for bulk data
    */
   static createBulkKey(type: string): string {
@@ -331,27 +357,76 @@ export class CacheService {
    * Calculates the approximate size of a cache entry in bytes
    */
   private calculateEntrySize(key: string, entry: CacheEntry<unknown>): number {
-    try {
-      // Fast-path strings to avoid re-serializing already-materialized payloads.
-      const dataSize = typeof entry.data === 'string'
+    const dataSize =
+      typeof entry.data === 'string'
         ? entry.data.length * 2
-        : JSON.stringify(entry.data).length * 2;
-      const keySize = key.length * 2;
-      const metadataSize = 24; // timestamp (8) + ttl (8) + overhead (8)
-      return dataSize + keySize + metadataSize;
-    } catch {
-      // Fallback for non-serializable data
-      return 1000; // Conservative estimate
-    }
+        : this.estimateValueSize(entry.data);
+    const keySize = key.length * 2;
+    const metadataSize = 24; // timestamp (8) + ttl (8) + overhead (8)
+    return dataSize + keySize + metadataSize;
   }
 
   private getEntrySize(key: string, entry: CacheEntry<unknown>): number {
     return entry.sizeBytes ?? this.calculateEntrySize(key, entry);
   }
 
-  private touchEntry(key: string, entry: CacheEntry<unknown>): void {
-    this.cache.delete(key);
-    this.cache.set(key, entry);
+  private estimateValueSize(value: unknown, seen = new Set<unknown>()): number {
+    if (value === null || value === undefined) {
+      return 0;
+    }
+    if (typeof value === 'string') {
+      return value.length * 2;
+    }
+    if (typeof value === 'number' || typeof value === 'bigint') {
+      return 8;
+    }
+    if (typeof value === 'boolean') {
+      return 4;
+    }
+    if (typeof value !== 'object') {
+      return 16;
+    }
+    if (seen.has(value)) {
+      return 0;
+    }
+
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      return value.reduce((sum, item) => sum + this.estimateValueSize(item, seen), 0);
+    }
+
+    if (value instanceof Date) {
+      return 16;
+    }
+
+    let total = 0;
+    for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
+      total += childKey.length * 2;
+      total += this.estimateValueSize(childValue, seen);
+    }
+
+    return total;
+  }
+
+  private getNextAccessTime(now = Date.now()): number {
+    this.lastAccessTime = now > this.lastAccessTime ? now : this.lastAccessTime + 1;
+    return this.lastAccessTime;
+  }
+
+  private findLeastRecentlyUsedKey(): string | undefined {
+    let oldestKey: string | undefined;
+    let oldestAccess = Infinity;
+
+    for (const [key, entry] of this.cache.entries()) {
+      const accessTime = entry.lastAccessedAt ?? entry.timestamp;
+      if (accessTime < oldestAccess) {
+        oldestAccess = accessTime;
+        oldestKey = key;
+      }
+    }
+
+    return oldestKey;
   }
 
   /**
@@ -362,7 +437,7 @@ export class CacheService {
       this.cache.size > 0 &&
       (this.cache.size >= this.maxSize || this.currentMemoryUsage + requiredBytes > this.maxMemoryBytes)
     ) {
-      const oldestKey = this.cache.keys().next().value;
+      const oldestKey = this.findLeastRecentlyUsedKey();
       if (!oldestKey) {
         break;
       }

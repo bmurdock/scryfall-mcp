@@ -28,13 +28,13 @@ This repository is an MCP server for Scryfall-backed Magic: The Gathering workfl
 - Keep tests in `tests/**/*.test.ts`.
 - If a change affects tool contracts, include both success and failure-path coverage.
 
-## Performance And Correctness Guardrails
+## Performance Guardrails
 
-- Use TDD for behavior-changing performance fixes: write the failing interaction test first.
-- Do not add a second network call to preview data when an earlier step already fetched equivalent metadata.
-- Filtered cache keys must include every dimension that affects the result, or the code must cache only a canonical base dataset.
-- For large cached values, prefer caller-supplied `sizeBytes` or string payloads over incidental re-serialization for accounting.
-- Prefer one-pass collection and partition logic on hot paths unless a clearer multi-pass version is proven insignificant.
+- For large cached payloads, avoid `JSON.stringify()` as a hot-path size estimator. Prefer explicit size hints or cheap approximate sizing.
+- Cache hits should avoid structural mutations unless a benchmark shows they are necessary.
+- If a heuristic assumes concurrency, verify it matches the actual scheduler and rate limiter.
+- For large remote JSON payloads, prefer streamed processing over full in-memory materialization when the response shape allows it.
+- Use TDD for performance-sensitive refactors: write a characterization test first, then refactor under that test.
 
 ## Pull Requests
 

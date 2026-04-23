@@ -69,4 +69,23 @@ describe("ScryfallClient.getSets", () => {
     expect(older.map((set) => set.code)).toEqual(["old"]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("reuses a cached filtered set view for repeated identical filters", async () => {
+    const sets = [
+      createSet({ code: "old", name: "Old Set", released_at: "2020-01-01" }),
+      createSet({ id: "set-new", code: "new", name: "New Set", released_at: "2025-01-01" }),
+    ];
+
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: vi.fn().mockResolvedValue(createSetListResponse(sets)),
+    });
+
+    const first = await client.getSets({ released_after: "2024-01-01" });
+    const second = await client.getSets({ released_after: "2024-01-01" });
+
+    expect(first).toBe(second);
+    expect(second.map((set) => set.code)).toEqual(["new"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
