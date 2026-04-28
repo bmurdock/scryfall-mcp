@@ -18,7 +18,7 @@ interface DeckAnalysisParams {
   commander?: string;
 }
 
-interface DeckCardEntry {
+export interface DeckCardEntry {
   name: string;
   quantity: number;
 }
@@ -39,6 +39,44 @@ interface DeckCompositionAnalysis {
   expensiveCards: PriceEntry[];
   keyCards: string[];
   problems: string[];
+}
+
+function getExpectedLandCount(format: string | undefined, totalCards: number): number {
+  if (format === 'commander') {
+    return 37;
+  }
+
+  if (format === 'brawl' && totalCards >= 90) {
+    return 38;
+  }
+
+  return 24;
+}
+
+export function parseDeckListEntries(deckList: string): DeckCardEntry[] {
+  const quantities = new Map<string, number>();
+
+  for (const rawLine of deckList.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line === 'Commander' || line === 'Deck') {
+      continue;
+    }
+
+    const match = line.match(/^(?:(\d+)x?\s+)?(.+?)(?:\s+\([A-Z0-9]+\)\s+[A-Za-z0-9]+)?$/i);
+    if (!match) {
+      continue;
+    }
+
+    const quantity = match[1] ? parseInt(match[1], 10) : 1;
+    const cardName = match[2].trim();
+    if (!cardName) {
+      continue;
+    }
+
+    quantities.set(cardName, (quantities.get(cardName) || 0) + quantity);
+  }
+
+  return Array.from(quantities.entries()).map(([name, quantity]) => ({ name, quantity }));
 }
 
 /**
@@ -185,24 +223,7 @@ export class AnalyzeDeckCompositionTool {
    * Parse deck list into individual card names
    */
   private parseDeckList(deckList: string): DeckCardEntry[] {
-    const lines = deckList.split(/[\n,]/).map(line => line.trim());
-    const quantities = new Map<string, number>();
-    
-    for (const line of lines) {
-      if (!line) continue;
-      
-      // Handle various formats: "4 Lightning Bolt", "Lightning Bolt", "4x Lightning Bolt"
-      const match = line.match(/^(?:(\d+)x?\s+)?(.+)$/i);
-      if (match) {
-        const quantity = match[1] ? parseInt(match[1], 10) : 1;
-        const cardName = match[2].trim();
-        if (cardName) {
-          quantities.set(cardName, (quantities.get(cardName) || 0) + quantity);
-        }
-      }
-    }
-    
-    return Array.from(quantities.entries()).map(([name, quantity]) => ({ name, quantity }));
+    return parseDeckListEntries(deckList);
   }
 
   /**
@@ -310,7 +331,7 @@ export class AnalyzeDeckCompositionTool {
     
     // Land count recommendations
     const landCount = analysis.typeBreakdown.lands || 0;
-    const expectedLands = format === 'commander' ? 37 : format === 'brawl' ? 24 : 24;
+    const expectedLands = getExpectedLandCount(format, analysis.totalCards);
     
     if (landCount < expectedLands - 2) {
       recommendations.push(`🌍 Consider adding ${expectedLands - landCount} more lands`);
