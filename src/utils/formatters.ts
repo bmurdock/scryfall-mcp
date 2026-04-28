@@ -8,6 +8,7 @@ export function formatCard(card: ScryfallCard, includeImage = true): FormattedCa
   // Handle multi-faced cards
   const mainFace = card.card_faces?.[0] || card;
   const name = card.card_faces ? `${card.card_faces[0].name} // ${card.card_faces[1].name}` : card.name;
+  const arenaId = (card as ScryfallCard & { arena_id?: number }).arena_id;
   
   return {
     name,
@@ -17,6 +18,9 @@ export function formatCard(card: ScryfallCard, includeImage = true): FormattedCa
     power: mainFace.power || card.power,
     toughness: mainFace.toughness || card.toughness,
     set_name: card.set_name,
+    set: card.set,
+    collector_number: card.collector_number,
+    arena_id: arenaId,
     rarity: card.rarity,
     prices: {
       usd: card.prices.usd,

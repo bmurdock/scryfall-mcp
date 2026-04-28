@@ -181,6 +181,9 @@ describe('MCP Tools', () => {
           type_line: 'Instant',
           oracle_text: 'Lightning Bolt deals 3 damage to any target.',
           set_name: 'Alpha',
+          set: 'lea',
+          collector_number: '161',
+          arena_id: 67330,
           rarity: 'common',
           prices: { usd: '1.00' },
           legalities: { modern: 'legal' }
@@ -204,7 +207,46 @@ describe('MCP Tools', () => {
         order: 'usd',
         price_range: { min: 0.5, max: 2.0, currency: 'usd' }
       }));
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.cards[0]).toMatchObject({
+        name: 'Lightning Bolt',
+        set: 'lea',
+        collector_number: '161',
+        arena_id: 67330
+      });
       expect(result.content[0].text.trim().startsWith('{')).toBe(true);
+    });
+
+    it('does not append duplicate game:arena when arena_only is true', async () => {
+      mockScryfallClient.searchCards.mockResolvedValue({
+        object: 'list',
+        total_cards: 1,
+        has_more: false,
+        data: [{
+          id: 'test-id',
+          name: 'Goblin Guide',
+          mana_cost: '{R}',
+          type_line: 'Creature — Goblin Scout',
+          oracle_text: 'Haste',
+          set_name: 'Zendikar',
+          set: 'zen',
+          collector_number: '126',
+          rarity: 'rare',
+          prices: { usd: '5.00' },
+          legalities: { brawl: 'legal' }
+        }]
+      });
+
+      const result = await tool.execute({
+        query: 'game:arena legal:brawl t:goblin',
+        arena_only: true,
+        format: 'json'
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        query: 'game:arena legal:brawl t:goblin'
+      }));
     });
   });
 
