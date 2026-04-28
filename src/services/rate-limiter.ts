@@ -114,13 +114,8 @@ export class RateLimiter {
   /**
    * Records an error for backoff calculation
    */
-  recordError(status?: number): void {
+  recordError(_status?: number): void {
     this.consecutiveErrors++;
-    
-    // Special handling for 429 (Too Many Requests)
-    if (status === 429) {
-      this.consecutiveErrors = Math.max(this.consecutiveErrors, 2);
-    }
   }
 
   /**
@@ -208,7 +203,9 @@ export class RateLimiter {
    * Handles 429 responses with Retry-After header
    */
   async handleRateLimitResponse(retryAfter?: string): Promise<void> {
-    this.recordError(429);
+    if (this.consecutiveErrors === 0) {
+      this.recordError(429);
+    }
 
     let delay = this.getCurrentBackoffDelay();
 

@@ -57,11 +57,11 @@ describe("RateLimiter", () => {
     await expect(first).resolves.toBe("failed");
     expect(startedAt).toEqual([0]);
 
-    await vi.advanceTimersByTimeAsync(39);
+    await vi.advanceTimersByTimeAsync(19);
     expect(startedAt).toEqual([0]);
 
     await vi.advanceTimersByTimeAsync(1);
     await expect(second).resolves.toBe("ok");
-    expect(startedAt).toEqual([0, 40]);
+    expect(startedAt).toEqual([0, 20]);
   });
 });
