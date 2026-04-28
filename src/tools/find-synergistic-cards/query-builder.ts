@@ -313,6 +313,47 @@ function getArchetypeSynergies(focusCard: ScryfallCard, baseQuery: string): stri
   return queries;
 }
 
+function buildOracleBaseQuery(card: ScryfallCard, baseQuery: string): string {
+  const colorIdentity = [...(card.color_identity || [])]
+    .map(color => color.toLowerCase())
+    .sort((a, b) => 'wubrg'.indexOf(a) - 'wubrg'.indexOf(b))
+    .join('');
+  const trimmedBaseQuery = baseQuery.trim();
+
+  return [
+    trimmedBaseQuery,
+    colorIdentity ? `ci<=${colorIdentity}` : ''
+  ].filter(Boolean).join(' ');
+}
+
+function buildOracleDerivedQueries(card: ScryfallCard, baseQuery: string): string[] {
+  const oracle = card.oracle_text?.toLowerCase() ?? '';
+  const typeLine = card.type_line?.toLowerCase() ?? '';
+  const queryBase = buildOracleBaseQuery(card, baseQuery);
+  const prefix = queryBase ? `${queryBase} ` : '';
+  const queries: string[] = [];
+
+  if (oracle.includes('instant or sorcery')) {
+    queries.push(`${prefix}o:"instant or sorcery"`);
+    queries.push(`${prefix}(t:instant or t:sorcery)`);
+  }
+
+  if (oracle.includes('treasure')) {
+    queries.push(`${prefix}o:Treasure`);
+  }
+
+  if (typeLine.includes('goblin')) {
+    queries.push(`${prefix}t:goblin`);
+  }
+
+  if (typeLine.includes('wizard') || typeLine.includes('sorcerer')) {
+    queries.push(`${prefix}t:wizard`);
+    queries.push(`${prefix}(t:wizard or t:sorcerer or t:warlock or t:shaman)`);
+  }
+
+  return queries;
+}
+
 export function buildSynergyQueries(
   focusCard: ScryfallCard | null,
   params: Omit<SynergyParams, 'limit'>
@@ -346,6 +387,7 @@ export function buildSynergyQueries(
 
   if (focusCard) {
     queries.push(...getCardBasedSynergies(focusCard, baseQuery, params.synergy_type, params.focus_card));
+    queries.push(...buildOracleDerivedQueries(focusCard, baseQuery));
   } else {
     queries.push(...getThemeBasedSynergies(params.focus_card, baseQuery, params.synergy_type));
   }

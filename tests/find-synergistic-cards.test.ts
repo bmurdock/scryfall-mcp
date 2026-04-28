@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { FindSynergisticCardsTool } from "../src/tools/find-synergistic-cards.js";
+import { buildSynergyQueries } from "../src/tools/find-synergistic-cards/query-builder.js";
 import { formatResultsWithSynergyExplanations } from "../src/tools/find-synergistic-cards/result-formatter.js";
 import { ScryfallAPIError } from "../src/types/mcp-types.js";
 import type { SynergyCard } from "../src/tools/find-synergistic-cards/types.js";
+import type { ScryfallCard } from "../src/types/scryfall-api.js";
 
 function createCard(id: string, layer?: SynergyCard["_synergy_layer"]): SynergyCard {
   return {
@@ -78,6 +80,38 @@ function createCard(id: string, layer?: SynergyCard["_synergy_layer"]): SynergyC
     _synergy_layer: layer,
   };
 }
+
+function makeCard(overrides: Partial<ScryfallCard>): ScryfallCard {
+  return {
+    ...createCard("focus"),
+    related_uris: {},
+    ...overrides,
+  };
+}
+
+describe("buildSynergyQueries", () => {
+  it("builds Sanar-style fallback queries from oracle text and creature types", () => {
+    const params = {
+      focus_card: "Sanar, Unfinished Genius",
+      synergy_type: "theme",
+      format: "brawl",
+      include_lands: true,
+      limit: 20,
+      arena_only: true,
+    };
+    const queries = buildSynergyQueries(makeCard({
+      name: "Sanar, Unfinished Genius // Wild Idea",
+      type_line: "Legendary Creature — Goblin Sorcerer",
+      oracle_text: "Sanar enters prepared.\n{T}: Create a Treasure token. Activate only if you've cast an instant or sorcery spell this turn.",
+      color_identity: ["U", "R"],
+    }), params);
+
+    expect(queries).toContain('legal:brawl game:arena ci<=ur o:"instant or sorcery"');
+    expect(queries).toContain('legal:brawl game:arena ci<=ur o:Treasure');
+    expect(queries).toContain('legal:brawl game:arena ci<=ur t:goblin');
+    expect(queries).toContain('legal:brawl game:arena ci<=ur t:wizard');
+  });
+});
 
 describe("FindSynergisticCardsTool", () => {
   it("uses a larger first-query budget because synergy searches are serialized", () => {
