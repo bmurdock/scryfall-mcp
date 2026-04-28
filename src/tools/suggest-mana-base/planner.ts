@@ -65,9 +65,9 @@ export function calculateLandCount(params: ManaBaseParams): number {
     }
   }
 
-  if (params.format === 'commander') {
+  if (params.format === 'commander' || (params.format === 'brawl' && deck_size >= 90)) {
     baseCount = Math.max(36, Math.min(40, baseCount));
-  } else if (params.format === 'brawl') {
+  } else if (params.format === 'brawl' || params.format === 'standardbrawl') {
     baseCount = Math.max(22, Math.min(26, baseCount));
   }
 
