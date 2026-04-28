@@ -63,6 +63,15 @@ npm run dev:http
 npm run start:http
 ```
 
+For local MCP testing:
+
+```bash
+npm run dev:http:local
+npm run smoke:http
+```
+
+The smoke test checks `/health`, performs MCP `initialize`, sends `notifications/initialized`, and verifies `tools/list`.
+
 Current HTTP behavior:
 
 - binds to `127.0.0.1` by default
