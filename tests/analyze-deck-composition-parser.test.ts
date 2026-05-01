@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AnalyzeDeckCompositionTool, parseDeckListEntries } from '../src/tools/analyze-deck-composition.js';
+import { RateLimitError, ScryfallAPIError } from '../src/types/mcp-types.js';
 
 const islandCard = {
   id: 'island',
@@ -54,5 +55,81 @@ describe('AnalyzeDeckCompositionTool Brawl land recommendations', () => {
     expect(result.content[0].text).toContain('Total Cards: 100');
     expect(result.content[0].text).toContain('lands: 38');
     expect(result.content[0].text).not.toContain('Consider reducing lands');
+  });
+
+  it('uses exact card lookup before fuzzy fallback for parsed deck names', async () => {
+    const calls: Array<{ identifier: string; match?: string }> = [];
+    const client = {
+      getCard: async ({ identifier, match }: { identifier: string; match?: string }) => {
+        calls.push({ identifier, match });
+
+        if (identifier === 'Lightning Bolt' && match === 'exact') {
+          throw new ScryfallAPIError('Not found', 404);
+        }
+
+        return {
+          ...optCard,
+          name: identifier === 'Lightning Bolt' ? 'Lightning Bolt' : identifier,
+        };
+      },
+    };
+    const tool = new AnalyzeDeckCompositionTool(client as never);
+
+    const result = await tool.execute({
+      deck_list: '1 Lightning Bolt',
+      format: 'brawl',
+      strategy: 'combo',
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(calls).toEqual([
+      { identifier: 'Lightning Bolt', match: 'exact' },
+      { identifier: 'Lightning Bolt', match: undefined },
+    ]);
+    expect(result.content[0].text).toContain('Fuzzy name resolutions');
+    expect(result.content[0].text).toContain('Lightning Bolt -> Lightning Bolt');
+  });
+
+  it('returns an explicit rate-limit message when no deck cards can be fetched', async () => {
+    const client = {
+      getCard: async () => {
+        throw new RateLimitError('Rate limit exceeded', 60);
+      },
+    };
+    const tool = new AnalyzeDeckCompositionTool(client as never);
+
+    const result = await tool.execute({
+      deck_list: '1 Opt',
+      format: 'brawl',
+      strategy: 'combo',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toBe('Rate limit exceeded. Retry after 60s. No deck analysis was produced.');
+  });
+
+  it('returns a partial analysis warning when rate limiting interrupts deck fetches', async () => {
+    const client = {
+      getCard: async ({ identifier }: { identifier: string }) => {
+        if (identifier === 'Opt') {
+          throw new RateLimitError('Rate limit exceeded', 30);
+        }
+
+        return islandCard;
+      },
+    };
+    const tool = new AnalyzeDeckCompositionTool(client as never);
+
+    const result = await tool.execute({
+      deck_list: '1 Island\n1 Opt',
+      format: 'brawl',
+      strategy: 'combo',
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain('Partial analysis');
+    expect(result.content[0].text).toContain('Retry after 30s');
+    expect(result.content[0].text).toContain('1 card name was not analyzed');
+    expect(result.content[0].text).toContain('Total Cards: 2');
   });
 });

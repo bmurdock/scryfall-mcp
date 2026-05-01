@@ -1,21 +1,22 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
-import { ValidationError } from '../types/mcp-types.js';
+import { RateLimitError, ValidationError } from '../types/mcp-types.js';
 import { Color, Rarity, ScryfallCard } from '../types/scryfall-api.js';
-import { normalizeLowercaseString, normalizeTrimmedString } from '../utils/input-normalization.js';
-import { fetchCardMapWithConcurrency } from './batch-card-analysis/fetcher.js';
+import { normalizeLowercaseString } from '../utils/input-normalization.js';
+import {
+  FetchCardsMapResult,
+  fetchCardMapWithDiagnostics,
+} from './batch-card-analysis/fetcher.js';
 
 interface AnalyzeDeckCompositionInput {
   deck_list: string;
   format?: string;
   strategy?: string;
-  commander?: string;
 }
 
 interface DeckAnalysisParams {
   deck_list: string;
   format?: string;
   strategy: string;
-  commander?: string;
 }
 
 export interface DeckCardEntry {
@@ -38,7 +39,13 @@ interface DeckCompositionAnalysis {
   averageCMC: number;
   expensiveCards: PriceEntry[];
   keyCards: string[];
-  problems: string[];
+}
+
+interface DeckFetchWarnings {
+  rateLimitError?: RateLimitError;
+  analyzedCardNames: number;
+  totalCardNames: number;
+  fuzzyResolutions: FetchCardsMapResult['fuzzyResolutions'];
 }
 
 function getExpectedLandCount(format: string | undefined, totalCards: number): number {
@@ -103,10 +110,6 @@ export class AnalyzeDeckCompositionTool {
         enum: ['aggro', 'midrange', 'control', 'combo', 'ramp', 'tribal', 'unknown'],
         default: 'unknown',
         description: 'Deck strategy archetype'
-      },
-      commander: {
-        type: 'string',
-        description: 'Commander card name (for Commander/Brawl formats)'
       }
     },
     required: ['deck_list']
@@ -125,7 +128,6 @@ export class AnalyzeDeckCompositionTool {
     const params = args as AnalyzeDeckCompositionInput;
     const normalizedFormat = normalizeLowercaseString(params.format);
     const normalizedStrategy = normalizeLowercaseString(params.strategy);
-    const normalizedCommander = normalizeTrimmedString(params.commander);
 
     if (!params.deck_list || typeof params.deck_list !== 'string') {
       throw new ValidationError('Deck list is required and must be a string');
@@ -147,8 +149,7 @@ export class AnalyzeDeckCompositionTool {
     return {
       deck_list: params.deck_list.trim(),
       format: typeof normalizedFormat === 'string' ? normalizedFormat : undefined,
-      strategy,
-      commander: typeof normalizedCommander === 'string' ? normalizedCommander : undefined
+      strategy
     };
   }
 
@@ -170,7 +171,22 @@ export class AnalyzeDeckCompositionTool {
       }
 
       // Fetch card data
-      const cardData = await this.fetchCardData(deckEntries);
+      const fetchResult = await this.fetchCardData(deckEntries);
+      const cardData = fetchResult.cards;
+
+      if (fetchResult.fatalError) {
+        throw fetchResult.fatalError;
+      }
+
+      if (fetchResult.rateLimitError && cardData.size === 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: this.formatRateLimitFailure(fetchResult.rateLimitError)
+          }],
+          isError: true
+        };
+      }
       
       if (cardData.size === 0) {
         return {
@@ -189,7 +205,12 @@ export class AnalyzeDeckCompositionTool {
       const recommendations = this.generateRecommendations(analysis, params);
       
       // Format response
-      const responseText = this.formatAnalysisResponse(analysis, recommendations, params);
+      const responseText = this.formatAnalysisResponse(analysis, recommendations, params, {
+        rateLimitError: fetchResult.rateLimitError,
+        analyzedCardNames: cardData.size,
+        totalCardNames: deckEntries.length,
+        fuzzyResolutions: fetchResult.fuzzyResolutions,
+      });
       
       return {
         content: [{
@@ -229,12 +250,17 @@ export class AnalyzeDeckCompositionTool {
   /**
    * Fetch card data for all cards in the deck
    */
-  private async fetchCardData(deckEntries: DeckCardEntry[]): Promise<Map<string, ScryfallCard>> {
-    return fetchCardMapWithConcurrency(
+  private async fetchCardData(deckEntries: DeckCardEntry[]): Promise<FetchCardsMapResult> {
+    return fetchCardMapWithDiagnostics(
       this.scryfallClient,
       deckEntries.map(({ name }) => name),
-      { skipNotFound: true }
+      { skipNotFound: true, match: 'exact', fallbackToFuzzy: true }
     );
+  }
+
+  private formatRateLimitFailure(error: RateLimitError): string {
+    const retry = error.retryAfter ? ` Retry after ${error.retryAfter}s.` : '';
+    return `Rate limit exceeded.${retry} No deck analysis was produced.`;
   }
 
   /**
@@ -249,8 +275,7 @@ export class AnalyzeDeckCompositionTool {
       rarityBreakdown: {},
       averageCMC: 0,
       expensiveCards: [],
-      keyCards: [],
-      problems: []
+      keyCards: []
     };
 
     let totalCMC = 0;
@@ -370,9 +395,29 @@ export class AnalyzeDeckCompositionTool {
   private formatAnalysisResponse(
     analysis: DeckCompositionAnalysis,
     recommendations: string[],
-    params: DeckAnalysisParams
+    params: DeckAnalysisParams,
+    warnings?: DeckFetchWarnings
   ): string {
     let response = `**Deck Composition Analysis**\n\n`;
+
+    if (warnings?.rateLimitError) {
+      const retry = warnings.rateLimitError.retryAfter ? ` Retry after ${warnings.rateLimitError.retryAfter}s.` : '';
+      const missed = Math.max(0, warnings.totalCardNames - warnings.analyzedCardNames);
+      response += `⚠️ **Partial analysis:** Rate limit exceeded.${retry} `;
+      response += `${missed} card name${missed === 1 ? '' : 's'} `;
+      response += `${missed === 1 ? 'was' : 'were'} not analyzed.\n\n`;
+    }
+
+    if (warnings?.fuzzyResolutions.length) {
+      response += `ℹ️ **Fuzzy name resolutions:**\n`;
+      for (const resolution of warnings.fuzzyResolutions.slice(0, 10)) {
+        response += `• ${resolution.requestedName} -> ${resolution.resolvedName}\n`;
+      }
+      if (warnings.fuzzyResolutions.length > 10) {
+        response += `• ${warnings.fuzzyResolutions.length - 10} more\n`;
+      }
+      response += '\n';
+    }
     
     // Basic stats
     response += `📊 **Overview:**\n`;

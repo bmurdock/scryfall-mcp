@@ -1,4 +1,3 @@
-import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError } from '../types/mcp-types.js';
 import { formatManaBaseResponse } from './suggest-mana-base/formatter.js';
 import {
@@ -83,8 +82,8 @@ export class SuggestManaBaseTool {
     required: ['color_requirements']
   };
 
-  constructor(_scryfallClient: ScryfallClient) {
-    void _scryfallClient;
+  constructor(_unused?: unknown) {
+    void _unused;
   }
 
   private validateParams(args: unknown): ManaBaseParams {
@@ -111,9 +110,32 @@ export class SuggestManaBaseTool {
       }
     }
 
-    const deckSize = params.deck_size || 60;
+    const deckSize = params.deck_size ?? 60;
     if (typeof deckSize !== 'number' || deckSize < 40 || deckSize > 250) {
       throw new ValidationError('Deck size must be between 40 and 250');
+    }
+
+    if (params.average_cmc !== undefined) {
+      if (typeof params.average_cmc !== 'number' || params.average_cmc < 0 || params.average_cmc > 10) {
+        throw new ValidationError('Average CMC must be between 0 and 10');
+      }
+    }
+
+    if (params.color_intensity !== undefined) {
+      if (!params.color_intensity || typeof params.color_intensity !== 'object' || Array.isArray(params.color_intensity)) {
+        throw new ValidationError('Color intensity must be an object');
+      }
+
+      const validIntensityColors = new Set(['W', 'U', 'B', 'R', 'G']);
+      for (const [color, value] of Object.entries(params.color_intensity)) {
+        if (!validIntensityColors.has(color)) {
+          throw new ValidationError(`Invalid color intensity key: ${color}`);
+        }
+
+        if (typeof value !== 'number' || value < 0 || value > 10) {
+          throw new ValidationError(`Color intensity for ${color} must be between 0 and 10`);
+        }
+      }
     }
 
     const strategy = (typeof normalizedStrategy === 'string' ? normalizedStrategy : undefined) || 'midrange';

@@ -71,6 +71,7 @@ npm run smoke:http
 ```
 
 The smoke test checks `/health`, performs MCP `initialize`, sends `notifications/initialized`, and verifies `tools/list`.
+It also makes representative `validate_brawl_commander` and `search_cards` tool calls so the local HTTP endpoint is checked beyond discovery.
 
 Current HTTP behavior:
 
@@ -145,6 +146,14 @@ See [.env.example](./.env.example) for the canonical values. The main variables 
 - `HTTP_HEALTH_PATH`
 - `HTTP_ALLOWED_ORIGINS`
 
+Operational notes:
+
+- Scryfall API calls are globally serialized by the shared rate limiter. Batch tools may schedule multiple local lookups, but upstream Scryfall request completion remains one-at-a-time by design.
+- HTTP 429 responses are not retried automatically. The server records Scryfall's throttle window and delays the next request start so callers can decide whether to retry.
+- `CACHE_MAX_MEMORY_MB` controls whether large in-memory snapshots, including `card-database://bulk`, can be retained. Oversized bulk snapshots can still be returned for the current read, but metadata will report that they were not cached.
+- Deck-list analysis resolves card names exactly first, then falls back to fuzzy lookup for exact misses and reports any fuzzy resolutions in the response.
+- Deck-scale tools may return partial analysis or an explicit retry-after message when Scryfall throttles the underlying card lookups.
+
 Example local HTTP startup:
 
 ```bash
@@ -188,9 +197,12 @@ HTTP_HOST=127.0.0.1 HTTP_PORT=3000 npm run start:http
   "focus_card": "Obeka, Splitter of Seconds",
   "synergy_type": "theme",
   "format": "commander",
+  "color_identity": "UBR",
   "limit": 12
 }
 ```
+
+For commander-like workflows, pass `color_identity` when the focus is a theme rather than a resolvable card. When the focus resolves to a card, the tool infers that card's color identity and filters final results by requested legality, Arena availability, and color identity.
 
 ### `analyze_deck_composition`
 
@@ -228,6 +240,14 @@ Windows path: `%APPDATA%/Claude/claude_desktop_config.json`
 - The bulk card resource stores a pre-serialized snapshot to keep repeated reads cheap.
 - Set filtering is derived from one canonical cached `/sets` dataset to avoid incorrect filtered cache reuse.
 - Health checks are available through `ScryfallMCPServer.healthCheck()` and the HTTP `/health` endpoint.
+- If an MCP connector reports a JSON-RPC/SSE deserialization error, compare it against the raw HTTP smoke path:
+
+```bash
+npm run dev:http:local
+npm run smoke:http
+```
+
+If the smoke command succeeds, capture the connector error text and the smoke output together; that separates local endpoint framing from connector-specific parsing.
 
 ## Documentation Map
 

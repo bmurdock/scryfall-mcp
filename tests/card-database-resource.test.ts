@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CardDatabaseResource } from "../src/resources/card-database.js";
 import { CacheService } from "../src/services/cache-service.js";
+import { mcpLogger } from "../src/services/logger.js";
 import { BulkDataInfo, ScryfallCard } from "../src/types/scryfall-api.js";
 
 function createMockCard(overrides: Partial<ScryfallCard> = {}): ScryfallCard {
@@ -220,17 +221,88 @@ describe("CardDatabaseResource", () => {
     expect(parsed.data[0].name).toBe("Lightning Bolt");
   });
 
-  it("reports builder diagnostics after rebuilding the serialized snapshot", async () => {
+  it("reports builder diagnostics after rebuilding and caching the serialized snapshot", async () => {
     await resource.getData();
 
     const diagnostics = (
       resource as unknown as {
-        getLastBuildDiagnostics: () => { totalCards: number; retainedChunks: number };
+        getLastBuildDiagnostics: () => {
+          totalCards: number;
+          retainedChunks: number;
+          payloadBytes: number;
+          cached: boolean;
+          oversizeReason?: string;
+        };
       }
     ).getLastBuildDiagnostics();
 
     expect(diagnostics.totalCards).toBe(mockCards.length);
     expect(diagnostics.retainedChunks).toBeLessThanOrEqual(mockCards.length);
+    expect(diagnostics.payloadBytes).toBeGreaterThan(0);
+    expect(diagnostics.cached).toBe(true);
+    expect(diagnostics.oversizeReason).toBeUndefined();
+  });
+
+  it("reports oversized snapshots that cannot be retained in the in-memory cache", async () => {
+    cache.destroy();
+    cache = new CacheService(60_000, 100, 0.0001);
+    resource = new CardDatabaseResource(
+      {
+        getBulkDataInfo,
+        streamBulkData,
+      } as never,
+      cache
+    );
+    const warnSpy = vi.spyOn(mcpLogger, "warn").mockImplementation(() => undefined);
+
+    const payload = await resource.getData();
+
+    expect(JSON.parse(payload).total_cards).toBe(mockCards.length);
+    expect(cache.get<string>(CacheService.createBulkKey("cards:serialized"))).toBeNull();
+
+    const diagnostics = (
+      resource as unknown as {
+        getLastBuildDiagnostics: () => {
+          totalCards: number;
+          retainedChunks: number;
+          payloadBytes: number;
+          cached: boolean;
+          oversizeReason?: string;
+        };
+      }
+    ).getLastBuildDiagnostics();
+
+    expect(diagnostics.totalCards).toBe(mockCards.length);
+    expect(diagnostics.payloadBytes).toBeGreaterThan(cache.getStats().maxMemoryBytes);
+    expect(diagnostics.cached).toBe(false);
+    expect(diagnostics.oversizeReason).toContain("exceeds cache memory limit");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "bulk_snapshot_cache",
+        payloadBytes: diagnostics.payloadBytes,
+      }),
+      "Bulk snapshot exceeds in-memory cache limit"
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it("exposes bulk cache retention diagnostics in resource metadata", async () => {
+    await resource.getData();
+
+    const metadata = resource.getMetadata() as {
+      last_build: {
+        totalCards: number;
+        payloadBytes: number;
+        cached: boolean;
+      };
+      cache_ttl_remaining: number | null;
+    };
+
+    expect(metadata.last_build.totalCards).toBe(mockCards.length);
+    expect(metadata.last_build.payloadBytes).toBeGreaterThan(0);
+    expect(metadata.last_build.cached).toBe(true);
+    expect(metadata.cache_ttl_remaining).toBeGreaterThan(0);
   });
 
   it("forceRefresh clears the cached snapshot and rebuilds it", async () => {

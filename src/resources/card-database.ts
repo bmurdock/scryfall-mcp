@@ -12,6 +12,9 @@ type BulkSnapshotMetadata = {
 type BulkBuildDiagnostics = {
   totalCards: number;
   retainedChunks: number;
+  payloadBytes: number;
+  cached: boolean;
+  oversizeReason?: string;
 };
 
 const BULK_PAYLOAD_KEY = CacheService.createBulkKey('cards:serialized');
@@ -73,6 +76,8 @@ export class CardDatabaseResource {
   private lastBuildDiagnostics: BulkBuildDiagnostics = {
     totalCards: 0,
     retainedChunks: 0,
+    payloadBytes: 0,
+    cached: false,
   };
 
   constructor(
@@ -183,12 +188,39 @@ export class CardDatabaseResource {
       totalCards
     );
     const payload = finished.payload;
+    const payloadBytes = payload.length * 2;
+    const maxMemoryBytes = this.cache.getStats().maxMemoryBytes;
+
     this.lastBuildDiagnostics = {
       totalCards,
       retainedChunks: finished.chunks,
+      payloadBytes,
+      cached: false,
     };
 
-    this.cache.setWithType(BULK_PAYLOAD_KEY, payload, 'bulk_data', { sizeBytes: payload.length * 2 });
+    if (payloadBytes > maxMemoryBytes) {
+      const oversizeReason = `Payload size ${payloadBytes} bytes exceeds cache memory limit ${maxMemoryBytes} bytes`;
+      this.lastBuildDiagnostics = {
+        ...this.lastBuildDiagnostics,
+        oversizeReason,
+      };
+      mcpLogger.warn(
+        {
+          operation: 'bulk_snapshot_cache',
+          payloadBytes,
+          maxMemoryBytes,
+          totalCards,
+        },
+        'Bulk snapshot exceeds in-memory cache limit'
+      );
+    } else {
+      this.cache.setWithType(BULK_PAYLOAD_KEY, payload, 'bulk_data', { sizeBytes: payloadBytes });
+      this.lastBuildDiagnostics = {
+        ...this.lastBuildDiagnostics,
+        cached: this.cache.get<string>(BULK_PAYLOAD_KEY) === payload,
+      };
+    }
+
     this.cache.setWithType(BULK_METADATA_KEY, {
       updatedAt: oracleCards.updated_at,
       totalCards,
@@ -276,6 +308,7 @@ export class CardDatabaseResource {
       mimeType: this.mimeType,
       cache_stats: stats,
       cache_ttl_remaining: ttl,
+      last_build: this.lastBuildDiagnostics,
       last_update_check: new Date(this.lastUpdateCheck).toISOString(),
       next_update_check: new Date(this.lastUpdateCheck + this.updateCheckInterval).toISOString()
     };

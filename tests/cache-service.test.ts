@@ -101,7 +101,7 @@ describe("CacheService", () => {
     expect(cache.getStats().memoryUsage).toBeGreaterThan(0);
   });
 
-  it("selects eviction victims with at most one least-recently-used scan", () => {
+  it("selects eviction victims via iterative least-recently-used scans", () => {
     const cache = new CacheService(60_000, 10, 1);
     caches.push(cache);
 
@@ -121,7 +121,8 @@ describe("CacheService", () => {
 
     expect(cache.get("large")).toBe("large".repeat(60_000));
     expect(cache.get("c")).toBe("c".repeat(150_000));
-    expect(findSpy.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(findSpy.mock.calls.length).toBeGreaterThan(0);
+    expect(findSpy.mock.calls.length).toBeLessThanOrEqual(3);
   });
 
   it("estimates object size without invoking toJSON when no size hint is provided", () => {
@@ -141,5 +142,21 @@ describe("CacheService", () => {
 
     expect(serializeCount).toBe(0);
     expect(cache.getStats().memoryUsage).toBeGreaterThan(0);
+  });
+
+  it("does not cache entries larger than maxMemoryBytes and leaves memory accounting unchanged", () => {
+    const cache = new CacheService(60_000, 100, 1);
+    caches.push(cache);
+
+    cache.set("small", "s".repeat(100_000), 60_000);
+    const beforeOversized = cache.getStats();
+    expect(cache.get("small")).toBe("s".repeat(100_000));
+
+    cache.set("oversized", "o".repeat(700_000), 60_000);
+
+    const afterOversized = cache.getStats();
+    expect(cache.get("oversized")).toBeNull();
+    expect(afterOversized.size).toBe(beforeOversized.size);
+    expect(afterOversized.memoryUsage).toBe(beforeOversized.memoryUsage);
   });
 });

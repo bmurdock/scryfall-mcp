@@ -1,5 +1,5 @@
 import { ScryfallCard } from '../../types/scryfall-api.js';
-import { SynergyCard, SynergyParams } from './types.js';
+import { SynergyParams } from './types.js';
 
 function extractCreatureTypes(typeLine: string): string[] {
   const commonTypes = [
@@ -116,6 +116,75 @@ function getColorName(colorCode: string): string {
   };
 
   return colorMap[colorCode.toUpperCase()] || colorCode;
+}
+
+export function normalizeColorIdentity(value: string | undefined): string | undefined {
+  if (!value?.trim()) {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  const namedIdentities: Record<string, string> = {
+    white: 'w',
+    blue: 'u',
+    black: 'b',
+    red: 'r',
+    green: 'g',
+    azorius: 'wu',
+    dimir: 'ub',
+    rakdos: 'br',
+    gruul: 'rg',
+    selesnya: 'gw',
+    orzhov: 'wb',
+    izzet: 'ur',
+    golgari: 'bg',
+    boros: 'rw',
+    simic: 'gu',
+    esper: 'wub',
+    grixis: 'ubr',
+    jund: 'brg',
+    naya: 'rgw',
+    bant: 'gwu',
+    abzan: 'wbg',
+    jeskai: 'urw',
+    sultai: 'bgu',
+    mardu: 'rwb',
+    temur: 'gur',
+  };
+
+  const colors = new Set<string>();
+  const words = normalized.split(/[^a-z]+/).filter(Boolean);
+  for (const word of words) {
+    const named = namedIdentities[word];
+    if (named) {
+      for (const color of named) {
+        colors.add(color);
+      }
+      continue;
+    }
+
+    if (/^[wubrg]+$/.test(word)) {
+      for (const color of word) {
+        colors.add(color);
+      }
+    }
+  }
+
+  if (colors.size === 0 && /^[wubrg\s,]+$/i.test(value)) {
+    for (const color of normalized) {
+      if ('wubrg'.includes(color)) {
+        colors.add(color);
+      }
+    }
+  }
+
+  return colors.size > 0
+    ? [...colors].sort((a, b) => 'wubrg'.indexOf(a) - 'wubrg'.indexOf(b)).join('')
+    : undefined;
+}
+
+function getCardColorIdentity(card: ScryfallCard): string | undefined {
+  return normalizeColorIdentity((card.color_identity || []).join(''));
 }
 
 function getSemanticSynergies(focusCard: ScryfallCard, baseQuery: string): string[] {
@@ -314,16 +383,9 @@ function getArchetypeSynergies(focusCard: ScryfallCard, baseQuery: string): stri
 }
 
 function buildOracleBaseQuery(card: ScryfallCard, baseQuery: string): string {
-  const colorIdentity = [...(card.color_identity || [])]
-    .map(color => color.toLowerCase())
-    .sort((a, b) => 'wubrg'.indexOf(a) - 'wubrg'.indexOf(b))
-    .join('');
   const trimmedBaseQuery = baseQuery.trim();
 
-  return [
-    trimmedBaseQuery,
-    colorIdentity ? `ci<=${colorIdentity}` : ''
-  ].filter(Boolean).join(' ');
+  return trimmedBaseQuery;
 }
 
 function buildOracleDerivedQueries(card: ScryfallCard, baseQuery: string): string[] {
@@ -354,36 +416,51 @@ function buildOracleDerivedQueries(card: ScryfallCard, baseQuery: string): strin
   return queries;
 }
 
-export function buildSynergyQueries(
-  focusCard: ScryfallCard | null,
-  params: Omit<SynergyParams, 'limit'>
-): string[] {
-  const queries: string[] = [];
-  let baseQuery = '';
+export function buildBaseQuery(params: Omit<SynergyParams, 'limit'>): string {
+  const queryParts: string[] = [];
 
   if (params.format) {
-    baseQuery += `legal:${params.format} `;
+    queryParts.push(`legal:${params.format}`);
   }
 
   if (params.exclude_colors) {
     for (const color of params.exclude_colors.toLowerCase()) {
       if ('wubrg'.includes(color)) {
-        baseQuery += `-c:${color} `;
+        queryParts.push(`-c:${color}`);
       }
     }
   }
 
   if (params.max_cmc !== undefined) {
-    baseQuery += `cmc<=${params.max_cmc} `;
+    queryParts.push(`cmc<=${params.max_cmc}`);
   }
 
   if (!params.include_lands) {
-    baseQuery += '-t:land ';
+    queryParts.push('-t:land');
   }
 
   if (params.arena_only) {
-    baseQuery += 'game:arena ';
+    queryParts.push('game:arena');
   }
+
+  const colorIdentity = normalizeColorIdentity(params.color_identity);
+  if (colorIdentity) {
+    queryParts.push(`ci<=${colorIdentity}`);
+  }
+
+  return queryParts.length > 0 ? `${queryParts.join(' ')} ` : '';
+}
+
+export function buildSynergyQueries(
+  focusCard: ScryfallCard | null,
+  params: Omit<SynergyParams, 'limit'>
+): string[] {
+  const queries: string[] = [];
+  const effectiveParams = {
+    ...params,
+    color_identity: params.color_identity ?? (focusCard ? getCardColorIdentity(focusCard) : undefined),
+  };
+  const baseQuery = buildBaseQuery(effectiveParams);
 
   if (focusCard) {
     queries.push(...getCardBasedSynergies(focusCard, baseQuery, params.synergy_type, params.focus_card));

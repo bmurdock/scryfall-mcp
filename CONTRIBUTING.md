@@ -31,6 +31,8 @@ This repository is an MCP server for Scryfall-backed Magic: The Gathering workfl
 ## Performance Guardrails
 
 - For large cached payloads, avoid `JSON.stringify()` as a hot-path size estimator. Prefer explicit size hints or cheap approximate sizing.
+- Cache keys must include every input that can change returned data, ordering, pagination, or upstream request parameters.
+- Backoff and retry timing should have one owner. Avoid sleeping in both the failing request path and the next-request scheduling path.
 - Cache hits should avoid structural mutations unless a benchmark shows they are necessary.
 - If a heuristic assumes concurrency, verify it matches the actual scheduler and rate limiter.
 - For large remote JSON payloads, prefer streamed processing over full in-memory materialization when the response shape allows it.

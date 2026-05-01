@@ -4,6 +4,7 @@ import {
   validateScryfallQuerySync,
   validateScryfallQueryAsync,
 } from "../../src/utils/query-validator.js";
+import { validateScryfallQuery as validateScryfallQueryFromValidators } from "../../src/utils/validators.js";
 
 describe("Simple Query Validator", () => {
   describe("Basic Validation", () => {
@@ -200,6 +201,18 @@ describe("Simple Query Validator", () => {
       const result = await validateScryfallQueryAsync("");
       expect(result.isValid).toBe(false);
       expect(result.errors).toHaveLength(1);
+    });
+
+    it("uses the same implementation in validators.ts for search_cards integration", async () => {
+      const query = 'o:"draw a card" c:blue usd<=5';
+      const directResult = validateScryfallQuery(query);
+      const validatorsResult = await validateScryfallQueryFromValidators(query);
+
+      expect(validatorsResult).toEqual(directResult);
+      expect(validatorsResult).toHaveProperty("isValid");
+      expect(validatorsResult).toHaveProperty("errors");
+      expect(validatorsResult).toHaveProperty("warnings");
+      expect(validatorsResult).toHaveProperty("suggestions");
     });
   });
 

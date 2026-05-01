@@ -1,18 +1,10 @@
+import { parseSseMessage } from "./http-mcp-smoke-lib.mjs";
+
 const endpoint = process.env.MCP_HTTP_URL || "http://127.0.0.1:3000/mcp";
 const healthUrl = endpoint.replace(/\/mcp$/, "/health");
 
 let sessionId;
 let requestId = 1;
-
-function parseSse(text) {
-  const data = text
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith("data:"))
-    .map((line) => line.slice(5).trim())
-    .join("\n");
-
-  return data ? JSON.parse(data) : null;
-}
 
 async function postJsonRpc(payload) {
   const headers = {
@@ -41,7 +33,7 @@ async function postJsonRpc(payload) {
 
   const text = await response.text();
   const parsed = response.headers.get("content-type")?.includes("text/event-stream")
-    ? parseSse(text)
+    ? parseSseMessage(text)
     : JSON.parse(text);
 
   if (!response.ok || parsed?.error) {
@@ -79,10 +71,46 @@ const tools = await postJsonRpc({
   params: {},
 });
 
+const commanderValidation = await postJsonRpc({
+  jsonrpc: "2.0",
+  id: requestId++,
+  method: "tools/call",
+  params: {
+    name: "validate_brawl_commander",
+    arguments: {
+      card_identifier: "sos/223",
+      format: "brawl",
+    },
+  },
+});
+
+if (commanderValidation?.isError) {
+  throw new Error(`validate_brawl_commander failed: ${JSON.stringify(commanderValidation)}`);
+}
+
+const arenaSearch = await postJsonRpc({
+  jsonrpc: "2.0",
+  id: requestId++,
+  method: "tools/call",
+  params: {
+    name: "search_cards",
+    arguments: {
+      query: "Opt",
+      limit: 1,
+      arena_only: true,
+    },
+  },
+});
+
+if (arenaSearch?.isError) {
+  throw new Error(`search_cards failed: ${JSON.stringify(arenaSearch)}`);
+}
+
 console.log(JSON.stringify({
   endpoint,
   health: health.status,
   server: initialize.serverInfo,
   toolCount: tools.tools.length,
   tools: tools.tools.map((tool) => tool.name),
+  exercisedTools: ["validate_brawl_commander", "search_cards"],
 }, null, 2));

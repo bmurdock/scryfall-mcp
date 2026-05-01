@@ -4,7 +4,7 @@ import { analyzeLegality, analyzePrices } from '../src/tools/batch-card-analysis
 import { ScryfallAPIError } from '../src/types/mcp-types.js';
 
 describe('fetchCardsWithConcurrency', () => {
-  it('limits in-flight card fetches to the configured concurrency', async () => {
+  it('limits helper-level scheduled fetches to the configured concurrency for injected clients', async () => {
     let inFlight = 0;
     let maxInFlight = 0;
 

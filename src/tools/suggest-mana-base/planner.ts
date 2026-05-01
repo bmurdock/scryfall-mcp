@@ -113,7 +113,7 @@ export function calculateColorDistribution(
     assignedSlots += allocation.base;
   }
 
-  let remainingSlots = availableSlots - assignedSlots;
+  const remainingSlots = availableSlots - assignedSlots;
   exactAllocations
     .sort((a, b) => b.fraction - a.fraction)
     .slice(0, remainingSlots)

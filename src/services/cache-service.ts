@@ -1,6 +1,18 @@
 import { CacheEntry, CACHE_DURATIONS } from '../types/mcp-types.js';
 import { EnvValidators } from '../utils/env-parser.js';
 
+export interface SearchCacheKeyParams {
+  query: string;
+  page?: number;
+  limit?: number;
+  unique?: string;
+  direction?: string;
+  include_multilingual?: boolean;
+  include_variations?: boolean;
+  include_extras?: boolean;
+  order?: string;
+}
+
 /**
  * In-memory cache service with TTL support and size limits
  */
@@ -64,6 +76,10 @@ export class CacheService {
 
     const entrySize = entry.sizeBytes ?? this.calculateEntrySize(key, entry);
     entry.sizeBytes = entrySize;
+
+    if (entrySize > this.maxMemoryBytes) {
+      return;
+    }
 
     // Remove existing entry if updating
     const existingEntry = this.cache.get(key);
@@ -279,35 +295,38 @@ export class CacheService {
   }
 
   /**
-   * Creates a cache key for search queries
+   * Creates a cache key for search queries.
+   *
+   * Cache identity must include every input that changes the upstream Scryfall
+   * search URL or returned result ordering. Build this from the normalized final
+   * request, not from raw tool input.
    */
-  static createSearchKey(
-    query: string,
+  static createSearchKey({
+    query,
     page = 1,
     limit = 20,
-    unique?: string,
-    direction?: string,
-    include_multilingual?: boolean,
-    include_variations?: boolean,
-    price_range?: { min?: number; max?: number; currency?: string }
-  ): string {
+    unique,
+    direction,
+    include_multilingual,
+    include_variations,
+    include_extras,
+    order,
+  }: SearchCacheKeyParams): string {
     const params = [query, page, limit];
     if (unique && unique !== 'cards') params.push(`unique:${unique}`);
     if (direction && direction !== 'auto') params.push(`dir:${direction}`);
     if (include_multilingual) params.push('multilingual');
     if (include_variations) params.push('variations');
-    if (price_range) {
-      const priceStr = `price:${price_range.min || 0}-${price_range.max || 'inf'}:${price_range.currency || 'usd'}`;
-      params.push(priceStr);
-    }
+    if (include_extras) params.push('extras');
+    if (order) params.push(`order:${order}`);
     return `search:${params.join(':')}`;
   }
 
   /**
    * Creates a cache key for card details
    */
-  static createCardKey(identifier: string, set?: string, lang = 'en'): string {
-    return `card:${identifier}:${set || 'any'}:${lang}`;
+  static createCardKey(identifier: string, set?: string, lang = 'en', match = 'fuzzy'): string {
+    return `card:${identifier}:${set || 'any'}:${lang}:${match}`;
   }
 
   /**
@@ -440,24 +459,21 @@ export class CacheService {
       return;
     }
 
-    const candidates = Array.from(this.cache.entries())
-      .map(([key, entry]) => ({
-        key,
-        entry,
-        accessTime: entry.lastAccessedAt ?? entry.timestamp,
-      }))
-      .sort((a, b) => a.accessTime - b.accessTime);
-
-    for (const { key, entry } of candidates) {
-      this.currentMemoryUsage -= this.getEntrySize(key, entry);
-      this.cache.delete(key);
-
-      if (
-        this.cache.size < this.maxSize &&
-        this.currentMemoryUsage + requiredBytes <= this.maxMemoryBytes
-      ) {
+    while (
+      this.cache.size > 0 &&
+      (this.cache.size >= this.maxSize || this.currentMemoryUsage + requiredBytes > this.maxMemoryBytes)
+    ) {
+      const key = this.findLeastRecentlyUsedKey();
+      if (!key) {
         break;
       }
+      const entry = this.cache.get(key);
+      if (!entry) {
+        break;
+      }
+
+      this.currentMemoryUsage -= this.getEntrySize(key, entry);
+      this.cache.delete(key);
     }
   }
 }

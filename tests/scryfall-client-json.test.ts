@@ -150,6 +150,60 @@ describe("ScryfallClient JSON parsing", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("uses fuzzy card lookup by default", async () => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue(createCard()),
+    });
+
+    const client = createClient();
+
+    await client.getCard({ identifier: "Lightning Bolt" });
+
+    const url = new URL(fetchMock.mock.calls[0][0].toString());
+    expect(url.pathname).toBe("/cards/named");
+    expect(url.searchParams.get("fuzzy")).toBe("Lightning Bolt");
+    expect(url.searchParams.has("exact")).toBe(false);
+  });
+
+  it("uses exact card lookup when requested", async () => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue(createCard()),
+    });
+
+    const client = createClient();
+
+    await client.getCard({ identifier: "Lightning Bolt", match: "exact" });
+
+    const url = new URL(fetchMock.mock.calls[0][0].toString());
+    expect(url.pathname).toBe("/cards/named");
+    expect(url.searchParams.get("exact")).toBe("Lightning Bolt");
+    expect(url.searchParams.has("fuzzy")).toBe(false);
+  });
+
+  it("does not reuse cached card details across exact and fuzzy lookup modes", async () => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue(createCard()),
+    });
+
+    const client = createClient();
+
+    await client.getCard({ identifier: "Lightning Bolt", match: "exact" });
+    await client.getCard({ identifier: "Lightning Bolt" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(new URL(fetchMock.mock.calls[0][0].toString()).searchParams.has("exact")).toBe(true);
+    expect(new URL(fetchMock.mock.calls[1][0].toString()).searchParams.has("fuzzy")).toBe(true);
+  });
+
   it("coalesces concurrent equivalent card lookups", async () => {
     fetchMock.mockResolvedValue({
       status: 200,
@@ -166,5 +220,82 @@ describe("ScryfallClient JSON parsing", () => {
     ]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps in-flight exact and fuzzy card lookups distinct", async () => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue(createCard()),
+    });
+
+    const client = createClient();
+
+    await Promise.all([
+      client.getCard({ identifier: "Lightning Bolt", match: "exact" }),
+      client.getCard({ identifier: "Lightning Bolt" }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    [404, "not_found"],
+    [422, "invalid_query"],
+  ])("does not count expected HTTP %s responses as transient failures", async (status, code) => {
+    fetchMock.mockResolvedValue({
+      status,
+      ok: false,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue({
+        object: "error",
+        code,
+        details: "User-correctable request error",
+      }),
+    });
+
+    const client = createClient();
+
+    await expect(client.searchCards({ query: "type:creature", limit: 1 })).rejects.toThrow(
+      "User-correctable request error"
+    );
+    expect(rateLimiter.recordError).not.toHaveBeenCalled();
+    expect(rateLimiter.handleRateLimitResponse).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [429, "rate_limited"],
+    [500, "server_error"],
+  ])("counts transient HTTP %s responses as service failures", async (status, code) => {
+    fetchMock.mockResolvedValue({
+      status,
+      ok: false,
+      headers: new Headers(status === 429 ? { "retry-after": "1" } : undefined),
+      json: vi.fn().mockResolvedValue({
+        object: "error",
+        code,
+        details: "Transient Scryfall failure",
+      }),
+    });
+
+    const client = createClient();
+
+    await expect(client.searchCards({ query: "type:creature", limit: 1 })).rejects.toThrow();
+    expect(rateLimiter.recordError).toHaveBeenCalledWith(status);
+    if (status === 429) {
+      expect(rateLimiter.handleRateLimitResponse).toHaveBeenCalledWith("1");
+    }
+  });
+
+  it("counts network failures as transient failures", async () => {
+    fetchMock.mockRejectedValue(new Error("socket closed"));
+
+    const client = createClient();
+
+    await expect(client.searchCards({ query: "type:creature", limit: 1 })).rejects.toThrow(
+      "Network error: socket closed"
+    );
+    expect(rateLimiter.recordError).toHaveBeenCalledWith();
   });
 });
