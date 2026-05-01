@@ -181,6 +181,9 @@ describe('MCP Tools', () => {
           type_line: 'Instant',
           oracle_text: 'Lightning Bolt deals 3 damage to any target.',
           set_name: 'Alpha',
+          set: 'lea',
+          collector_number: '161',
+          arena_id: 67330,
           rarity: 'common',
           prices: { usd: '1.00' },
           legalities: { modern: 'legal' }
@@ -204,7 +207,84 @@ describe('MCP Tools', () => {
         order: 'usd',
         price_range: { min: 0.5, max: 2.0, currency: 'usd' }
       }));
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.cards[0]).toMatchObject({
+        name: 'Lightning Bolt',
+        set: 'lea',
+        collector_number: '161',
+        arena_id: 67330
+      });
       expect(result.content[0].text.trim().startsWith('{')).toBe(true);
+    });
+
+    it('does not append duplicate game:arena when arena_only is true', async () => {
+      mockScryfallClient.searchCards.mockResolvedValue({
+        object: 'list',
+        total_cards: 1,
+        has_more: false,
+        data: [{
+          id: 'test-id',
+          name: 'Goblin Guide',
+          mana_cost: '{R}',
+          type_line: 'Creature — Goblin Scout',
+          oracle_text: 'Haste',
+          set_name: 'Zendikar',
+          set: 'zen',
+          collector_number: '126',
+          rarity: 'rare',
+          prices: { usd: '5.00' },
+          legalities: { brawl: 'legal' }
+        }]
+      });
+
+      const result = await tool.execute({
+        query: 'game:arena legal:brawl t:goblin',
+        arena_only: true,
+        format: 'json'
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        query: 'game:arena legal:brawl t:goblin'
+      }));
+    });
+
+    it('returns a validation error for invalid query syntax before calling search', async () => {
+      const result = await tool.execute({ query: '(c:red AND t:creature' });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Validation error');
+      expect(result.content[0].text.toLowerCase()).toContain('unbalanced parentheses');
+      expect(mockScryfallClient.searchCards).not.toHaveBeenCalled();
+    });
+
+    it('continues search when validator emits warnings without hard errors', async () => {
+      mockScryfallClient.searchCards.mockResolvedValue({
+        object: 'list',
+        total_cards: 1,
+        has_more: false,
+        data: [{
+          id: 'warn-path-id',
+          name: 'Lightning Bolt',
+          mana_cost: '{R}',
+          type_line: 'Instant',
+          oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          set_name: 'Alpha',
+          set: 'lea',
+          collector_number: '161',
+          rarity: 'common',
+          prices: { usd: '1.00' },
+          legalities: { modern: 'legal' }
+        }]
+      });
+
+      const result = await tool.execute({ query: 'colr:red t:instant' });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Lightning Bolt');
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        query: 'colr:red t:instant'
+      }));
     });
   });
 
@@ -983,6 +1063,10 @@ describe('MCP Tools', () => {
       tool = new AnalyzeDeckCompositionTool(mockScryfallClient);
     });
 
+    it('should not expose commander as a public input parameter', () => {
+      expect(tool.inputSchema.properties.commander).toBeUndefined();
+    });
+
     it('should respect quantities in the deck list', async () => {
       mockScryfallClient.getCard.mockImplementation(async ({ identifier }: { identifier: string }) => {
         if (identifier === 'Lightning Bolt') {
@@ -1082,8 +1166,8 @@ describe('MCP Tools', () => {
 
       await Promise.resolve();
       expect(mockScryfallClient.getCard).toHaveBeenCalledTimes(2);
-      expect(mockScryfallClient.getCard).toHaveBeenNthCalledWith(1, { identifier: 'Lightning Bolt' });
-      expect(mockScryfallClient.getCard).toHaveBeenNthCalledWith(2, { identifier: 'Mountain' });
+      expect(mockScryfallClient.getCard).toHaveBeenNthCalledWith(1, { identifier: 'Lightning Bolt', match: 'exact' });
+      expect(mockScryfallClient.getCard).toHaveBeenNthCalledWith(2, { identifier: 'Mountain', match: 'exact' });
 
       mountainLookup.resolve({
         id: 'mountain-id',
@@ -1180,7 +1264,7 @@ describe('MCP Tools', () => {
     let tool: SuggestManaBaseTool;
 
     beforeEach(() => {
-      tool = new SuggestManaBaseTool(mockScryfallClient);
+      tool = new SuggestManaBaseTool();
     });
 
     it('should not recommend more lands than the computed land count', async () => {

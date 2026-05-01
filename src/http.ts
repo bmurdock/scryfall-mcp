@@ -142,8 +142,7 @@ async function createSessionTransport(
   const sdkServer = createSdkServer(MCP_SERVER_INFO);
   await appServer.setupHandlers(sdkServer);
 
-  let transport!: StreamableHTTPServerTransport;
-  transport = new StreamableHTTPServerTransport({
+  const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: (sessionId) => {
       sessionTransports.set(sessionId, { sdkServer, transport });

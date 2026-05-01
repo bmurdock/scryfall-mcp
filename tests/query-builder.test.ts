@@ -55,14 +55,14 @@ describe('Natural-Language Query Builder', () => {
 
       const query = buildBaseQuery(mappings);
 
-      expect(query).toContain('c:=u');
+      expect(query).toContain('c:u');
       expect(query).toContain('(t:instant OR t:sorcery)');
-      expect(query).toContain('usd:<=5');
-      expect(query).toContain('pow:>=2');
+      expect(query).toContain('usd<=5');
+      expect(query).toContain('pow>=2');
     });
 
     it('adds format restrictions without disturbing the existing query', () => {
-      expect(applyFormat('t:artifact usd:<=5', 'commander')).toBe('t:artifact usd:<=5 f:commander');
+      expect(applyFormat('t:artifact usd<=5', 'commander')).toBe('t:artifact usd<=5 f:commander');
       expect(applyFormat('', 'modern')).toBe('f:modern');
     });
   });
@@ -99,7 +99,7 @@ describe('Natural-Language Query Builder', () => {
       );
 
       expect(broadened.query).toContain('cmc<=4');
-      expect(broadened.query).toContain('usd:<=10');
+      expect(broadened.query).toContain('usd<=10');
       expect(broadened.optimizations[0]?.type).toBe('broadening');
 
       expect(narrowed.query).toContain('f:modern');
@@ -165,7 +165,7 @@ describe('Natural-Language Query Builder', () => {
       });
 
       expect(result.query).toContain('f:modern');
-      expect(result.query).toContain('usd:<=10');
+      expect(result.query).toContain('usd<=10');
       expect(result.query).toContain('c:>=u');
       expect(result.query).toContain('instant OR sorcery');
       expect(result.optimizations.some((optimization) => optimization.type === 'broadening')).toBe(true);
@@ -197,7 +197,7 @@ describe('Natural-Language Query Builder', () => {
 
       expect(result.query).toContain('t:artifact');
       expect(result.query).toContain('f:commander');
-      expect(result.query).toContain('usd:<=10');
+      expect(result.query).toContain('usd<=10');
       expect(result.optimizations.some((optimization) => optimization.type === 'narrowing')).toBe(true);
       expect(result.testSummary).toEqual({ total_cards: 350, has_more: false });
       expect(result.explanation).toContain('artifact cards');

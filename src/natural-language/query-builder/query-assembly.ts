@@ -1,5 +1,7 @@
 import { ConceptMapping } from '../types.js';
 
+const NUMERIC_OPERATORS = new Set(['cmc', 'pow', 'tou', 'usd', 'eur', 'tix']);
+
 export function buildBaseQuery(mappings: ConceptMapping[]): string {
   const queryParts: string[] = [];
   const grouped = groupMappingsByOperator(mappings);
@@ -28,14 +30,26 @@ function groupMappingsByOperator(mappings: ConceptMapping[]): Map<string, Concep
   return grouped;
 }
 
+export function formatQueryToken(
+  operator: string,
+  value: string,
+  comparison?: string,
+  negation = false
+): string {
+  const prefix = negation ? '-' : '';
+  const normalizedComparison = comparison === '=' ? '' : (comparison || '');
+  if (NUMERIC_OPERATORS.has(operator)) {
+    return `${prefix}${operator}${normalizedComparison}${value}`;
+  }
+  return `${prefix}${operator}:${normalizedComparison}${value}`;
+}
+
 function buildOperatorQuery(operator: string, mappings: ConceptMapping[]): string {
   if (mappings.length === 0) return '';
 
   if (mappings.length === 1) {
     const mapping = mappings[0];
-    const prefix = mapping.negation ? '-' : '';
-    const comparison = mapping.comparison || '';
-    return `${prefix}${operator}:${comparison}${mapping.value}`;
+    return formatQueryToken(operator, mapping.value, mapping.comparison, mapping.negation);
   }
 
   if (operator === 'o') {
@@ -48,38 +62,51 @@ function buildOperatorQuery(operator: string, mappings: ConceptMapping[]): strin
     return `(${values.map(value => `t:${value}`).join(' OR ')})`;
   }
 
-  if (['cmc', 'pow', 'tou', 'usd', 'eur', 'tix'].includes(operator)) {
+  if (NUMERIC_OPERATORS.has(operator)) {
     return buildNumericRange(operator, mappings);
   }
 
   const best = mappings.reduce((a, b) => (a.confidence > b.confidence ? a : b), mappings[0]);
-  const prefix = best.negation ? '-' : '';
-  const comparison = best.comparison || '';
-  return `${prefix}${operator}:${comparison}${best.value}`;
+  return formatQueryToken(operator, best.value, best.comparison, best.negation);
 }
 
 function buildNumericRange(operator: string, mappings: ConceptMapping[]): string {
-  const minMappings = mappings.filter(m => m.comparison === '>=' || m.comparison === '>');
-  const maxMappings = mappings.filter(m => m.comparison === '<=' || m.comparison === '<');
-  const exactMappings = mappings.filter(m => !m.comparison || m.comparison === '=');
+  let bestExact: ConceptMapping | null = null;
+  let bestMin: ConceptMapping | null = null;
+  let bestMax: ConceptMapping | null = null;
 
-  if (exactMappings.length > 0) {
-    const best = exactMappings.reduce((a, b) => (a.confidence > b.confidence ? a : b), exactMappings[0]);
-    return `${operator}:${best.value}`;
+  for (const mapping of mappings) {
+    if (!mapping.comparison || mapping.comparison === '=') {
+      if (!bestExact || mapping.confidence > bestExact.confidence) {
+        bestExact = mapping;
+      }
+      continue;
+    }
+
+    if (mapping.comparison === '>=' || mapping.comparison === '>') {
+      if (!bestMin || mapping.confidence > bestMin.confidence) {
+        bestMin = mapping;
+      }
+      continue;
+    }
+
+    if ((mapping.comparison === '<=' || mapping.comparison === '<') &&
+      (!bestMax || mapping.confidence > bestMax.confidence)) {
+      bestMax = mapping;
+    }
+  }
+
+  if (bestExact) {
+    return formatQueryToken(operator, bestExact.value, '=', bestExact.negation);
   }
 
   const parts: string[] = [];
-
-  if (minMappings.length > 0) {
-    const best = minMappings.reduce((a, b) => (a.confidence > b.confidence ? a : b), minMappings[0]);
-    parts.push(`${operator}:${best.comparison}${best.value}`);
+  if (bestMin) {
+    parts.push(formatQueryToken(operator, bestMin.value, bestMin.comparison, bestMin.negation));
   }
-
-  if (maxMappings.length > 0) {
-    const best = maxMappings.reduce((a, b) => (a.confidence > b.confidence ? a : b), maxMappings[0]);
-    parts.push(`${operator}:${best.comparison}${best.value}`);
+  if (bestMax) {
+    parts.push(formatQueryToken(operator, bestMax.value, bestMax.comparison, bestMax.negation));
   }
-
   return parts.join(' ');
 }
 

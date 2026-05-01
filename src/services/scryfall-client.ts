@@ -22,14 +22,49 @@ export interface CardLookupParams {
   set?: string;
   lang?: string;
   face?: "front" | "back";
+  /**
+   * Use exact for known deck-list names. Use fuzzy for discovery-oriented
+   * user input. Cache and in-flight identity must include this mode.
+   */
+  match?: "fuzzy" | "exact";
+}
+
+interface SearchCardsParams {
+  query: string;
+  limit?: number;
+  page?: number;
+  include_extras?: boolean;
+  order?: string;
+  unique?: string;
+  direction?: string;
+  include_multilingual?: boolean;
+  include_variations?: boolean;
+  price_range?: {
+    min?: number;
+    max?: number;
+    currency?: string;
+  };
+}
+
+interface NormalizedSearchRequest {
+  query: string;
+  requestedPage: number;
+  requestedLimit: number;
+  include_extras?: boolean;
+  order?: string;
+  unique?: string;
+  direction?: string;
+  include_multilingual?: boolean;
+  include_variations?: boolean;
 }
 
 export function canonicalCardCacheKey(params: CardLookupParams): string {
   const canonicalIdentifier = params.identifier.trim().toLowerCase();
   const set = params.set?.trim().toLowerCase();
   const lang = params.lang?.trim().toLowerCase();
+  const match = params.match ?? "fuzzy";
 
-  return CacheService.createCardKey(canonicalIdentifier, set, lang || "en");
+  return CacheService.createCardKey(canonicalIdentifier, set, lang || "en", match);
 }
 
 /**
@@ -147,11 +182,13 @@ export class ScryfallClient {
     url: string,
     requestId: string
   ): Promise<ScryfallAPIError | RateLimitError> {
-    this.rateLimiter.recordError(response.status);
+    if (this.shouldRecordHttpError(response.status)) {
+      this.rateLimiter.recordError(response.status);
+    }
 
     if (response.status === 429) {
       const retryAfter = response.headers.get("retry-after");
-      await this.rateLimiter.handleRateLimitResponse(retryAfter || undefined);
+      this.rateLimiter.handleRateLimitResponse(retryAfter || undefined);
       const rateLimitError = new RateLimitError(
         "Rate limit exceeded",
         retryAfter ? parseInt(retryAfter, 10) : undefined
@@ -187,6 +224,10 @@ export class ScryfallClient {
       "Scryfall API error"
     );
     return apiError;
+  }
+
+  private shouldRecordHttpError(status: number): boolean {
+    return status === 429 || status >= 500;
   }
 
   private buildNetworkError(error: unknown, url: string, requestId: string): ScryfallAPIError {
@@ -233,40 +274,31 @@ export class ScryfallClient {
    * Searches for cards using Scryfall search syntax
    */
   async searchCards(
-    params: {
-      query: string;
-      limit?: number;
-      page?: number;
-      include_extras?: boolean;
-      order?: string;
-      unique?: string;
-      direction?: string;
-      include_multilingual?: boolean;
-      include_variations?: boolean;
-      price_range?: {
-        min?: number;
-        max?: number;
-        currency?: string;
-      };
-    },
+    params: SearchCardsParams,
     requestId?: string
   ): Promise<ScryfallSearchResponse> {
     const reqId = requestId || generateRequestId();
-    const requestedPage = params.page || 1;
-    const requestedLimit = params.limit || 20;
-    const cacheKey = CacheService.createSearchKey(
-      params.query,
-      requestedPage,
-      requestedLimit,
-      params.unique,
-      params.direction,
-      params.include_multilingual,
-      params.include_variations,
-      params.price_range
-    );
+    const searchRequest = this.normalizeSearchRequest(params);
+    const cacheKey = CacheService.createSearchKey({
+      query: searchRequest.query,
+      page: searchRequest.requestedPage,
+      limit: searchRequest.requestedLimit,
+      unique: searchRequest.unique,
+      direction: searchRequest.direction,
+      include_multilingual: searchRequest.include_multilingual,
+      include_variations: searchRequest.include_variations,
+      include_extras: searchRequest.include_extras,
+      order: searchRequest.order,
+    });
 
     mcpLogger.debug(
-      { requestId: reqId, operation: "search_cards", query: params.query, page: requestedPage, limit: requestedLimit },
+      {
+        requestId: reqId,
+        operation: "search_cards",
+        query: searchRequest.query,
+        page: searchRequest.requestedPage,
+        limit: searchRequest.requestedLimit,
+      },
       "Card search started"
     );
 
@@ -280,32 +312,23 @@ export class ScryfallClient {
       return cached;
     }
 
-    // Build query with price filtering if specified
-    let query = params.query;
-    if (params.price_range) {
-      const currency = params.price_range.currency || "usd";
-      if (params.price_range.min !== undefined) {
-        query += ` ${currency}>=${params.price_range.min}`;
-      }
-      if (params.price_range.max !== undefined) {
-        query += ` ${currency}<=${params.price_range.max}`;
-      }
-    }
-
-    const requestedOffset = (requestedPage - 1) * requestedLimit;
+    const requestedOffset = (searchRequest.requestedPage - 1) * searchRequest.requestedLimit;
     const startingApiPage = Math.floor(requestedOffset / this.searchApiPageSize) + 1;
     const relativeOffset = requestedOffset - ((startingApiPage - 1) * this.searchApiPageSize);
 
-    const firstPage = await this.fetchSearchPage(
-      {
-        ...params,
-        query,
-      },
-      startingApiPage,
-      reqId
-    );
+    const searchPageParams = {
+      query: searchRequest.query,
+      include_extras: searchRequest.include_extras,
+      order: searchRequest.order,
+      unique: searchRequest.unique,
+      direction: searchRequest.direction,
+      include_multilingual: searchRequest.include_multilingual,
+      include_variations: searchRequest.include_variations,
+    };
+
+    const firstPage = await this.fetchSearchPage(searchPageParams, startingApiPage, reqId);
     const totalCards = firstPage.total_cards ?? firstPage.data.length;
-    const requiredCount = Math.max(0, Math.min(requestedLimit, totalCards - requestedOffset));
+    const requiredCount = Math.max(0, Math.min(searchRequest.requestedLimit, totalCards - requestedOffset));
     let fetchedCards = firstPage.data.length;
     const collector = createSearchWindowCollector<ScryfallCard>(relativeOffset, requiredCount);
     collector.addPage(firstPage);
@@ -317,14 +340,7 @@ export class ScryfallClient {
       fetchedCards < relativeOffset + requiredCount &&
       currentPage.has_more
     ) {
-      currentPage = await this.fetchSearchPage(
-        {
-          ...params,
-          query,
-        },
-        nextApiPage,
-        reqId
-      );
+      currentPage = await this.fetchSearchPage(searchPageParams, nextApiPage, reqId);
       collector.addPage(currentPage);
       fetchedCards += currentPage.data.length;
       nextApiPage++;
@@ -347,6 +363,31 @@ export class ScryfallClient {
     );
 
     return data;
+  }
+
+  private normalizeSearchRequest(params: SearchCardsParams): NormalizedSearchRequest {
+    const queryParts = [params.query];
+    if (params.price_range) {
+      const currency = params.price_range.currency || "usd";
+      if (params.price_range.min !== undefined) {
+        queryParts.push(`${currency}>=${params.price_range.min}`);
+      }
+      if (params.price_range.max !== undefined) {
+        queryParts.push(`${currency}<=${params.price_range.max}`);
+      }
+    }
+
+    return {
+      query: queryParts.join(" "),
+      requestedPage: params.page || 1,
+      requestedLimit: params.limit || 20,
+      include_extras: params.include_extras,
+      order: params.order,
+      unique: params.unique,
+      direction: params.direction,
+      include_multilingual: params.include_multilingual,
+      include_variations: params.include_variations,
+    };
   }
 
   private async fetchSearchPage(
@@ -429,6 +470,7 @@ export class ScryfallClient {
       identifier: params.identifier.trim(),
       set: params.set?.trim().toLowerCase(),
       lang: params.lang?.trim().toLowerCase() || "en",
+      match: params.match ?? "fuzzy",
     };
   }
 
@@ -448,7 +490,7 @@ export class ScryfallClient {
     // Otherwise treat as card name
     else {
       url = new URL(`${this.baseUrl}/cards/named`);
-      url.searchParams.set("fuzzy", params.identifier);
+      url.searchParams.set(params.match === "exact" ? "exact" : "fuzzy", params.identifier);
       if (params.set) {
         url.searchParams.set("set", params.set);
       }

@@ -276,6 +276,9 @@ export interface FormattedCard {
   power?: string;
   toughness?: string;
   set_name: string;
+  set: string;
+  collector_number: string;
+  arena_id?: number;
   rarity: string;
   prices: {
     usd?: string;

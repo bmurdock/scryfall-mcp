@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { FindSynergisticCardsTool } from "../src/tools/find-synergistic-cards.js";
+import { buildSynergyQueries } from "../src/tools/find-synergistic-cards/query-builder.js";
 import { formatResultsWithSynergyExplanations } from "../src/tools/find-synergistic-cards/result-formatter.js";
 import { ScryfallAPIError } from "../src/types/mcp-types.js";
 import type { SynergyCard } from "../src/tools/find-synergistic-cards/types.js";
+import type { ScryfallCard } from "../src/types/scryfall-api.js";
 
-function createCard(id: string, layer?: SynergyCard["_synergy_layer"]): SynergyCard {
+function createCard(
+  id: string,
+  layer?: SynergyCard["_synergy_layer"],
+  overrides: Partial<SynergyCard> = {}
+): SynergyCard {
   return {
     object: "card",
     id,
@@ -76,10 +82,70 @@ function createCard(id: string, layer?: SynergyCard["_synergy_layer"]): SynergyC
     story_spotlight: false,
     prices: {},
     _synergy_layer: layer,
+    ...overrides,
   };
 }
 
+function makeCard(overrides: Partial<ScryfallCard>): ScryfallCard {
+  return {
+    ...createCard("focus"),
+    related_uris: {},
+    ...overrides,
+  };
+}
+
+describe("buildSynergyQueries", () => {
+  it("builds Sanar-style fallback queries from oracle text and creature types", () => {
+    const params = {
+      focus_card: "Sanar, Unfinished Genius",
+      synergy_type: "theme",
+      format: "brawl",
+      include_lands: true,
+      limit: 20,
+      arena_only: true,
+    };
+    const queries = buildSynergyQueries(makeCard({
+      name: "Sanar, Unfinished Genius // Wild Idea",
+      type_line: "Legendary Creature — Goblin Sorcerer",
+      oracle_text: "Sanar enters prepared.\n{T}: Create a Treasure token. Activate only if you've cast an instant or sorcery spell this turn.",
+      color_identity: ["U", "R"],
+    }), params);
+
+    expect(queries).toContain('legal:brawl game:arena ci<=ur o:"instant or sorcery"');
+    expect(queries).toContain('legal:brawl game:arena ci<=ur o:Treasure');
+    expect(queries).toContain('legal:brawl game:arena ci<=ur t:goblin');
+    expect(queries).toContain('legal:brawl game:arena ci<=ur t:wizard');
+    expect(queries.every(query => query.includes('ci<=ur'))).toBe(true);
+  });
+
+  it("applies explicit color identity constraints to theme-only synergy queries", () => {
+    const params = {
+      focus_card: "instant sorcery treasure",
+      synergy_type: "theme",
+      format: "brawl",
+      include_lands: false,
+      limit: 20,
+      arena_only: true,
+      color_identity: "UR",
+    };
+
+    const queries = buildSynergyQueries(null, params);
+
+    expect(queries.length).toBeGreaterThan(0);
+    expect(queries.every(query => query.startsWith('legal:brawl -t:land game:arena ci<=ur '))).toBe(true);
+  });
+});
+
 describe("FindSynergisticCardsTool", () => {
+  it("deduplicates and caps query candidates before execution", () => {
+    const tool = new FindSynergisticCardsTool({} as never);
+    const prioritizeQueries = (tool as unknown as {
+      prioritizeQueries: (queries: string[], maxQueries: number) => string[];
+    }).prioritizeQueries.bind(tool);
+
+    expect(prioritizeQueries([" q:a ", "q:a", "q:b", "q:c"], 2)).toEqual(["q:a", "q:b"]);
+  });
+
   it("uses a larger first-query budget because synergy searches are serialized", () => {
     const tool = new FindSynergisticCardsTool({} as never);
 
@@ -124,6 +190,117 @@ describe("FindSynergisticCardsTool", () => {
     await tool.execute({ focus_card: "artifact token theme", limit: 2 });
 
     expect(searchCards).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds a partial-failure note when some search queries fail", async () => {
+    const searchCards = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary outage"))
+      .mockResolvedValue({
+        object: "list",
+        total_cards: 1,
+        has_more: false,
+        data: [createCard("ok-card")],
+      });
+
+    const tool = new FindSynergisticCardsTool({
+      getCard: vi.fn().mockRejectedValue(new ScryfallAPIError("not found", 404, "not_found")),
+      searchCards,
+    } as never);
+
+    const result = await tool.execute({ focus_card: "artifact token theme", limit: 2 });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("Some Scryfall searches failed");
+  });
+
+  it("does not emit duplicate cards when multiple queries return the same card id", async () => {
+    const duplicateCard = createCard("same-id");
+    const searchCards = vi
+      .fn()
+      .mockResolvedValueOnce({
+        object: "list",
+        total_cards: 1,
+        has_more: false,
+        data: [duplicateCard],
+      })
+      .mockResolvedValueOnce({
+        object: "list",
+        total_cards: 1,
+        has_more: false,
+        data: [duplicateCard],
+      })
+      .mockResolvedValue({
+        object: "list",
+        total_cards: 0,
+        has_more: false,
+        data: [],
+      });
+
+    const tool = new FindSynergisticCardsTool({
+      getCard: vi.fn().mockRejectedValue(new ScryfallAPIError("not found", 404, "not_found")),
+      searchCards,
+    } as never);
+
+    const result = await tool.execute({ focus_card: "artifact token theme", limit: 3 });
+    const duplicateMentions = (result.content[0].text.match(/Card SAME-ID/g) || []).length;
+    expect(result.isError).toBeUndefined();
+    expect(duplicateMentions).toBe(1);
+  });
+
+  it("filters off-color, non-Arena, and format-illegal synergy results before formatting", async () => {
+    const allowed = createCard("allowed", "semantic", {
+      name: "Allowed Izzet Card",
+      color_identity: ["U", "R"],
+      games: ["arena"],
+    });
+    const offColor = createCard("off-color", "semantic", {
+      name: "Off Color Card",
+      color_identity: ["B"],
+      games: ["arena"],
+    });
+    const nonArena = createCard("non-arena", "semantic", {
+      name: "Non Arena Card",
+      color_identity: ["U"],
+      games: ["paper"],
+    });
+    const illegal = createCard("illegal", "semantic", {
+      name: "Illegal Card",
+      color_identity: ["R"],
+      games: ["arena"],
+      legalities: {
+        ...createCard("legality-source").legalities,
+        brawl: "not_legal",
+      },
+    });
+    const searchCards = vi.fn().mockResolvedValueOnce({
+      object: "list",
+      total_cards: 4,
+      has_more: false,
+      data: [allowed, offColor, nonArena, illegal],
+    });
+
+    const tool = new FindSynergisticCardsTool({
+      getCard: vi.fn().mockRejectedValue(new ScryfallAPIError("not found", 404, "not_found")),
+      searchCards,
+    } as never);
+
+    const result = await tool.execute({
+      focus_card: "instant sorcery treasure",
+      format: "brawl",
+      arena_only: true,
+      color_identity: "UR",
+      limit: 5,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("Allowed Izzet Card");
+    expect(result.content[0].text).not.toContain("Off Color Card");
+    expect(result.content[0].text).not.toContain("Non Arena Card");
+    expect(result.content[0].text).not.toContain("Illegal Card");
+    expect(result.content[0].text).toContain(
+      "Filtered 3 cards that did not match legality, Arena, or color-identity constraints."
+    );
   });
 });
 

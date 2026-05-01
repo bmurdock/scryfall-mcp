@@ -6,6 +6,7 @@ interface QueuedRequest {
   resolve: (value?: unknown) => void;
   reject: (error: Error) => void;
   timestamp: number;
+  settled: boolean;
 }
 
 /**
@@ -19,6 +20,10 @@ export class RateLimiter {
   private consecutiveErrors = 0;
   private readonly maxQueueSize: number;
   private activeTimeouts = new Set<NodeJS.Timeout>();
+  private activeRequest: QueuedRequest | null = null;
+  private activeSleepReject: ((error: Error) => void) | null = null;
+  private resetGeneration = 0;
+  private nextAllowedRequestTime = 0;
 
   constructor(
     private minInterval: number = EnvValidators.rateLimitMs(process.env.RATE_LIMIT_MS),
@@ -41,11 +46,12 @@ export class RateLimiter {
         run: operation as () => Promise<unknown>,
         resolve: (value) => resolve(value as T),
         reject,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        settled: false
       });
 
       if (!this.processing) {
-        this.processQueue();
+        void this.processQueue();
       }
     });
   }
@@ -58,24 +64,36 @@ export class RateLimiter {
     if (this.processing) {
       return;
     }
-    
+
     this.processing = true;
+    const generation = this.resetGeneration;
 
     try {
-      while (this.queue.length > 0) {
+      while (this.queue.length > 0 && generation === this.resetGeneration) {
         const request = this.queue.shift()!;
-        
+        this.activeRequest = request;
+
         try {
           await this.enforceRateLimit();
           const result = await request.run();
-          request.resolve(result);
+          this.resolveRequest(request, result);
         } catch (error) {
-          request.reject(error instanceof Error ? error : new Error('Unknown rate limit error'));
+          this.rejectRequest(
+            request,
+            error instanceof Error ? error : new Error('Unknown rate limit error')
+          );
+        } finally {
+          if (this.activeRequest === request) {
+            this.activeRequest = null;
+          }
         }
       }
     } finally {
-      // Ensure processing flag is always reset
       this.processing = false;
+
+      if (this.queue.length > 0) {
+        void this.processQueue();
+      }
     }
   }
 
@@ -95,6 +113,7 @@ export class RateLimiter {
     
     // Calculate delay including exponential backoff for errors
     let delay = Math.max(0, this.minInterval - timeSinceLastRequest);
+    delay = Math.max(delay, this.nextAllowedRequestTime - now);
     
     if (this.consecutiveErrors > 0) {
       const backoffDelay = Math.min(
@@ -115,12 +134,11 @@ export class RateLimiter {
    * Records an error for backoff calculation
    */
   recordError(status?: number): void {
-    this.consecutiveErrors++;
-    
-    // Special handling for 429 (Too Many Requests)
-    if (status === 429) {
-      this.consecutiveErrors = Math.max(this.consecutiveErrors, 2);
+    if (status !== undefined && status !== 429 && status < 500) {
+      return;
     }
+
+    this.consecutiveErrors++;
   }
 
   /**
@@ -160,13 +178,15 @@ export class RateLimiter {
     consecutiveErrors: number;
     currentBackoffDelay: number;
     lastRequestTime: number;
+    nextAllowedRequestTime: number;
   } {
     return {
       queueLength: this.queue.length,
       processing: this.processing,
       consecutiveErrors: this.consecutiveErrors,
       currentBackoffDelay: this.getCurrentBackoffDelay(),
-      lastRequestTime: this.lastRequestTime
+      lastRequestTime: this.lastRequestTime,
+      nextAllowedRequestTime: this.nextAllowedRequestTime
     };
   }
 
@@ -179,36 +199,78 @@ export class RateLimiter {
       clearTimeout(timeout);
     }
     this.activeTimeouts.clear();
-    
+
+    this.resetGeneration++;
+    const resetError = new RateLimitError('Rate limiter was reset');
+
+    if (this.activeSleepReject) {
+      this.activeSleepReject(resetError);
+      this.activeSleepReject = null;
+    }
+
+    if (this.activeRequest) {
+      this.rejectRequest(this.activeRequest, resetError);
+      this.activeRequest = null;
+    }
+
     // Reject all pending requests
     while (this.queue.length > 0) {
       const request = this.queue.shift()!;
-      request.reject(new RateLimitError('Rate limiter was reset'));
+      this.rejectRequest(request, resetError);
     }
-    
-    this.processing = false;
+
     this.consecutiveErrors = 0;
     this.lastRequestTime = 0;
+    this.nextAllowedRequestTime = 0;
   }
 
   /**
    * Utility method for sleeping with timeout tracking
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.activeTimeouts.delete(timeout);
+        if (this.activeSleepReject === activeReject) {
+          this.activeSleepReject = null;
+        }
         resolve();
       }, ms);
       this.activeTimeouts.add(timeout);
+
+      const activeReject = (error: Error) => {
+        clearTimeout(timeout);
+        this.activeTimeouts.delete(timeout);
+        reject(error);
+      };
+
+      this.activeSleepReject = activeReject;
     });
+  }
+
+  private resolveRequest(request: QueuedRequest, value?: unknown): void {
+    if (request.settled) {
+      return;
+    }
+    request.settled = true;
+    request.resolve(value);
+  }
+
+  private rejectRequest(request: QueuedRequest, error: Error): void {
+    if (request.settled) {
+      return;
+    }
+    request.settled = true;
+    request.reject(error);
   }
 
   /**
    * Handles 429 responses with Retry-After header
    */
-  async handleRateLimitResponse(retryAfter?: string): Promise<void> {
-    this.recordError(429);
+  handleRateLimitResponse(retryAfter?: string): void {
+    if (this.consecutiveErrors === 0) {
+      this.recordError(429);
+    }
 
     let delay = this.getCurrentBackoffDelay();
 
@@ -219,9 +281,7 @@ export class RateLimiter {
       }
     }
 
-    if (delay > 0) {
-      await this.sleep(delay);
-    }
+    this.nextAllowedRequestTime = Math.max(this.nextAllowedRequestTime, Date.now() + delay);
   }
 
   /**
@@ -239,7 +299,8 @@ export class RateLimiter {
     const timeSinceLastRequest = now - this.lastRequestTime;
     const baseDelay = Math.max(0, this.minInterval - timeSinceLastRequest);
     const backoffDelay = this.getCurrentBackoffDelay();
+    const throttleDelay = Math.max(0, this.nextAllowedRequestTime - now);
     
-    return Math.max(baseDelay, backoffDelay);
+    return Math.max(baseDelay, backoffDelay, throttleDelay);
   }
 }

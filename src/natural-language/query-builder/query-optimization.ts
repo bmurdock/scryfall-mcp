@@ -1,6 +1,7 @@
 import { ScryfallClient } from '../../services/scryfall-client.js';
 import { mcpLogger } from '../../services/logger.js';
 import { BuildOptions, QueryOptimization, QueryTestSummary } from '../types.js';
+import { formatQueryToken } from './query-assembly.js';
 
 export interface TestedQuery {
   query: string;
@@ -30,9 +31,9 @@ function optimizeForPrecision(query: string): string {
     optimized += ' (f:standard OR f:modern OR f:commander)';
   }
 
-  const priceRegex = /(?:usd|eur|tix):/;
+  const priceRegex = /\b(?:usd|eur|tix)(?::|[<>]=?|=)/;
   if (!priceRegex.test(query)) {
-    optimized += ' usd<=50';
+    optimized += ` ${formatQueryToken('usd', '50', '<=')}`;
   }
 
   return optimized;
@@ -41,9 +42,9 @@ function optimizeForPrecision(query: string): string {
 function optimizeForRecall(query: string): string {
   let optimized = query;
 
-  optimized = optimized.replace(/pow:>=(\d+)/, (match, value) => {
+  optimized = optimized.replace(/\bpow(?::)?>=(\d+)/, (match, value) => {
     const newValue = Math.max(1, parseInt(value, 10) - 1);
-    return `pow:>=${newValue}`;
+    return formatQueryToken('pow', String(newValue), '>=');
   });
 
   optimized = optimized.replace(/t:(\w+)(?!\w)/, (match, type) => {
@@ -67,9 +68,9 @@ function optimizeForDiscovery(query: string): string {
 
 function optimizeForBudget(query: string): string {
   let optimized = query;
-  const budgetPriceRegex = /(?:usd|eur|tix):/;
+  const budgetPriceRegex = /\b(?:usd|eur|tix)(?::|[<>]=?|=)/;
   if (!budgetPriceRegex.test(query)) {
-    optimized += ' usd<=5';
+    optimized += ` ${formatQueryToken('usd', '5', '<=')}`;
   }
   return optimized;
 }
@@ -134,14 +135,16 @@ export async function testAndAdjustQuery(
 function broadenQuery(query: string): string {
   let broadened = query;
 
-  broadened = broadened.replace(/cmc:=(\d+)/, 'cmc<=$1');
-  broadened = broadened.replace(/pow:>=(\d+)/, (match, value) => {
-    const newValue = Math.max(1, parseInt(value, 10) - 1);
-    return `pow:>=${newValue}`;
+  broadened = broadened.replace(/\bcmc(?::)?=?(\d+)/, (_match, value) => {
+    return formatQueryToken('cmc', value, '<=');
   });
-  broadened = broadened.replace(/usd:<=(\d+)/, (match, value) => {
+  broadened = broadened.replace(/\bpow(?::)?>=(\d+)/, (match, value) => {
+    const newValue = Math.max(1, parseInt(value, 10) - 1);
+    return formatQueryToken('pow', String(newValue), '>=');
+  });
+  broadened = broadened.replace(/\busd(?::)?<=(\d+)/, (match, value) => {
     const newValue = parseInt(value, 10) * 2;
-    return `usd:<=${newValue}`;
+    return formatQueryToken('usd', String(newValue), '<=');
   });
 
   return broadened;
@@ -154,9 +157,9 @@ function narrowQuery(query: string): string {
     narrowed += ' f:modern';
   }
 
-  const narrowPriceRegex = /(?:usd|eur|tix):/;
+  const narrowPriceRegex = /\b(?:usd|eur|tix)(?::|[<>]=?|=)/;
   if (!narrowPriceRegex.test(query)) {
-    narrowed += ' usd<=20';
+    narrowed += ` ${formatQueryToken('usd', '20', '<=')}`;
   }
 
   return narrowed;

@@ -9,6 +9,10 @@ import { formatSearchResultsAsText, formatSearchResultsAsJson } from "../utils/f
 import { ScryfallAPIError, ValidationError, SearchCardsParams, RateLimitError } from "../types/mcp-types.js";
 import { generateRequestId } from "../types/mcp-errors.js";
 
+function hasArenaGameFilter(query: string): boolean {
+  return /\bgame\s*:\s*arena\b/i.test(query);
+}
+
 /**
  * MCP Tool for searching Magic: The Gathering cards using Scryfall syntax
  */
@@ -156,7 +160,7 @@ export class SearchCardsTool {
 
       // Build final query with Arena filtering if requested
       let finalQuery = sanitizedQuery;
-      if (params.arena_only) {
+      if (params.arena_only && !hasArenaGameFilter(sanitizedQuery)) {
         const arenaModification = sanitizeQueryModification(" game:arena");
         finalQuery = `${finalQuery} ${arenaModification}`;
       }

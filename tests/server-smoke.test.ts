@@ -95,6 +95,55 @@ describe('MCP server smoke tests', () => {
     );
   });
 
+  it('continues serving valid search calls after a user-correctable invalid search', async () => {
+    const invalidResult = await invokeRequest(sdkServer, 'tools/call', {
+      name: 'search_cards',
+      arguments: {
+        query: '(c:red AND t:creature',
+      },
+    });
+
+    expect((invalidResult as { isError?: boolean }).isError).toBe(true);
+    expect(mockScryfallClient.searchCards).not.toHaveBeenCalled();
+
+    mockScryfallClient.searchCards.mockResolvedValue({
+      total_cards: 1,
+      has_more: false,
+      data: [
+        {
+          id: 'bolt-id',
+          name: 'Lightning Bolt',
+          mana_cost: '{R}',
+          type_line: 'Instant',
+          oracle_text: 'Lightning Bolt deals 3 damage to any target.',
+          set_name: 'Magic 2010',
+          rarity: 'common',
+          prices: { usd: '1.00' },
+          legalities: { modern: 'legal' },
+        },
+      ],
+    });
+
+    const validResult = await invokeRequest(sdkServer, 'tools/call', {
+      name: 'search_cards',
+      arguments: {
+        query: 'Lightning Bolt',
+        order: 'name',
+        limit: 1,
+      },
+    });
+
+    const response = validResult as { content: Array<{ text: string }>; isError?: boolean };
+    expect(response.isError).toBeUndefined();
+    expect(response.content[0].text).toContain('Lightning Bolt');
+    expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'Lightning Bolt',
+        order: 'name',
+      })
+    );
+  });
+
   it('executes the rules lookup tool through the server layer', async () => {
     const result = await invokeRequest(sdkServer, 'tools/call', {
       name: 'query_rules',

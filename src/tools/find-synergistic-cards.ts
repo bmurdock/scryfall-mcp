@@ -1,9 +1,12 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
+import { MagicFormat, ScryfallCard } from '../types/scryfall-api.js';
 import { normalizeLowercaseString, normalizeTrimmedString } from '../utils/input-normalization.js';
 import {
+  buildBaseQuery,
   buildSynergyQueries,
-  getFallbackQueries
+  getFallbackQueries,
+  normalizeColorIdentity
 } from './find-synergistic-cards/query-builder.js';
 import {
   filterAndDeduplicateResults,
@@ -18,6 +21,18 @@ import {
 
 const MAX_PRIMARY_QUERY_CANDIDATES = 15;
 const MAX_FALLBACK_QUERY_CANDIDATES = 6;
+
+interface ValidatedSynergyParams {
+  focus_card: string;
+  synergy_type?: string;
+  format?: MagicFormat;
+  exclude_colors?: string;
+  max_cmc?: number;
+  include_lands: boolean;
+  limit: number;
+  arena_only: boolean;
+  color_identity?: string;
+}
 
 /**
  * MCP Tool for finding cards that synergize with a specific card, theme, or archetype
@@ -68,6 +83,10 @@ export class FindSynergisticCardsTool {
         type: 'boolean',
         default: false,
         description: 'Only return cards available in Arena'
+      },
+      color_identity: {
+        type: 'string',
+        description: 'Restrict results to this color identity (for example "UR", "Izzet", or "blue red")'
       }
     },
     required: ['focus_card']
@@ -78,16 +97,7 @@ export class FindSynergisticCardsTool {
   /**
    * Validate parameters
    */
-  private validateParams(args: unknown): {
-    focus_card: string;
-    synergy_type?: string;
-    format?: string;
-    exclude_colors?: string;
-    max_cmc?: number;
-    include_lands: boolean;
-    limit: number;
-    arena_only: boolean;
-  } {
+  private validateParams(args: unknown): ValidatedSynergyParams {
     if (!args || typeof args !== 'object') {
       throw new ValidationError('Invalid parameters');
     }
@@ -97,6 +107,7 @@ export class FindSynergisticCardsTool {
     const normalizedSynergyType = normalizeLowercaseString(params.synergy_type);
     const normalizedFormat = normalizeLowercaseString(params.format);
     const normalizedExcludeColors = normalizeLowercaseString(params.exclude_colors);
+    const normalizedColorIdentity = normalizeColorIdentity(params.color_identity);
 
     if (!normalizedFocusCard || typeof normalizedFocusCard !== 'string') {
       throw new ValidationError('Focus card is required and must be a string');
@@ -118,6 +129,10 @@ export class FindSynergisticCardsTool {
 
     if (normalizedExcludeColors && typeof normalizedExcludeColors !== 'string') {
       throw new ValidationError('Exclude colors must be a string');
+    }
+
+    if (params.color_identity !== undefined && !normalizedColorIdentity) {
+      throw new ValidationError('Color identity must include one or more Magic colors');
     }
 
     if (params.max_cmc !== undefined) {
@@ -144,12 +159,13 @@ export class FindSynergisticCardsTool {
     return {
       focus_card: normalizedFocusCard,
       synergy_type: typeof normalizedSynergyType === 'string' ? normalizedSynergyType : undefined,
-      format: typeof normalizedFormat === 'string' ? normalizedFormat : undefined,
+      format: typeof normalizedFormat === 'string' ? normalizedFormat as MagicFormat : undefined,
       exclude_colors: typeof normalizedExcludeColors === 'string' ? normalizedExcludeColors : undefined,
       max_cmc: params.max_cmc,
       include_lands: includeLands,
       limit,
-      arena_only: arenaOnly
+      arena_only: arenaOnly,
+      color_identity: normalizedColorIdentity
     };
   }
 
@@ -176,54 +192,39 @@ export class FindSynergisticCardsTool {
       );
 
       // Execute searches with multi-layered strategy
-      const allResults = await this.searchQueries(
+      const primarySearch = await this.searchQueries(
         queries,
         params.limit,
         index => this.getPrimaryLayer(index)
       );
+      const allResults = [...primarySearch.results];
+      let failedSearches = primarySearch.failedSearches;
 
       // If no results and theme-based, try broader searches
       if (allResults.length === 0 && !focusCard) {
-        // Build a basic query with just the format/constraints
-        let fallbackBaseQuery = '';
-        if (params.format) {
-          fallbackBaseQuery += `legal:${params.format} `;
-        }
-        if (params.exclude_colors) {
-          for (const color of params.exclude_colors.toLowerCase()) {
-            if ('wubrg'.includes(color)) {
-              fallbackBaseQuery += `-c:${color} `;
-            }
-          }
-        }
-        if (params.max_cmc !== undefined) {
-          fallbackBaseQuery += `cmc<=${params.max_cmc} `;
-        }
-        if (!params.include_lands) {
-          fallbackBaseQuery += '-t:land ';
-        }
-        if (params.arena_only) {
-          fallbackBaseQuery += 'game:arena ';
-        }
-
+        const fallbackBaseQuery = buildBaseQuery(params);
         const fallbackQueries = this.prioritizeQueries(
           getFallbackQueries(params.focus_card, fallbackBaseQuery),
           MAX_FALLBACK_QUERY_CANDIDATES
         );
-        const fallbackResults = await this.searchQueries(
+        const fallbackSearch = await this.searchQueries(
           fallbackQueries,
           params.limit,
           () => 'thematic',
           1
         );
-        allResults.push(...fallbackResults);
+        allResults.push(...fallbackSearch.results);
+        failedSearches += fallbackSearch.failedSearches;
       }
 
       // Remove duplicates and filter results with layered prioritization
       const uniqueResults = filterAndDeduplicateResults(allResults, focusCard, params.focus_card);
+      const resultConstraints = this.getResultConstraints(params, focusCard);
+      const constrainedResults = uniqueResults.filter(card => this.matchesResultConstraints(card, resultConstraints));
+      const filteredResultCount = uniqueResults.length - constrainedResults.length;
 
       // Prioritize results by synergy layer (semantic > exact > thematic)
-      const prioritizedResults = prioritizeResultsByLayer(uniqueResults);
+      const prioritizedResults = prioritizeResultsByLayer(constrainedResults);
 
       // Limit results
       const finalResults = prioritizedResults.slice(0, params.limit);
@@ -249,6 +250,14 @@ export class FindSynergisticCardsTool {
           data: finalResults
         };
         responseText += formatResultsWithSynergyExplanations(mockSearchResponse, focusCard, params.focus_card);
+      }
+
+      if (failedSearches > 0) {
+        responseText += `\n\n⚠️ Some Scryfall searches failed (${failedSearches}). Results shown are partial.`;
+      }
+
+      if (filteredResultCount > 0) {
+        responseText += `\n\nFiltered ${filteredResultCount} cards that did not match legality, Arena, or color-identity constraints.`;
       }
 
       return {
@@ -308,9 +317,10 @@ export class FindSynergisticCardsTool {
     targetUniqueResults: number,
     getLayer: (index: number) => SynergyLayer,
     stopAfterUniqueResults = targetUniqueResults
-  ): Promise<SynergyCard[]> {
+  ): Promise<{ results: SynergyCard[]; failedSearches: number }> {
     const allResults: SynergyCard[] = [];
     const uniqueResultIds = new Set<string>();
+    let failedSearches = 0;
 
     for (const [index, query] of queries.entries()) {
       if (uniqueResultIds.size >= stopAfterUniqueResults) {
@@ -331,10 +341,11 @@ export class FindSynergisticCardsTool {
 
         const layer = getLayer(index);
         for (const card of results.data) {
-          if (!uniqueResultIds.has(card.id)) {
-            uniqueResultIds.add(card.id);
+          if (uniqueResultIds.has(card.id)) {
+            continue;
           }
 
+          uniqueResultIds.add(card.id);
           allResults.push({
             ...card,
             _synergy_layer: layer,
@@ -342,11 +353,15 @@ export class FindSynergisticCardsTool {
           });
         }
       } catch {
+        failedSearches += 1;
         continue;
       }
     }
 
-    return allResults;
+    return {
+      results: allResults,
+      failedSearches
+    };
   }
 
   private getPerQueryLimit(
@@ -360,5 +375,45 @@ export class FindSynergisticCardsTool {
 
     const remaining = Math.max(0, targetUniqueResults - currentUniqueResults);
     return Math.min(Math.max(5, remaining + 4), targetUniqueResults + 5);
+  }
+
+  private getResultConstraints(
+    params: ValidatedSynergyParams,
+    focusCard: ScryfallCard | null
+  ): {
+    format?: MagicFormat;
+    arenaOnly: boolean;
+    colorIdentity?: string;
+  } {
+    return {
+      format: params.format,
+      arenaOnly: params.arena_only,
+      colorIdentity: params.color_identity ?? normalizeColorIdentity((focusCard?.color_identity || []).join('')),
+    };
+  }
+
+  private matchesResultConstraints(
+    card: SynergyCard,
+    constraints: { format?: MagicFormat; arenaOnly: boolean; colorIdentity?: string }
+  ): boolean {
+    if (constraints.format && card.legalities?.[constraints.format] !== 'legal') {
+      return false;
+    }
+
+    if (constraints.arenaOnly && !card.games?.includes('arena')) {
+      return false;
+    }
+
+    if (constraints.colorIdentity) {
+      const allowed = new Set(constraints.colorIdentity.split(''));
+      const cardIdentity = normalizeColorIdentity((card.color_identity || []).join('')) ?? '';
+      for (const color of cardIdentity) {
+        if (!allowed.has(color)) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 }

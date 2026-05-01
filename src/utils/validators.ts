@@ -8,6 +8,10 @@ import {
   BuildQueryParamsSchema,
   ValidationError,
 } from "../types/mcp-types.js";
+import {
+  validateScryfallQuery as validateScryfallQueryCore,
+  type ValidationResult as QueryValidationResult,
+} from "./query-validator.js";
 
 /**
  * Validates search cards parameters
@@ -132,95 +136,15 @@ export function validateBuildQueryParams(params: unknown) {
   }
 }
 
-/**
- * Result interface for query validation
- */
-export interface ValidationResult {
-  isValid: boolean;
-  errors: Array<{ message: string; position?: number }>;
-  warnings: Array<{ message: string; position?: number }>;
-  suggestions?: string[];
+export type ValidationResult = QueryValidationResult;
+
+export function validateScryfallQuerySync(query: string): ValidationResult {
+  return validateScryfallQueryCore(query);
 }
 
-/**
- * Enhanced Scryfall query validation with detailed feedback
- */
 export function validateScryfallQuery(query: string): Promise<ValidationResult> {
   return Promise.resolve(validateScryfallQuerySync(query));
 }
-
-/**
- * Synchronous Scryfall query validation with comprehensive checks
- */
-export function validateScryfallQuerySync(query: string): ValidationResult {
-  const result: ValidationResult = {
-    isValid: true,
-    errors: [],
-    warnings: [],
-    suggestions: []
-  };
-
-  if (!query || query.trim().length === 0) {
-    result.isValid = false;
-    result.errors.push({ message: "Search query cannot be empty" });
-    return result;
-  }
-
-  const trimmedQuery = query.trim();
-
-  // Check for basic syntax errors
-  const openParens = (trimmedQuery.match(/\(/g) || []).length;
-  const closeParens = (trimmedQuery.match(/\)/g) || []).length;
-
-  if (openParens !== closeParens) {
-    result.isValid = false;
-    result.errors.push({ message: "Unmatched parentheses in search query" });
-  }
-
-  // Check for invalid operators at the start
-  if (/^(AND|OR|NOT)\s/i.test(trimmedQuery)) {
-    result.isValid = false;
-    result.errors.push({ message: "Search query cannot start with a boolean operator" });
-  }
-
-  // Check for consecutive operators
-  if (/\b(AND|OR|NOT)\s+(AND|OR|NOT)\b/i.test(trimmedQuery)) {
-    result.isValid = false;
-    result.errors.push({ message: "Consecutive boolean operators are not allowed" });
-  }
-
-  // Check for common issues and provide warnings
-  if (/[<>]=?/.test(trimmedQuery) && !/\b(cmc|pow|tou|loy)\b/.test(trimmedQuery)) {
-    result.warnings.push({ 
-      message: "Comparison operators should typically be used with numeric fields like cmc, pow, tou, or loy" 
-    });
-  }
-
-  // Check for potentially misspelled operators
-  if (/\bcolou?r\b/i.test(trimmedQuery)) {
-    result.warnings.push({ 
-      message: "Use 'c:' or 'color:' instead of 'color' for color searches" 
-    });
-    result.suggestions?.push("Try 'c:red' instead of 'color red'");
-  }
-
-  // Check for excessive complexity
-  const operatorCount = (trimmedQuery.match(/\b(AND|OR|NOT)\b/gi) || []).length;
-  if (operatorCount > 10) {
-    result.warnings.push({ 
-      message: "Query is very complex and may be slow to execute" 
-    });
-  }
-
-  // Add helpful suggestions for common patterns
-  if (result.errors.length === 0 && trimmedQuery.split(/\s+/).length > 5 && !/[:()"']/.test(trimmedQuery)) {
-    result.suggestions?.push("Consider using operators like 'c:', 't:', or 'o:' for more precise searches");
-  }
-
-  return result;
-}
-
-// ValidationResult type is already exported above
 
 /**
  * Validates card identifier format

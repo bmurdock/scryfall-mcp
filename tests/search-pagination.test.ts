@@ -203,4 +203,84 @@ describe("ScryfallClient search pagination", () => {
       "second page warning",
     ]);
   });
+
+  it("does not reuse cached search results across different sort orders", async () => {
+    fetchMock
+      .mockResolvedValueOnce(createFetchResponse(createSearchResponse(0, 1, 2)))
+      .mockResolvedValueOnce(createFetchResponse(createSearchResponse(100, 1, 2)));
+
+    const client = new ScryfallClient(
+      {
+        execute: vi.fn(async (operation: () => Promise<unknown>) => operation()),
+        waitForClearance: vi.fn().mockResolvedValue(undefined),
+        recordSuccess: vi.fn(),
+        recordError: vi.fn(),
+        handleRateLimitResponse: vi.fn(),
+        isCircuitOpen: vi.fn().mockReturnValue(false),
+      } as never,
+      cache
+    );
+
+    const byName = await client.searchCards({ query: "type:creature", limit: 1, order: "name" });
+    const byReleased = await client.searchCards({ query: "type:creature", limit: 1, order: "released" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0].toString()).toContain("order=name");
+    expect(fetchMock.mock.calls[1][0].toString()).toContain("order=released");
+    expect(byName.data[0].name).toBe("Card 0");
+    expect(byReleased.data[0].name).toBe("Card 100");
+  });
+
+  it("does not reuse cached search results across include_extras changes", async () => {
+    fetchMock
+      .mockResolvedValueOnce(createFetchResponse(createSearchResponse(0, 1, 2)))
+      .mockResolvedValueOnce(createFetchResponse(createSearchResponse(200, 1, 2)));
+
+    const client = new ScryfallClient(
+      {
+        execute: vi.fn(async (operation: () => Promise<unknown>) => operation()),
+        waitForClearance: vi.fn().mockResolvedValue(undefined),
+        recordSuccess: vi.fn(),
+        recordError: vi.fn(),
+        handleRateLimitResponse: vi.fn(),
+        isCircuitOpen: vi.fn().mockReturnValue(false),
+      } as never,
+      cache
+    );
+
+    const withoutExtras = await client.searchCards({ query: "type:creature", limit: 1 });
+    const withExtras = await client.searchCards({ query: "type:creature", limit: 1, include_extras: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0].toString()).not.toContain("include_extras=true");
+    expect(fetchMock.mock.calls[1][0].toString()).toContain("include_extras=true");
+    expect(withoutExtras.data[0].name).toBe("Card 0");
+    expect(withExtras.data[0].name).toBe("Card 200");
+  });
+
+  it("uses the final price-filtered query as the search cache identity", async () => {
+    fetchMock.mockResolvedValue(createFetchResponse(createSearchResponse(0, 1, 2)));
+
+    const client = new ScryfallClient(
+      {
+        execute: vi.fn(async (operation: () => Promise<unknown>) => operation()),
+        waitForClearance: vi.fn().mockResolvedValue(undefined),
+        recordSuccess: vi.fn(),
+        recordError: vi.fn(),
+        handleRateLimitResponse: vi.fn(),
+        isCircuitOpen: vi.fn().mockReturnValue(false),
+      } as never,
+      cache
+    );
+
+    await client.searchCards({
+      query: "type:creature",
+      limit: 1,
+      price_range: { max: 5, currency: "usd" },
+    });
+    await client.searchCards({ query: "type:creature usd<=5", limit: 1 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0].toString()).toContain("type%3Acreature+usd%3C%3D5");
+  });
 });

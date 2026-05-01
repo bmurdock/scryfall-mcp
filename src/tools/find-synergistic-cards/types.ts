@@ -9,6 +9,7 @@ export interface FindSynergisticCardsInput {
   include_lands?: boolean;
   limit?: number;
   arena_only?: boolean;
+  color_identity?: string;
 }
 
 export interface SynergyParams {
@@ -20,6 +21,7 @@ export interface SynergyParams {
   include_lands: boolean;
   limit: number;
   arena_only: boolean;
+  color_identity?: string;
 }
 
 export type SynergyLayer = 'semantic' | 'exact' | 'thematic';
