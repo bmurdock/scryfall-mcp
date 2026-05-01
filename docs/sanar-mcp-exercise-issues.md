@@ -12,7 +12,6 @@ Exercise:
 Artifacts produced:
 
 - `docs/decks/sanar-unfinished-genius-historic-brawl.md`
-- Remediation plan: `docs/superpowers/plans/2026-04-28-sanar-mcp-exercise-remediation.md`
 
 ## Summary
 
