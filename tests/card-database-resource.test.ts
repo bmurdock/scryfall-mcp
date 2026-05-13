@@ -206,9 +206,10 @@ describe("CardDatabaseResource", () => {
 
     const firstPromise = resource.getData();
     const secondPromise = resource.getData();
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(streamBulkData).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(streamBulkData).toHaveBeenCalledTimes(1);
+    });
 
     resolveStreamStart?.();
 
@@ -279,6 +280,7 @@ describe("CardDatabaseResource", () => {
     ).getLastBuildDiagnostics();
 
     expect(diagnostics.totalCards).toBe(mockCards.length);
+    expect(diagnostics.retainedChunks).toBe(0);
     expect(diagnostics.payloadBytes).toBeGreaterThan(cache.getStats().maxMemoryBytes);
     expect(diagnostics.cached).toBe(false);
     expect(diagnostics.oversizeReason).toContain("exceeds cache memory limit");

@@ -127,7 +127,25 @@ export class ScryfallClient {
 
         throw this.buildNetworkError(error, url, reqId);
       }
+    }, {
+      minIntervalMs: this.getMinimumRequestIntervalMs(url),
     });
+  }
+
+  private getMinimumRequestIntervalMs(url: string): number | undefined {
+    const twoPerSecondPaths = new Set([
+      "/cards/search",
+      "/cards/named",
+      "/cards/random",
+      "/cards/collection",
+    ]);
+
+    try {
+      const parsedUrl = new URL(url);
+      return twoPerSecondPaths.has(parsedUrl.pathname) ? 500 : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private assertCircuitClosed(url: string, requestId: string): void {
@@ -552,12 +570,15 @@ export class ScryfallClient {
   }): Promise<ScryfallSet[]> {
     const rawSetsKey = CacheService.createSetKey();
 
-    const cachedRaw = this.cache.getWithStats<{ data: ScryfallSet[] }>(rawSetsKey);
-    const allSets = cachedRaw?.data ?? (
+    const cachedRaw = this.cache.getWithStats<{ data: ScryfallSet[] } | ScryfallSet[]>(rawSetsKey);
+    const cachedSets = cachedRaw
+      ? Array.isArray(cachedRaw) ? cachedRaw : cachedRaw.data
+      : undefined;
+    const allSets = cachedSets ?? (
       await this.makeRequest<ScryfallListResponse<ScryfallSet>>(`${this.baseUrl}/sets`)
     ).data;
 
-    if (!cachedRaw) {
+    if (!cachedRaw || Array.isArray(cachedRaw)) {
       this.cache.setWithType(rawSetsKey, { data: allSets }, "set_data");
     }
 

@@ -1,4 +1,4 @@
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ScryfallClient } from '../services/scryfall-client.js';
@@ -29,47 +29,12 @@ type DiskBulkSnapshot = {
 
 const BULK_PAYLOAD_KEY = CacheService.createBulkKey('cards:serialized');
 const BULK_METADATA_KEY = CacheService.createBulkKey('cards:metadata');
-const MAX_JSON_CHUNK_SIZE = 1_000_000;
 
-class JsonChunkBuilder {
-  private readonly chunks: string[] = [];
-  private currentParts: string[] = [];
-  private currentSize = 0;
-  private hasItems = false;
-
-  constructor(private readonly maxChunkSize = MAX_JSON_CHUNK_SIZE) {}
-
-  append(serializedJson: string): void {
-    const part = this.hasItems ? `,${serializedJson}` : serializedJson;
-
-    if (this.currentSize > 0 && this.currentSize + part.length > this.maxChunkSize) {
-      this.flush();
-    }
-
-    this.currentParts.push(part);
-    this.currentSize += part.length;
-    this.hasItems = true;
-  }
-
-  finish(prefix: string, totalCards: number): { payload: string; chunks: number } {
-    this.flush();
-
-    return {
-      payload: `${prefix}${totalCards},"data":[${this.chunks.join('')}]}`,
-      chunks: this.chunks.length,
-    };
-  }
-
-  private flush(): void {
-    if (this.currentSize === 0) {
-      return;
-    }
-
-    this.chunks.push(this.currentParts.join(''));
-    this.currentParts = [];
-    this.currentSize = 0;
-  }
-}
+type SerializedSnapshotFile = {
+  path: string;
+  totalCards: number;
+  payloadBytes: number;
+};
 
 /**
  * MCP Resource for accessing bulk card database
@@ -200,26 +165,14 @@ export class CardDatabaseResource {
    */
   private async rebuildSerializedSnapshot(knownBulkInfo?: BulkDataInfo): Promise<string> {
     const oracleCards = knownBulkInfo ?? await this.getOracleCardsBulkInfo();
-    const builder = new JsonChunkBuilder();
-    let totalCards = 0;
-
-    for await (const card of this.scryfallClient.streamBulkData(oracleCards.download_uri)) {
-      builder.append(JSON.stringify(this.filterCardFields(card)));
-      totalCards++;
-    }
-
-    const finished = builder.finish(
-      `{"object":"bulk_data","type":"oracle_cards","updated_at":"${oracleCards.updated_at}",` +
-      '"total_cards":',
-      totalCards
-    );
-    const payload = finished.payload;
-    const payloadBytes = payload.length * 2;
+    const snapshotFile = await this.writeSerializedSnapshotFile(oracleCards);
+    const payload = await readFile(snapshotFile.path, 'utf-8');
+    const { totalCards, payloadBytes } = snapshotFile;
     const maxMemoryBytes = this.cache.getStats().maxMemoryBytes;
 
     this.lastBuildDiagnostics = {
       totalCards,
-      retainedChunks: finished.chunks,
+      retainedChunks: 0,
       payloadBytes,
       cached: false,
     };
@@ -239,10 +192,11 @@ export class CardDatabaseResource {
         },
         'Bulk snapshot exceeds in-memory cache limit'
       );
-      await this.persistDiskSnapshot(payload, oracleCards.updated_at, totalCards, payloadBytes);
+      await this.retainDiskSnapshot(snapshotFile.path, oracleCards.updated_at, totalCards, payloadBytes);
     } else {
       this.cache.setWithType(BULK_PAYLOAD_KEY, payload, 'bulk_data', { sizeBytes: payloadBytes });
       await this.clearDiskSnapshot();
+      await this.deleteFile(snapshotFile.path);
       this.lastBuildDiagnostics = {
         ...this.lastBuildDiagnostics,
         cached: this.cache.get<string>(BULK_PAYLOAD_KEY) === payload,
@@ -255,6 +209,53 @@ export class CardDatabaseResource {
     }, 'bulk_data');
 
     return payload;
+  }
+
+  private async writeSerializedSnapshotFile(oracleCards: BulkDataInfo): Promise<SerializedSnapshotFile> {
+    await mkdir(this.diskCacheDir, { recursive: true });
+    const safeUpdatedAt = oracleCards.updated_at.replace(/[^a-zA-Z0-9.-]/g, '-');
+    const finalPath = join(this.diskCacheDir, `oracle-cards-${safeUpdatedAt}.json`);
+    const tempPath = join(
+      this.diskCacheDir,
+      `oracle-cards-${safeUpdatedAt}-${process.pid}-${Date.now()}.tmp`
+    );
+    const handle = await open(tempPath, 'w');
+    let totalCards = 0;
+    let payloadChars = 0;
+    let hasItems = false;
+
+    const writePart = async (part: string): Promise<void> => {
+      await handle.write(part, null, 'utf-8');
+      payloadChars += part.length;
+    };
+
+    try {
+      await writePart(
+        `{"object":"bulk_data","type":"oracle_cards","updated_at":${JSON.stringify(oracleCards.updated_at)},"data":[`
+      );
+
+      for await (const card of this.scryfallClient.streamBulkData(oracleCards.download_uri)) {
+        const serializedCard = JSON.stringify(this.filterCardFields(card));
+        await writePart(`${hasItems ? ',' : ''}${serializedCard}`);
+        hasItems = true;
+        totalCards++;
+      }
+
+      await writePart(`],"total_cards":${totalCards}}`);
+    } catch (error) {
+      await handle.close().catch(() => undefined);
+      await this.deleteFile(tempPath);
+      throw error;
+    }
+
+    await handle.close();
+    await rename(tempPath, finalPath);
+
+    return {
+      path: finalPath,
+      totalCards,
+      payloadBytes: payloadChars * 2,
+    };
   }
 
   private async getDiskSnapshotIfCurrent(bulkInfo?: BulkDataInfo): Promise<string | undefined> {
@@ -278,25 +279,14 @@ export class CardDatabaseResource {
     }
   }
 
-  private async persistDiskSnapshot(
-    payload: string,
+  private async retainDiskSnapshot(
+    path: string,
     updatedAt: string,
     totalCards: number,
     payloadBytes: number
   ): Promise<void> {
-    try {
-      await mkdir(this.diskCacheDir, { recursive: true });
-      const safeUpdatedAt = updatedAt.replace(/[^a-zA-Z0-9.-]/g, '-');
-      const path = join(this.diskCacheDir, `oracle-cards-${safeUpdatedAt}.json`);
-      await writeFile(path, payload, 'utf-8');
-      await this.clearDiskSnapshot(path);
-      this.diskSnapshot = { updatedAt, totalCards, payloadBytes, path };
-    } catch (error) {
-      mcpLogger.warn(
-        { operation: 'bulk_snapshot_disk_cache', error },
-        'Failed to persist oversized bulk snapshot to disk'
-      );
-    }
+    await this.clearDiskSnapshot(path);
+    this.diskSnapshot = { updatedAt, totalCards, payloadBytes, path };
   }
 
   private async clearDiskSnapshot(exceptPath?: string): Promise<void> {
@@ -307,6 +297,14 @@ export class CardDatabaseResource {
     const path = this.diskSnapshot.path;
     this.diskSnapshot = undefined;
 
+    try {
+      await unlink(path);
+    } catch {
+      // Best-effort cleanup of temp cache files.
+    }
+  }
+
+  private async deleteFile(path: string): Promise<void> {
     try {
       await unlink(path);
     } catch {

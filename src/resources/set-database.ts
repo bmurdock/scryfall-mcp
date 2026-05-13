@@ -27,6 +27,7 @@ export class SetDatabaseResource {
 
   private lastUpdateCheck = 0;
   private readonly updateCheckInterval = 7 * 24 * 60 * 60 * 1000; // 1 week
+  private loadInFlight?: Promise<ScryfallSet[]>;
 
   constructor(
     private readonly scryfallClient: ScryfallClient,
@@ -73,12 +74,30 @@ export class SetDatabaseResource {
   private async getSetDataModel(): Promise<ScryfallSet[]> {
     const cached = this.cache.getWithStats<CachedSetData>(SET_DATA_KEY);
     if (cached) {
-      return Array.isArray(cached) ? cached : cached.data;
+      return this.normalizeCachedSetData(cached);
     }
 
-    const sets = await this.downloadSetData();
-    this.cache.setWithType(SET_DATA_KEY, sets, 'set_data');
-    return sets;
+    if (!this.loadInFlight) {
+      this.loadInFlight = this.downloadSetData()
+        .then((sets) => {
+          this.cache.setWithType(SET_DATA_KEY, { data: sets }, 'set_data');
+          return sets;
+        })
+        .finally(() => {
+          this.loadInFlight = undefined;
+        });
+    }
+
+    return this.loadInFlight;
+  }
+
+  private normalizeCachedSetData(cached: CachedSetData): ScryfallSet[] {
+    if (!Array.isArray(cached)) {
+      return cached.data;
+    }
+
+    this.cache.setWithType(SET_DATA_KEY, { data: cached }, 'set_data');
+    return cached;
   }
 
   private serializeSetPayload(
@@ -185,6 +204,7 @@ export class SetDatabaseResource {
     this.cache.delete(SET_DATA_KEY);
     this.cache.delete(SET_PAYLOAD_KEY);
     this.cache.delete(SET_METADATA_KEY);
+    this.loadInFlight = undefined;
     this.lastUpdateCheck = 0;
     await this.getData(); // This will trigger a fresh download
   }

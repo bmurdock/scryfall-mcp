@@ -4,17 +4,34 @@ import { FormattedCard, FormattedSearchResult, FormattedSet } from '../types/mcp
 /**
  * Formats a Scryfall card for MCP response
  */
-export function formatCard(card: ScryfallCard, includeImage = true): FormattedCard {
-  // Handle multi-faced cards
-  const mainFace = card.card_faces?.[0] || card;
-  const name = card.card_faces ? `${card.card_faces[0].name} // ${card.card_faces[1].name}` : card.name;
+type CardFaceSelection = 'front' | 'back';
+
+function selectCardFace(card: ScryfallCard, face?: CardFaceSelection) {
+  if (!face || !card.card_faces?.length) {
+    return undefined;
+  }
+
+  return face === 'back' ? card.card_faces[1] : card.card_faces[0];
+}
+
+/**
+ * Formats a Scryfall card for MCP response
+ */
+export function formatCard(card: ScryfallCard, includeImage = true, face?: CardFaceSelection): FormattedCard {
+  const selectedFace = selectCardFace(card, face);
+  const mainFace = selectedFace || card.card_faces?.[0] || card;
+  const name = selectedFace
+    ? selectedFace.name
+    : card.card_faces?.length
+      ? card.card_faces.map(cardFace => cardFace.name).join(' // ')
+      : card.name;
   const arenaId = (card as ScryfallCard & { arena_id?: number }).arena_id;
   
   return {
     name,
     mana_cost: mainFace.mana_cost || card.mana_cost,
     type_line: mainFace.type_line || card.type_line,
-    oracle_text: formatOracleText(card),
+    oracle_text: formatOracleText(card, selectedFace),
     power: mainFace.power || card.power,
     toughness: mainFace.toughness || card.toughness,
     set_name: card.set_name,
@@ -28,7 +45,7 @@ export function formatCard(card: ScryfallCard, includeImage = true): FormattedCa
       tix: card.prices.tix
     },
     legalities: formatLegalities(card.legalities),
-    image_url: includeImage ? getCardImageUrl(card) : undefined,
+    image_url: includeImage ? getCardImageUrl(card, selectedFace) : undefined,
     color_identity: card.color_identity,
     games: card.games
   };
@@ -37,7 +54,14 @@ export function formatCard(card: ScryfallCard, includeImage = true): FormattedCa
 /**
  * Formats oracle text for multi-faced cards
  */
-function formatOracleText(card: ScryfallCard): string | undefined {
+function formatOracleText(
+  card: ScryfallCard,
+  selectedFace?: NonNullable<ScryfallCard['card_faces']>[number]
+): string | undefined {
+  if (selectedFace) {
+    return selectedFace.oracle_text;
+  }
+
   if (card.card_faces && card.card_faces.length > 0) {
     return card.card_faces
       .map((face, index) => {
@@ -52,7 +76,14 @@ function formatOracleText(card: ScryfallCard): string | undefined {
 /**
  * Gets the appropriate image URL for a card
  */
-function getCardImageUrl(card: ScryfallCard): string | undefined {
+function getCardImageUrl(
+  card: ScryfallCard,
+  selectedFace?: NonNullable<ScryfallCard['card_faces']>[number]
+): string | undefined {
+  if (selectedFace?.image_uris) {
+    return selectedFace.image_uris.normal;
+  }
+
   // Prefer card-level image, fall back to first face
   const imageUris = card.image_uris || card.card_faces?.[0]?.image_uris;
   return imageUris?.normal;
@@ -185,8 +216,8 @@ export function formatSearchResultsAsJson(
 /**
  * Formats a single card for detailed display
  */
-export function formatCardDetails(card: ScryfallCard, includeImage = true): string {
-  const formatted = formatCard(card, includeImage);
+export function formatCardDetails(card: ScryfallCard, includeImage = true, face?: CardFaceSelection): string {
+  const formatted = formatCard(card, includeImage, face);
   
   let result = `# ${formatted.name}\n\n`;
   
@@ -206,6 +237,12 @@ export function formatCardDetails(card: ScryfallCard, includeImage = true): stri
   
   result += `\n**Set:** ${formatted.set_name}\n`;
   result += `**Rarity:** ${formatted.rarity}\n`;
+  if (card.artist) {
+    result += `**Artist:** ${card.artist}\n`;
+  }
+  if (card.scryfall_uri) {
+    result += `**Source:** Scryfall (${card.scryfall_uri})\n`;
+  }
   
   // Prices
   const prices = Object.entries(formatted.prices)

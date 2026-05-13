@@ -134,6 +134,36 @@ describe("ScryfallClient JSON parsing", () => {
     });
   });
 
+  it("requests endpoint-specific Scryfall pacing from the shared rate limiter", async () => {
+    const payload: ScryfallSearchResponse = {
+      object: "list",
+      total_cards: 1,
+      has_more: false,
+      data: [createCard()],
+    };
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue(payload),
+    });
+    const requestedIntervals: Array<number | undefined> = [];
+    rateLimiter.execute.mockImplementation(async (
+      operation: () => Promise<unknown>,
+      options?: { minIntervalMs?: number }
+    ) => {
+      requestedIntervals.push(options?.minIntervalMs);
+      return operation();
+    });
+    const client = createClient();
+
+    await client.searchCards({ query: "type:creature", limit: 1 });
+    await client.getCard({ identifier: "Lightning Bolt" });
+    await client.getRandomCard();
+
+    expect(requestedIntervals).toEqual([500, 500, 500]);
+  });
+
   it("does not destroy injected cache and rate limiter services", () => {
     const destroyCache = vi.spyOn(cache, "destroy");
     const resetRateLimiter = vi.fn();

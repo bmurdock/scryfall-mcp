@@ -45,7 +45,10 @@ export const SearchCardsParamsSchema = z.object({
 
 export const GetCardParamsSchema = z.object({
   identifier: trimmedString(1, "Identifier cannot be empty"),
-  set: z.preprocess((value) => typeof value === "string" ? value.trim().toLowerCase() : value, z.string().length(3)).optional(),
+  set: z.preprocess(
+    (value) => typeof value === "string" ? value.trim().toLowerCase() : value,
+    z.string().regex(/^[a-z0-9]{3,4}$/i, "Expected a 3-4 character set code")
+  ).optional(),
   lang: z.preprocess((value) => typeof value === "string" ? value.trim().toLowerCase() : value, z.string().length(2)).optional().default("en"),
   face: normalizedEnum(["front", "back"]).optional(),
   include_image: z.boolean().optional().default(true),

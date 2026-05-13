@@ -151,8 +151,10 @@ See [.env.example](./.env.example) for the canonical values. The main variables 
 Operational notes:
 
 - Scryfall API calls are globally serialized by the shared rate limiter. Batch tools may schedule multiple local lookups, but upstream Scryfall request completion remains one-at-a-time by design.
+- The default pacing is 100 ms for general API endpoints and at least 500 ms for Scryfall's 2/sec card endpoints: `/cards/search`, `/cards/named`, `/cards/random`, and `/cards/collection`.
 - HTTP 429 responses are not retried automatically. The server records Scryfall's throttle window and delays the next request start so callers can decide whether to retry.
-- `CACHE_MAX_MEMORY_MB` controls whether large in-memory snapshots, including `card-database://bulk`, can be retained. Oversized bulk snapshots spill to a temp-file cache for warm reads instead of being retained in memory.
+- `CACHE_MAX_MEMORY_MB` controls whether large in-memory snapshots, including `card-database://bulk`, can be retained. Bulk resource rebuilds stream to a temp file first; oversized snapshots remain on disk for warm reads instead of being retained in memory.
+- Card detail output includes Scryfall source links and artist attribution when available. Consumers that render Scryfall image URLs should preserve copyright, artist, and source context and should not crop, distort, recolor, watermark, or imply ownership of card images.
 - Deck-list analysis resolves card names exactly first, then falls back to fuzzy lookup for exact misses and reports any fuzzy resolutions in the response.
 - Deck-scale tools may return partial analysis or an explicit retry-after message when Scryfall throttles the underlying card lookups.
 - Streamable HTTP sessions expire after `HTTP_SESSION_IDLE_MS` and are checked by `HTTP_SESSION_CLEANUP_INTERVAL_MS`.
@@ -238,9 +240,9 @@ Windows path: `%APPDATA%/Claude/claude_desktop_config.json`
 
 ## Operational Notes
 
-- Rate limiting is enforced in-process with a 100 ms default minimum interval between Scryfall requests.
+- Rate limiting is enforced in-process with a 100 ms default minimum interval between general Scryfall API requests and a 500 ms minimum for Scryfall's 2/sec card endpoints.
 - Search responses, card details, prices, sets, and bulk snapshots are cached with bounded in-memory limits.
-- The bulk card resource stores a pre-serialized snapshot to keep repeated reads cheap.
+- The bulk card resource streams rebuilds through disk and stores a pre-serialized snapshot to keep repeated reads cheap.
 - Set filtering is derived from one canonical cached `/sets` dataset to avoid incorrect filtered cache reuse.
 - Health checks are available through `ScryfallMCPServer.healthCheck()` and the HTTP `/health` endpoint.
 - If an MCP connector reports a JSON-RPC/SSE deserialization error, compare it against the raw HTTP smoke path:

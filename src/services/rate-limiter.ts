@@ -7,6 +7,11 @@ interface QueuedRequest {
   reject: (error: Error) => void;
   timestamp: number;
   settled: boolean;
+  minIntervalMs?: number;
+}
+
+export interface RateLimiterExecuteOptions {
+  minIntervalMs?: number;
 }
 
 /**
@@ -37,7 +42,7 @@ export class RateLimiter {
   /**
    * Queues an operation so rate limiting and request completion stay serialized
    */
-  async execute<T>(operation: () => Promise<T>): Promise<T> {
+  async execute<T>(operation: () => Promise<T>, options: RateLimiterExecuteOptions = {}): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       if (this.queue.length >= this.maxQueueSize) {
         return reject(new RateLimitError('Queue capacity exceeded'));
@@ -47,7 +52,8 @@ export class RateLimiter {
         resolve: (value) => resolve(value as T),
         reject,
         timestamp: Date.now(),
-        settled: false
+        settled: false,
+        minIntervalMs: options.minIntervalMs,
       });
 
       if (!this.processing) {
@@ -74,7 +80,7 @@ export class RateLimiter {
         this.activeRequest = request;
 
         try {
-          await this.enforceRateLimit();
+          await this.enforceRateLimit(request.minIntervalMs);
           const result = await request.run();
           this.resolveRequest(request, result);
         } catch (error) {
@@ -107,17 +113,18 @@ export class RateLimiter {
   /**
    * Enforces the minimum interval between requests
    */
-  private async enforceRateLimit(): Promise<void> {
+  private async enforceRateLimit(requestMinInterval?: number): Promise<void> {
     const now = Date.now();
     const timeSinceLastRequest = now - this.lastRequestTime;
+    const effectiveMinInterval = Math.max(this.minInterval, requestMinInterval ?? 0);
     
     // Calculate delay including exponential backoff for errors
-    let delay = Math.max(0, this.minInterval - timeSinceLastRequest);
+    let delay = Math.max(0, effectiveMinInterval - timeSinceLastRequest);
     delay = Math.max(delay, this.nextAllowedRequestTime - now);
     
     if (this.consecutiveErrors > 0) {
       const backoffDelay = Math.min(
-        this.minInterval * Math.pow(this.backoffMultiplier, this.consecutiveErrors),
+        effectiveMinInterval * Math.pow(this.backoffMultiplier, this.consecutiveErrors),
         this.maxBackoffMs
       );
       delay = Math.max(delay, backoffDelay);

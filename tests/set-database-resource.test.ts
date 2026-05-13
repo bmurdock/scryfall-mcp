@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SetDatabaseResource } from "../src/resources/set-database.js";
 import { CacheService } from "../src/services/cache-service.js";
+import { ScryfallClient } from "../src/services/scryfall-client.js";
 import type { ScryfallSet } from "../src/types/scryfall-api.js";
 
 function createSet(overrides: Partial<ScryfallSet> = {}): ScryfallSet {
@@ -181,6 +182,39 @@ describe("SetDatabaseResource", () => {
     expect(first).toBe(second);
     expect(JSON.parse(second).total_sets).toBe(2);
     expect(JSON.parse(second).source).toBeUndefined();
+  });
+
+  it("warms the shared raw set cache in the client-compatible shape", async () => {
+    const sets = [
+      createSet(),
+      createSet({ id: "set-2", code: "cmd", set_type: "commander" }),
+    ];
+    const resource = new SetDatabaseResource(
+      {
+        getSets: vi.fn().mockResolvedValue(sets),
+      } as never,
+      cache
+    );
+    const fetchMock = vi.fn().mockRejectedValue(new Error("shared cache should satisfy client reads"));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ScryfallClient(
+      {
+        execute: vi.fn(async (operation: () => Promise<unknown>) => operation()),
+        recordSuccess: vi.fn(),
+        recordError: vi.fn(),
+        handleRateLimitResponse: vi.fn(),
+        isCircuitOpen: vi.fn().mockReturnValue(false),
+      } as never,
+      cache,
+      "test-agent"
+    );
+
+    await resource.getData();
+    const clientSets = await client.getSets();
+
+    expect(clientSets).toEqual(sets);
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it("keeps icon_svg_uri without downloading and embedding icon payloads", async () => {

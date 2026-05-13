@@ -71,8 +71,20 @@ export class GetCardTool {
         face: params.face
       });
 
+      if (params.face === 'back' && !card.card_faces?.[1]) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Back face is not available for "${card.name}".`
+            }
+          ],
+          isError: true
+        };
+      }
+
       // Format detailed card information
-      const responseText = formatCardDetails(card, params.include_image);
+      const responseText = formatCardDetails(card, params.include_image, params.face);
 
       return {
         content: [
