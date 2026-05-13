@@ -43,8 +43,8 @@ describe('MCP server smoke tests', () => {
     Object.assign((appServer as unknown as { scryfallClient: unknown }).scryfallClient as object, mockScryfallClient);
   });
 
-  afterEach(() => {
-    appServer.destroy();
+  afterEach(async () => {
+    await appServer.destroy();
     vi.clearAllMocks();
   });
 

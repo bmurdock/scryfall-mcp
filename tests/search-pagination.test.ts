@@ -283,4 +283,35 @@ describe("ScryfallClient search pagination", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0].toString()).toContain("type%3Acreature+usd%3C%3D5");
   });
+
+  it("coalesces concurrent identical searches into one upstream request", async () => {
+    let resolveFetch: ((value: unknown) => void) | undefined;
+    fetchMock.mockImplementation(() => new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
+
+    const client = new ScryfallClient(
+      {
+        execute: vi.fn(async (operation: () => Promise<unknown>) => operation()),
+        waitForClearance: vi.fn().mockResolvedValue(undefined),
+        recordSuccess: vi.fn(),
+        recordError: vi.fn(),
+        handleRateLimitResponse: vi.fn(),
+        isCircuitOpen: vi.fn().mockReturnValue(false),
+      } as never,
+      cache
+    );
+
+    const first = client.searchCards({ query: "type:creature", limit: 20 });
+    const second = client.searchCards({ query: "type:creature", limit: 20 });
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveFetch?.(createFetchResponse(createSearchResponse(0, 20)));
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult).toEqual(secondResult);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

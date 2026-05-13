@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FindSynergisticCardsTool } from "../src/tools/find-synergistic-cards.js";
 import { buildSynergyQueries } from "../src/tools/find-synergistic-cards/query-builder.js";
 import { formatResultsWithSynergyExplanations } from "../src/tools/find-synergistic-cards/result-formatter.js";
-import { ScryfallAPIError } from "../src/types/mcp-types.js";
+import { RateLimitError, ScryfallAPIError } from "../src/types/mcp-types.js";
 import type { SynergyCard } from "../src/tools/find-synergistic-cards/types.js";
 import type { ScryfallCard } from "../src/types/scryfall-api.js";
 
@@ -212,6 +212,21 @@ describe("FindSynergisticCardsTool", () => {
 
     expect(result.isError).toBeUndefined();
     expect(result.content[0].text).toContain("Some Scryfall searches failed");
+  });
+
+  it("fails fast on rate-limit errors instead of treating them as partial synergy misses", async () => {
+    const searchCards = vi.fn().mockRejectedValue(new RateLimitError("Rate limit exceeded", 7));
+
+    const tool = new FindSynergisticCardsTool({
+      getCard: vi.fn().mockRejectedValue(new ScryfallAPIError("not found", 404, "not_found")),
+      searchCards,
+    } as never);
+
+    const result = await tool.execute({ focus_card: "artifact token theme", limit: 2 });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Rate limit exceeded");
+    expect(result.content[0].text).toContain("Retry after 7s");
   });
 
   it("does not emit duplicate cards when multiple queries return the same card id", async () => {

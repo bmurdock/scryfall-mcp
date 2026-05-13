@@ -14,6 +14,7 @@ import { EnvValidators, parseEnvInt, parseEnvString } from "./utils/env-parser.j
 type SessionTransportRecord = {
   sdkServer: ReturnType<typeof createSdkServer>;
   transport: StreamableHTTPServerTransport;
+  lastAccessedAt: number;
 };
 
 export type HttpServerConfig = {
@@ -22,6 +23,8 @@ export type HttpServerConfig = {
   mcpPath: string;
   healthPath: string;
   allowedOrigins: string[];
+  sessionIdleMs: number;
+  sessionCleanupIntervalMs: number;
 };
 
 type CreateHttpServerOverrides = Partial<HttpServerConfig>;
@@ -67,6 +70,10 @@ export function resolveHttpServerConfig(
     healthPath:
       overrides.healthPath ?? parseEnvString(env.HTTP_HEALTH_PATH, DEFAULT_HEALTH_PATH, undefined, 1, 100),
     allowedOrigins: overrides.allowedOrigins ?? parseAllowedOrigins(env.HTTP_ALLOWED_ORIGINS),
+    sessionIdleMs: overrides.sessionIdleMs ?? EnvValidators.httpSessionIdleMs(env.HTTP_SESSION_IDLE_MS),
+    sessionCleanupIntervalMs:
+      overrides.sessionCleanupIntervalMs ??
+      EnvValidators.httpSessionCleanupIntervalMs(env.HTTP_SESSION_CLEANUP_INTERVAL_MS),
   };
 }
 
@@ -145,7 +152,7 @@ async function createSessionTransport(
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: (sessionId) => {
-      sessionTransports.set(sessionId, { sdkServer, transport });
+      sessionTransports.set(sessionId, { sdkServer, transport, lastAccessedAt: Date.now() });
     },
   });
 
@@ -161,6 +168,37 @@ async function createSessionTransport(
 
   await sdkServer.connect(transport);
   return transport;
+}
+
+async function closeTransportRecord(record: SessionTransportRecord): Promise<void> {
+  await record.transport.close();
+}
+
+function touchSession(record: SessionTransportRecord): void {
+  record.lastAccessedAt = Date.now();
+}
+
+function createIdleSessionCleanup(
+  sessionTransports: Map<string, SessionTransportRecord>,
+  config: HttpServerConfig
+): NodeJS.Timeout {
+  const interval = setInterval(() => {
+    const now = Date.now();
+
+    for (const [sessionId, record] of sessionTransports.entries()) {
+      if (now - record.lastAccessedAt <= config.sessionIdleMs) {
+        continue;
+      }
+
+      sessionTransports.delete(sessionId);
+      void closeTransportRecord(record).catch((error) => {
+        mcpLogger.warn({ operation: "http_session_cleanup", sessionId, error }, "Failed to close idle session");
+      });
+    }
+  }, config.sessionCleanupIntervalMs);
+
+  interval.unref?.();
+  return interval;
 }
 
 async function handleMcpRequest(
@@ -193,7 +231,7 @@ async function handleMcpRequest(
 
     const sessionId = req.headers["mcp-session-id"];
     const existingTransport =
-      typeof sessionId === "string" ? sessionTransports.get(sessionId)?.transport : undefined;
+      typeof sessionId === "string" ? sessionTransports.get(sessionId) : undefined;
 
     if (!existingTransport && !isInitializeRequest(parsedBody)) {
       sendJsonRpcError(res, 400, "Bad Request: No valid session ID provided");
@@ -201,7 +239,8 @@ async function handleMcpRequest(
     }
 
     if (existingTransport) {
-      await existingTransport.handleRequest(req, res, parsedBody);
+      touchSession(existingTransport);
+      await existingTransport.transport.handleRequest(req, res, parsedBody);
       return;
     }
 
@@ -212,14 +251,15 @@ async function handleMcpRequest(
 
   if (req.method === "GET" || req.method === "DELETE") {
     const sessionId = req.headers["mcp-session-id"];
-    const transport = typeof sessionId === "string" ? sessionTransports.get(sessionId)?.transport : undefined;
+    const record = typeof sessionId === "string" ? sessionTransports.get(sessionId) : undefined;
 
-    if (!transport) {
+    if (!record) {
       sendJsonRpcError(res, 400, "Bad Request: No valid session ID provided");
       return;
     }
 
-    await transport.handleRequest(req, res);
+    touchSession(record);
+    await record.transport.handleRequest(req, res);
     return;
   }
 
@@ -232,6 +272,7 @@ export function createHttpAppServer(overrides: CreateHttpServerOverrides = {}): 
   const config = resolveHttpServerConfig(process.env, overrides);
   const appServer = new ScryfallMCPServer();
   const sessionTransports = new Map<string, SessionTransportRecord>();
+  const sessionCleanupInterval = createIdleSessionCleanup(sessionTransports, config);
 
   const server = createNodeHttpServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `${config.host}:${config.port}`}`);
@@ -267,12 +308,14 @@ export function createHttpAppServer(overrides: CreateHttpServerOverrides = {}): 
     appServer,
     config,
     close: async () => {
-      for (const { transport } of sessionTransports.values()) {
-        await transport.close();
+      clearInterval(sessionCleanupInterval);
+
+      for (const record of sessionTransports.values()) {
+        await closeTransportRecord(record);
       }
 
       sessionTransports.clear();
-      appServer.destroy();
+      await appServer.destroy();
 
       await new Promise<void>((resolve, reject) => {
         server.close((error) => {

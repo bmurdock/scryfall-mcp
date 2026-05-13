@@ -22,7 +22,6 @@ export class CacheService {
   private readonly maxSize: number;
   private readonly maxMemoryBytes: number;
   private currentMemoryUsage = 0;
-  private lastAccessTime = 0;
 
   constructor(
     private cleanupIntervalMs: number = 5 * 60 * 1000, // 5 minutes
@@ -57,7 +56,8 @@ export class CacheService {
       return null;
     }
 
-    entry.lastAccessedAt = this.getNextAccessTime(now);
+    this.cache.delete(key);
+    this.cache.set(key, entry);
     return entry.data as T;
   }
 
@@ -71,7 +71,6 @@ export class CacheService {
       timestamp: now,
       ttl,
       sizeBytes: options?.sizeBytes,
-      lastAccessedAt: this.getNextAccessTime(now),
     };
 
     const entrySize = entry.sizeBytes ?? this.calculateEntrySize(key, entry);
@@ -242,7 +241,8 @@ export class CacheService {
     const now = Date.now();
     entry.ttl = newTtl;
     entry.timestamp = now; // Reset timestamp
-    entry.lastAccessedAt = this.getNextAccessTime(now);
+    this.cache.delete(key);
+    this.cache.set(key, entry);
     return true;
   }
 
@@ -428,26 +428,6 @@ export class CacheService {
     return total;
   }
 
-  private getNextAccessTime(now = Date.now()): number {
-    this.lastAccessTime = now > this.lastAccessTime ? now : this.lastAccessTime + 1;
-    return this.lastAccessTime;
-  }
-
-  private findLeastRecentlyUsedKey(): string | undefined {
-    let oldestKey: string | undefined;
-    let oldestAccess = Infinity;
-
-    for (const [key, entry] of this.cache.entries()) {
-      const accessTime = entry.lastAccessedAt ?? entry.timestamp;
-      if (accessTime < oldestAccess) {
-        oldestAccess = accessTime;
-        oldestKey = key;
-      }
-    }
-
-    return oldestKey;
-  }
-
   /**
    * Evicts least recently used entries until the new entry fits.
    */
@@ -463,7 +443,7 @@ export class CacheService {
       this.cache.size > 0 &&
       (this.cache.size >= this.maxSize || this.currentMemoryUsage + requiredBytes > this.maxMemoryBytes)
     ) {
-      const key = this.findLeastRecentlyUsedKey();
+      const key = this.cache.keys().next().value as string | undefined;
       if (!key) {
         break;
       }

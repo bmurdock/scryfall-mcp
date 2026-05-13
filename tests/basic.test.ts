@@ -8,8 +8,8 @@ describe("Scryfall MCP Server", () => {
     server = new ScryfallMCPServer();
   });
 
-  afterEach(() => {
-    server.destroy();
+  afterEach(async () => {
+    await server.destroy();
   });
 
   it("should initialize successfully", () => {

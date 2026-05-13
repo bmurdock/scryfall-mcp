@@ -144,15 +144,18 @@ See [.env.example](./.env.example) for the canonical values. The main variables 
 - `HTTP_PORT`
 - `HTTP_MCP_PATH`
 - `HTTP_HEALTH_PATH`
+- `HTTP_SESSION_IDLE_MS`
+- `HTTP_SESSION_CLEANUP_INTERVAL_MS`
 - `HTTP_ALLOWED_ORIGINS`
 
 Operational notes:
 
 - Scryfall API calls are globally serialized by the shared rate limiter. Batch tools may schedule multiple local lookups, but upstream Scryfall request completion remains one-at-a-time by design.
 - HTTP 429 responses are not retried automatically. The server records Scryfall's throttle window and delays the next request start so callers can decide whether to retry.
-- `CACHE_MAX_MEMORY_MB` controls whether large in-memory snapshots, including `card-database://bulk`, can be retained. Oversized bulk snapshots can still be returned for the current read, but metadata will report that they were not cached.
+- `CACHE_MAX_MEMORY_MB` controls whether large in-memory snapshots, including `card-database://bulk`, can be retained. Oversized bulk snapshots spill to a temp-file cache for warm reads instead of being retained in memory.
 - Deck-list analysis resolves card names exactly first, then falls back to fuzzy lookup for exact misses and reports any fuzzy resolutions in the response.
 - Deck-scale tools may return partial analysis or an explicit retry-after message when Scryfall throttles the underlying card lookups.
+- Streamable HTTP sessions expire after `HTTP_SESSION_IDLE_MS` and are checked by `HTTP_SESSION_CLEANUP_INTERVAL_MS`.
 
 Example local HTTP startup:
 

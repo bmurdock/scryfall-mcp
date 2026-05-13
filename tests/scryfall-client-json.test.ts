@@ -134,6 +134,21 @@ describe("ScryfallClient JSON parsing", () => {
     });
   });
 
+  it("does not destroy injected cache and rate limiter services", () => {
+    const destroyCache = vi.spyOn(cache, "destroy");
+    const resetRateLimiter = vi.fn();
+    rateLimiter = {
+      ...rateLimiter,
+      reset: resetRateLimiter,
+    } as typeof rateLimiter;
+    const client = createClient();
+
+    client.destroy();
+
+    expect(destroyCache).not.toHaveBeenCalled();
+    expect(resetRateLimiter).not.toHaveBeenCalled();
+  });
+
   it("reuses cached card details for equivalent name casing and whitespace", async () => {
     fetchMock.mockResolvedValue({
       status: 200,

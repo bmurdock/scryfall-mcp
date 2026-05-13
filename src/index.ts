@@ -14,7 +14,7 @@ async function main() {
   const shutdown = async (signal: string) => {
     try {
       mcpLogger.info({ operation: 'shutdown', signal }, 'Shutting down server');
-      appServer.destroy();
+      await appServer.destroy();
     } finally {
       process.exit(0);
     }

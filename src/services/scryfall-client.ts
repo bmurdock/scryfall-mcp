@@ -74,8 +74,11 @@ export class ScryfallClient {
   private readonly baseUrl = "https://api.scryfall.com";
   private readonly searchApiPageSize = 175;
   private readonly inFlightCardLookups = new Map<string, Promise<ScryfallCard>>();
+  private readonly inFlightSearches = new Map<string, Promise<ScryfallSearchResponse>>();
   private rateLimiter: RateLimiter;
   private cache: CacheService;
+  private readonly ownsRateLimiter: boolean;
+  private readonly ownsCache: boolean;
   private readonly timeoutMs = () =>
     EnvValidators.scryfallTimeoutMs(process.env.SCRYFALL_TIMEOUT_MS);
 
@@ -84,6 +87,8 @@ export class ScryfallClient {
     cache?: CacheService,
     private userAgent: string = EnvValidators.userAgent(process.env.SCRYFALL_USER_AGENT)
   ) {
+    this.ownsRateLimiter = !rateLimiter;
+    this.ownsCache = !cache;
     this.rateLimiter = rateLimiter || new RateLimiter();
     this.cache = cache || new CacheService();
   }
@@ -312,6 +317,25 @@ export class ScryfallClient {
       return cached;
     }
 
+    const inFlight = this.inFlightSearches.get(cacheKey);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const searchPromise = this.fetchSearchResult(searchRequest, cacheKey, reqId)
+      .finally(() => {
+        this.inFlightSearches.delete(cacheKey);
+      });
+    this.inFlightSearches.set(cacheKey, searchPromise);
+
+    return searchPromise;
+  }
+
+  private async fetchSearchResult(
+    searchRequest: NormalizedSearchRequest,
+    cacheKey: string,
+    reqId: string
+  ): Promise<ScryfallSearchResponse> {
     const requestedOffset = (searchRequest.requestedPage - 1) * searchRequest.requestedLimit;
     const startingApiPage = Math.floor(requestedOffset / this.searchApiPageSize) + 1;
     const relativeOffset = requestedOffset - ((startingApiPage - 1) * this.searchApiPageSize);
@@ -654,7 +678,15 @@ export class ScryfallClient {
    * Cleanup resources
    */
   destroy(): void {
-    this.cache.destroy();
-    this.rateLimiter.reset();
+    this.inFlightCardLookups.clear();
+    this.inFlightSearches.clear();
+
+    if (this.ownsCache) {
+      this.cache.destroy();
+    }
+
+    if (this.ownsRateLimiter) {
+      this.rateLimiter.reset();
+    }
   }
 }

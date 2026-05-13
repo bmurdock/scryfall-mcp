@@ -1,3 +1,6 @@
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { CacheService } from '../services/cache-service.js';
 import { BulkDataInfo, ScryfallCard } from '../types/scryfall-api.js';
@@ -15,6 +18,13 @@ type BulkBuildDiagnostics = {
   payloadBytes: number;
   cached: boolean;
   oversizeReason?: string;
+};
+
+type DiskBulkSnapshot = {
+  updatedAt: string;
+  totalCards: number;
+  payloadBytes: number;
+  path: string;
 };
 
 const BULK_PAYLOAD_KEY = CacheService.createBulkKey('cards:serialized');
@@ -73,6 +83,8 @@ export class CardDatabaseResource {
   private lastUpdateCheck = 0;
   private readonly updateCheckInterval = 24 * 60 * 60 * 1000; // 24 hours
   private rebuildInFlight?: Promise<string>;
+  private diskSnapshot?: DiskBulkSnapshot;
+  private readonly diskCacheDir = join(tmpdir(), 'scryfall-mcp');
   private lastBuildDiagnostics: BulkBuildDiagnostics = {
     totalCards: 0,
     retainedChunks: 0,
@@ -93,6 +105,7 @@ export class CardDatabaseResource {
       const bulkInfo = await this.getBulkInfoIfUpdateCheckDue();
       const cachedPayload = this.cache.getWithStats<string>(BULK_PAYLOAD_KEY);
       const cachedMetadata = this.cache.get<BulkSnapshotMetadata>(BULK_METADATA_KEY);
+      const diskPayload = await this.getDiskSnapshotIfCurrent(bulkInfo);
       const cachedIsCurrent = Boolean(
         cachedPayload &&
         cachedMetadata &&
@@ -101,6 +114,10 @@ export class CardDatabaseResource {
 
       if (cachedPayload && cachedIsCurrent) {
         return cachedPayload;
+      }
+
+      if (diskPayload) {
+        return diskPayload;
       }
 
       try {
@@ -112,6 +129,15 @@ export class CardDatabaseResource {
             'Serving stale bulk snapshot after refresh failure'
           );
           return cachedPayload;
+        }
+
+        const staleDiskPayload = await this.getDiskSnapshotIfCurrent();
+        if (staleDiskPayload) {
+          mcpLogger.warn(
+            { operation: 'bulk_snapshot_refresh', error },
+            'Serving stale disk bulk snapshot after refresh failure'
+          );
+          return staleDiskPayload;
         }
 
         throw error;
@@ -213,8 +239,10 @@ export class CardDatabaseResource {
         },
         'Bulk snapshot exceeds in-memory cache limit'
       );
+      await this.persistDiskSnapshot(payload, oracleCards.updated_at, totalCards, payloadBytes);
     } else {
       this.cache.setWithType(BULK_PAYLOAD_KEY, payload, 'bulk_data', { sizeBytes: payloadBytes });
+      await this.clearDiskSnapshot();
       this.lastBuildDiagnostics = {
         ...this.lastBuildDiagnostics,
         cached: this.cache.get<string>(BULK_PAYLOAD_KEY) === payload,
@@ -227,6 +255,63 @@ export class CardDatabaseResource {
     }, 'bulk_data');
 
     return payload;
+  }
+
+  private async getDiskSnapshotIfCurrent(bulkInfo?: BulkDataInfo): Promise<string | undefined> {
+    if (!this.diskSnapshot) {
+      return undefined;
+    }
+
+    if (bulkInfo && this.diskSnapshot.updatedAt !== bulkInfo.updated_at) {
+      return undefined;
+    }
+
+    try {
+      return await readFile(this.diskSnapshot.path, 'utf-8');
+    } catch (error) {
+      mcpLogger.warn(
+        { operation: 'bulk_snapshot_disk_cache', error },
+        'Failed to read disk bulk snapshot'
+      );
+      this.diskSnapshot = undefined;
+      return undefined;
+    }
+  }
+
+  private async persistDiskSnapshot(
+    payload: string,
+    updatedAt: string,
+    totalCards: number,
+    payloadBytes: number
+  ): Promise<void> {
+    try {
+      await mkdir(this.diskCacheDir, { recursive: true });
+      const safeUpdatedAt = updatedAt.replace(/[^a-zA-Z0-9.-]/g, '-');
+      const path = join(this.diskCacheDir, `oracle-cards-${safeUpdatedAt}.json`);
+      await writeFile(path, payload, 'utf-8');
+      await this.clearDiskSnapshot(path);
+      this.diskSnapshot = { updatedAt, totalCards, payloadBytes, path };
+    } catch (error) {
+      mcpLogger.warn(
+        { operation: 'bulk_snapshot_disk_cache', error },
+        'Failed to persist oversized bulk snapshot to disk'
+      );
+    }
+  }
+
+  private async clearDiskSnapshot(exceptPath?: string): Promise<void> {
+    if (!this.diskSnapshot || this.diskSnapshot.path === exceptPath) {
+      return;
+    }
+
+    const path = this.diskSnapshot.path;
+    this.diskSnapshot = undefined;
+
+    try {
+      await unlink(path);
+    } catch {
+      // Best-effort cleanup of temp cache files.
+    }
   }
 
   /**
@@ -320,8 +405,13 @@ export class CardDatabaseResource {
   async forceRefresh(): Promise<void> {
     this.cache.delete(BULK_PAYLOAD_KEY);
     this.cache.delete(BULK_METADATA_KEY);
+    await this.clearDiskSnapshot();
     this.lastUpdateCheck = 0;
     await this.getData(); // This will trigger a fresh download
+  }
+
+  async destroy(): Promise<void> {
+    await this.clearDiskSnapshot();
   }
 
   /**

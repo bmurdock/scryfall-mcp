@@ -17,6 +17,7 @@ export interface ToolContract extends ToolDefinition {
 
 export interface ResourceContract extends ResourceDefinition {
   getData(): Promise<string>;
+  destroy?(): void | Promise<void>;
 }
 
 export interface PromptContract extends PromptDefinition {

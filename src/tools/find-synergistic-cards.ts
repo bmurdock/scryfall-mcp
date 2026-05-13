@@ -1,5 +1,5 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
-import { ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
+import { RateLimitError, ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
 import { MagicFormat, ScryfallCard } from '../types/scryfall-api.js';
 import { normalizeLowercaseString, normalizeTrimmedString } from '../utils/input-normalization.js';
 import {
@@ -283,6 +283,31 @@ export class FindSynergisticCardsTool {
         };
       }
 
+      if (error instanceof RateLimitError) {
+        const retry = error.retryAfter ? ` Retry after ${error.retryAfter}s.` : '';
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Rate limit exceeded.${retry} Please wait and try again.`
+            }
+          ],
+          isError: true
+        };
+      }
+
+      if (error instanceof ScryfallAPIError && (error.status === 429 || error.status >= 500)) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Scryfall API error: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+
       // Generic error handling
       return {
         content: [
@@ -352,7 +377,13 @@ export class FindSynergisticCardsTool {
             _synergy_query: query
           });
         }
-      } catch {
+      } catch (error) {
+        if (
+          error instanceof RateLimitError ||
+          (error instanceof ScryfallAPIError && (error.status === 429 || error.status >= 500))
+        ) {
+          throw error;
+        }
         failedSearches += 1;
         continue;
       }

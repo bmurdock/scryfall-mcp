@@ -65,7 +65,7 @@ describe("CacheService", () => {
     expect(cache.get("c")).toEqual({ value: "gamma" });
   });
 
-  it("updates recency without rewriting map iteration order on get", () => {
+  it("updates recency by moving accessed entries to the back of map iteration order", () => {
     const cache = new CacheService(60_000, 2, 10);
     caches.push(cache);
 
@@ -76,7 +76,7 @@ describe("CacheService", () => {
     const keys = Array.from(
       (cache as unknown as { cache: Map<string, unknown> }).cache.keys()
     );
-    expect(keys).toEqual(["a", "b"]);
+    expect(keys).toEqual(["b", "a"]);
 
     cache.set("c", { value: "gamma" }, 60_000);
     expect(cache.get("a")).toEqual({ value: "alpha" });
@@ -101,7 +101,7 @@ describe("CacheService", () => {
     expect(cache.getStats().memoryUsage).toBeGreaterThan(0);
   });
 
-  it("selects eviction victims via iterative least-recently-used scans", () => {
+  it("evicts least-recently-used entries from map order", () => {
     const cache = new CacheService(60_000, 10, 1);
     caches.push(cache);
 
@@ -110,19 +110,11 @@ describe("CacheService", () => {
     cache.set("c", "c".repeat(150_000), 60_000);
     expect(cache.get("c")).toBe("c".repeat(150_000));
 
-    const cacheInternals = cache as unknown as {
-      findLeastRecentlyUsedKey: () => string | undefined;
-    };
-    const originalFind = cacheInternals.findLeastRecentlyUsedKey.bind(cache);
-    const findSpy = vi.fn(originalFind);
-    cacheInternals.findLeastRecentlyUsedKey = findSpy;
-
     cache.set("large", "large".repeat(60_000), 60_000);
 
     expect(cache.get("large")).toBe("large".repeat(60_000));
     expect(cache.get("c")).toBe("c".repeat(150_000));
-    expect(findSpy.mock.calls.length).toBeGreaterThan(0);
-    expect(findSpy.mock.calls.length).toBeLessThanOrEqual(3);
+    expect(cache.get("a")).toBeNull();
   });
 
   it("estimates object size without invoking toJSON when no size hint is provided", () => {

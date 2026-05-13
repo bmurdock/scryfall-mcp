@@ -128,4 +128,71 @@ describe("HTTP transport entrypoint", () => {
       },
     });
   });
+
+  it("expires idle HTTP MCP sessions", async () => {
+    await closeRuntime?.();
+
+    const runtime = createHttpAppServer({
+      host: "127.0.0.1",
+      port: 0,
+      sessionIdleMs: 5,
+      sessionCleanupIntervalMs: 5,
+    });
+    server = runtime.server;
+    closeRuntime = runtime.close;
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+
+    const address = server.address() as AddressInfo;
+    const config = runtime.config as HttpServerConfig;
+    baseUrl = new URL(`http://127.0.0.1:${address.port}${config.mcpPath}`);
+
+    const initialize = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: {
+            name: "idle-session-test",
+            version: "1.0.0",
+          },
+        },
+      }),
+    });
+    const sessionId = initialize.headers.get("mcp-session-id");
+    expect(sessionId).toBeTruthy();
+    await initialize.text();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const afterIdle = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-session-id": sessionId!,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+      }),
+    });
+
+    expect(afterIdle.status).toBe(400);
+    await expect(afterIdle.json()).resolves.toMatchObject({
+      error: {
+        message: "Bad Request: No valid session ID provided",
+      },
+    });
+  });
 });

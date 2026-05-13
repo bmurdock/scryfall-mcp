@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { access } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CardDatabaseResource } from "../src/resources/card-database.js";
 import { CacheService } from "../src/services/cache-service.js";
 import { mcpLogger } from "../src/services/logger.js";
@@ -128,6 +129,11 @@ describe("CardDatabaseResource", () => {
       } as never,
       cache
     );
+  });
+
+  afterEach(async () => {
+    await resource.destroy();
+    cache.destroy();
   });
 
   it("builds one serialized snapshot on cold read and caches the final string", async () => {
@@ -285,6 +291,47 @@ describe("CardDatabaseResource", () => {
     );
 
     warnSpy.mockRestore();
+  });
+
+  it("serves oversized snapshots from disk on warm reads without rebuilding", async () => {
+    cache.destroy();
+    cache = new CacheService(60_000, 100, 0.0001);
+    resource = new CardDatabaseResource(
+      {
+        getBulkDataInfo,
+        streamBulkData,
+      } as never,
+      cache
+    );
+
+    const first = await resource.getData();
+    const second = await resource.getData();
+
+    expect(second).toEqual(first);
+    expect(streamBulkData).toHaveBeenCalledTimes(1);
+    expect(cache.get<string>(CacheService.createBulkKey("cards:serialized"))).toBeNull();
+  });
+
+  it("removes oversized disk snapshots when destroyed", async () => {
+    cache.destroy();
+    cache = new CacheService(60_000, 100, 0.0001);
+    resource = new CardDatabaseResource(
+      {
+        getBulkDataInfo,
+        streamBulkData,
+      } as never,
+      cache
+    );
+
+    await resource.getData();
+
+    const snapshot = (resource as unknown as { diskSnapshot?: { path: string } }).diskSnapshot;
+    expect(snapshot?.path).toBeTruthy();
+    await expect(access(snapshot!.path)).resolves.toBeUndefined();
+
+    await resource.destroy();
+
+    await expect(access(snapshot!.path)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("exposes bulk cache retention diagnostics in resource metadata", async () => {

@@ -328,7 +328,12 @@ export class ScryfallMCPServer {
   /**
    * Cleanup resources
    */
-  destroy(): void {
+  async destroy(): Promise<void> {
+    await Promise.all(
+      Array.from(this.resources.values()).map(async (resource) => {
+        await resource.destroy?.();
+      })
+    );
     this.cache.destroy();
     this.rateLimiter.reset();
     this.scryfallClient.destroy();
