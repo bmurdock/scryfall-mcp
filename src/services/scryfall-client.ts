@@ -109,8 +109,7 @@ export class ScryfallClient {
       this.assertCircuitClosed(url, reqId);
 
       try {
-        const response = await this.fetchJsonResponse(url);
-        const data = await this.parseJsonResponse<T>(response);
+        const { response, data } = await this.fetchJsonResponse<T>(url);
 
         if (response.status >= 400) {
           throw await this.buildHttpError(response, data, url, reqId);
@@ -170,27 +169,44 @@ export class ScryfallClient {
     throw error;
   }
 
-  private async fetchJsonResponse(url: string): Promise<Response> {
+  private async fetchJsonResponse<T>(url: string): Promise<{ response: Response; data: T }> {
     return this.fetchWithTimeout(url, {
       ...REQUIRED_HEADERS,
       "User-Agent": this.userAgent,
-    });
+    }, async (response) => ({
+      response,
+      data: await this.parseJsonResponse<T>(response),
+    }));
   }
 
-  private async fetchWithTimeout(url: string, headers: Record<string, string>, timeoutMs = this.timeoutMs()): Promise<Response> {
+  private async fetchWithTimeout<T>(
+    url: string,
+    headers: Record<string, string>,
+    consume: (response: Response) => Promise<T>,
+    timeoutMs = this.timeoutMs()
+  ): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    return fetch(url, {
-      headers,
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout));
+    try {
+      const response = await fetch(url, {
+        headers,
+        signal: controller.signal,
+      });
+      return await consume(response);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async parseJsonResponse<T>(response: Response): Promise<T> {
     try {
       return await response.json() as T;
     } catch (jsonError) {
+      if (jsonError instanceof Error && jsonError.name === "AbortError") {
+        throw jsonError;
+      }
+
       const originalError = jsonError instanceof Error ? jsonError.message : "Unknown JSON error";
 
       throw new Error(
@@ -207,6 +223,10 @@ export class ScryfallClient {
   ): Promise<ScryfallAPIError | RateLimitError> {
     if (this.shouldRecordHttpError(response.status)) {
       this.rateLimiter.recordError(response.status);
+    } else {
+      // A delivered non-transient response proves the upstream service is
+      // reachable, even though the caller's request was unsuccessful.
+      this.rateLimiter.recordSuccess();
     }
 
     if (response.status === 429) {
@@ -525,7 +545,7 @@ export class ScryfallClient {
       url = new URL(`${this.baseUrl}/cards/${params.identifier}`);
     }
     // Check if identifier is set code + collector number
-    else if (params.identifier.includes("/")) {
+    else if (/^[a-z0-9]{3,8}\/[^\s/]+$/i.test(params.identifier)) {
       const [setCode, collectorNumber] = params.identifier.split("/");
       url = new URL(`${this.baseUrl}/cards/${setCode}/${collectorNumber}`);
     }
@@ -627,17 +647,19 @@ export class ScryfallClient {
       const response = await this.fetchWithTimeout(
         downloadUri,
         { "User-Agent": this.userAgent },
+        async (bulkResponse) => {
+          if (bulkResponse.status >= 400) {
+            throw new ScryfallAPIError(
+              `Failed to download bulk data: HTTP ${bulkResponse.status}`,
+              bulkResponse.status
+            );
+          }
+
+          return (await bulkResponse.json()) as ScryfallCard[];
+        },
         this.timeoutMs() * 2
       );
-
-      if (response.status >= 400) {
-        throw new ScryfallAPIError(
-          `Failed to download bulk data: HTTP ${response.status}`,
-          response.status
-        );
-      }
-
-      return (await response.json()) as ScryfallCard[];
+      return response;
     } catch (error) {
       throw new ScryfallAPIError(
         `Bulk data download error: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -651,12 +673,21 @@ export class ScryfallClient {
    * Streams bulk card data (doesn't count against rate limits)
    */
   async *streamBulkData(downloadUri: string): AsyncGenerator<ScryfallCard> {
+    const controller = new AbortController();
+    let timeout: NodeJS.Timeout | undefined;
+    const armIdleTimeout = () => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      timeout = setTimeout(() => controller.abort(), this.timeoutMs() * 2);
+    };
+
     try {
-      const response = await this.fetchWithTimeout(
-        downloadUri,
-        { "User-Agent": this.userAgent },
-        this.timeoutMs() * 2
-      );
+      armIdleTimeout();
+      const response = await fetch(downloadUri, {
+        headers: { "User-Agent": this.userAgent },
+        signal: controller.signal,
+      });
 
       if (response.status >= 400 || !response.body) {
         throw new ScryfallAPIError(
@@ -666,7 +697,12 @@ export class ScryfallClient {
       }
 
       for await (const card of iterateArrayStream<ScryfallCard>(response.body)) {
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = undefined;
+        }
         yield card;
+        armIdleTimeout();
       }
     } catch (error) {
       if (error instanceof ScryfallAPIError) {
@@ -678,6 +714,11 @@ export class ScryfallClient {
         0,
         (error instanceof Error && error.name === 'AbortError') ? "timeout" : "bulk_download_error"
       );
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      controller.abort();
     }
   }
 

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CacheService } from "../src/services/cache-service.js";
+import { RateLimiter } from "../src/services/rate-limiter.js";
 import { ScryfallClient } from "../src/services/scryfall-client.js";
 import type { ScryfallCard, ScryfallSearchResponse } from "../src/types/scryfall-api.js";
 
@@ -231,6 +232,79 @@ describe("ScryfallClient JSON parsing", () => {
     expect(url.searchParams.has("fuzzy")).toBe(false);
   });
 
+  it("uses named lookup for split-card names containing slashes", async () => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue(createCard()),
+    });
+
+    const client = createClient();
+
+    await client.getCard({ identifier: "Fire // Ice", match: "exact" });
+
+    const url = new URL(fetchMock.mock.calls[0][0].toString());
+    expect(url.pathname).toBe("/cards/named");
+    expect(url.searchParams.get("exact")).toBe("Fire // Ice");
+  });
+
+  it("uses set and collector lookup for current long set codes", async () => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue(createCard()),
+    });
+
+    const client = createClient();
+
+    await client.getCard({ identifier: "plg25/1", match: "exact" });
+
+    const url = new URL(fetchMock.mock.calls[0][0].toString());
+    expect(url.pathname).toBe("/cards/plg25/1");
+    expect(url.searchParams.has("exact")).toBe(false);
+  });
+
+  it("keeps the timeout active while the response body is being consumed", async () => {
+    vi.useFakeTimers();
+    const previousTimeout = process.env.SCRYFALL_TIMEOUT_MS;
+    process.env.SCRYFALL_TIMEOUT_MS = "1000";
+    try {
+      let requestSignal: AbortSignal | undefined;
+      fetchMock.mockImplementation((_url, init?: RequestInit) => {
+        requestSignal = init?.signal ?? undefined;
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          headers: new Headers(),
+          json: vi.fn(() => new Promise((_resolve, reject) => {
+            requestSignal?.addEventListener("abort", () => {
+              const error = new Error("Body read aborted");
+              error.name = "AbortError";
+              reject(error);
+            }, { once: true });
+          })),
+        });
+      });
+
+      const client = createClient();
+      const request = client.searchCards({ query: "type:creature", limit: 1 }).catch((error) => error);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(requestSignal?.aborted).toBe(true);
+      await expect(request).resolves.toMatchObject({ apiCode: "timeout" });
+    } finally {
+      if (previousTimeout === undefined) {
+        delete process.env.SCRYFALL_TIMEOUT_MS;
+      } else {
+        process.env.SCRYFALL_TIMEOUT_MS = previousTimeout;
+      }
+      vi.useRealTimers();
+    }
+  });
+
   it("does not reuse cached card details across exact and fuzzy lookup modes", async () => {
     fetchMock.mockResolvedValue({
       status: 200,
@@ -288,7 +362,7 @@ describe("ScryfallClient JSON parsing", () => {
   it.each([
     [404, "not_found"],
     [422, "invalid_query"],
-  ])("does not count expected HTTP %s responses as transient failures", async (status, code) => {
+  ])("resets transient failure state after expected HTTP %s responses", async (status, code) => {
     fetchMock.mockResolvedValue({
       status,
       ok: false,
@@ -306,7 +380,44 @@ describe("ScryfallClient JSON parsing", () => {
       "User-correctable request error"
     );
     expect(rateLimiter.recordError).not.toHaveBeenCalled();
+    expect(rateLimiter.recordSuccess).toHaveBeenCalledTimes(1);
     expect(rateLimiter.handleRateLimitResponse).not.toHaveBeenCalled();
+  });
+
+  it("clears accumulated circuit backoff after a reachable 4xx recovery probe", async () => {
+    vi.useFakeTimers();
+    const realRateLimiter = new RateLimiter(1, 3, 2, 5);
+    realRateLimiter.recordError(500);
+    realRateLimiter.recordError(500);
+    realRateLimiter.recordError(500);
+    await vi.advanceTimersByTimeAsync(5);
+
+    fetchMock.mockResolvedValue({
+      status: 404,
+      ok: false,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue({
+        object: "error",
+        code: "not_found",
+        details: "Recovery probe reached Scryfall",
+      }),
+    });
+    const client = new ScryfallClient(realRateLimiter, cache);
+
+    try {
+      const request = expect(
+        client.searchCards({ query: "name:missing", limit: 1 })
+      ).rejects.toThrow("Recovery probe reached Scryfall");
+      await vi.advanceTimersByTimeAsync(5);
+      await request;
+      expect(realRateLimiter.getStatus()).toMatchObject({
+        consecutiveErrors: 0,
+        currentBackoffDelay: 0,
+      });
+    } finally {
+      realRateLimiter.reset();
+      vi.useRealTimers();
+    }
   });
 
   it.each([

@@ -271,6 +271,16 @@ describe('Error Handling System', () => {
       expect(correlations).toContain('perf:test_operation:100ms');
     });
 
+    it('should bound request correlations for arbitrary request IDs', () => {
+      for (let index = 0; index < 1100; index += 1) {
+        ErrorMonitor.trackError('TEST_ERROR', `external-${index}`);
+      }
+
+      expect(Object.keys(ErrorMonitor.getAllCorrelations()).length).toBeLessThanOrEqual(1000);
+      expect(ErrorMonitor.getRequestCorrelations('external-0')).toEqual([]);
+      expect(ErrorMonitor.getRequestCorrelations('external-1099')).toContain('error:TEST_ERROR');
+    });
+
     it('should generate monitoring report', () => {
       ErrorMonitor.trackError('TEST_ERROR');
       ErrorMonitor.trackPerformance('test_operation', 100);

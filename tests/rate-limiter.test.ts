@@ -7,6 +7,26 @@ describe("RateLimiter", () => {
     vi.useRealTimers();
   });
 
+  it("allows one recovery probe after the circuit cooldown", async () => {
+    vi.useFakeTimers();
+    const limiter = new RateLimiter(100, 3, 2, 1_000);
+
+    limiter.recordError(500);
+    limiter.recordError(500);
+    limiter.recordError(500);
+
+    expect(limiter.isCircuitOpen()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(limiter.isCircuitOpen()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(limiter.isCircuitOpen()).toBe(false);
+
+    limiter.recordSuccess();
+    expect(limiter.getStatus().consecutiveErrors).toBe(0);
+  });
+
   it("does not start the next queued operation until the prior one completes", async () => {
     const limiter = new RateLimiter(0, 3, 2, 100);
     const started: string[] = [];

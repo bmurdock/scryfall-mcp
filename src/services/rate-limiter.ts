@@ -29,6 +29,7 @@ export class RateLimiter {
   private activeSleepReject: ((error: Error) => void) | null = null;
   private resetGeneration = 0;
   private nextAllowedRequestTime = 0;
+  private circuitOpenedAt: number | null = null;
 
   constructor(
     private minInterval: number = EnvValidators.rateLimitMs(process.env.RATE_LIMIT_MS),
@@ -146,6 +147,9 @@ export class RateLimiter {
     }
 
     this.consecutiveErrors++;
+    if (this.consecutiveErrors >= this.maxRetries) {
+      this.circuitOpenedAt = Date.now();
+    }
   }
 
   /**
@@ -153,6 +157,7 @@ export class RateLimiter {
    */
   recordSuccess(): void {
     this.consecutiveErrors = 0;
+    this.circuitOpenedAt = null;
   }
 
   /**
@@ -229,6 +234,7 @@ export class RateLimiter {
     this.consecutiveErrors = 0;
     this.lastRequestTime = 0;
     this.nextAllowedRequestTime = 0;
+    this.circuitOpenedAt = null;
   }
 
   /**
@@ -295,7 +301,15 @@ export class RateLimiter {
    * Creates a circuit breaker pattern for API failures
    */
   isCircuitOpen(): boolean {
-    return this.consecutiveErrors >= this.maxRetries;
+    if (this.consecutiveErrors < this.maxRetries) {
+      return false;
+    }
+
+    if (this.circuitOpenedAt === null) {
+      this.circuitOpenedAt = Date.now();
+    }
+
+    return Date.now() - this.circuitOpenedAt < this.maxBackoffMs;
   }
 
   /**

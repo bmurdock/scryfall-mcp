@@ -1,21 +1,20 @@
 import { mcpLogger } from './logger-core.js';
 
 export class ErrorMonitor {
+  private static readonly maxCorrelations = 1000;
   private static errorCounts = new Map<string, number>();
   private static performanceMetrics = new Map<
     string,
     { count: number; totalTime: number; avgTime: number }
   >();
-  private static correlationMap = new Map<string, string[]>();
+  private static correlationMap = new Map<string, { events: string[]; updatedAt: number }>();
 
   static trackError(errorCode: string, requestId?: string): void {
     const count = this.errorCounts.get(errorCode) || 0;
     this.errorCounts.set(errorCode, count + 1);
 
     if (requestId) {
-      const correlations = this.correlationMap.get(requestId) || [];
-      correlations.push(`error:${errorCode}`);
-      this.correlationMap.set(requestId, correlations);
+      this.addCorrelation(requestId, `error:${errorCode}`);
     }
 
     mcpLogger.debug(
@@ -46,9 +45,7 @@ export class ErrorMonitor {
     });
 
     if (requestId) {
-      const correlations = this.correlationMap.get(requestId) || [];
-      correlations.push(`perf:${operation}:${duration}ms`);
-      this.correlationMap.set(requestId, correlations);
+      this.addCorrelation(requestId, `perf:${operation}:${duration}ms`);
     }
 
     mcpLogger.debug(
@@ -75,24 +72,22 @@ export class ErrorMonitor {
   }
 
   static getRequestCorrelations(requestId: string): string[] {
-    return this.correlationMap.get(requestId) || [];
+    return this.correlationMap.get(requestId)?.events || [];
   }
 
   static getAllCorrelations(): Record<string, string[]> {
-    return Object.fromEntries(this.correlationMap);
+    return Object.fromEntries(
+      Array.from(this.correlationMap, ([requestId, entry]) => [requestId, entry.events])
+    );
   }
 
   static cleanupCorrelations(olderThanMs: number = 24 * 60 * 60 * 1000): void {
     const cutoff = Date.now() - olderThanMs;
     const toDelete: string[] = [];
 
-    for (const [requestId] of this.correlationMap) {
-      const parts = requestId.split('_');
-      if (parts.length >= 2) {
-        const timestamp = parseInt(parts[1], 10);
-        if (timestamp < cutoff) {
-          toDelete.push(requestId);
-        }
+    for (const [requestId, entry] of this.correlationMap) {
+      if (entry.updatedAt < cutoff) {
+        toDelete.push(requestId);
       }
     }
 
@@ -112,6 +107,23 @@ export class ErrorMonitor {
     this.performanceMetrics.clear();
     this.correlationMap.clear();
     mcpLogger.info({ operation: 'monitoring_reset' }, 'Error monitoring data reset');
+  }
+
+  private static addCorrelation(requestId: string, event: string): void {
+    const existing = this.correlationMap.get(requestId);
+    const events = existing?.events ?? [];
+    events.push(event);
+
+    this.correlationMap.delete(requestId);
+    this.correlationMap.set(requestId, { events, updatedAt: Date.now() });
+
+    while (this.correlationMap.size > this.maxCorrelations) {
+      const oldestRequestId = this.correlationMap.keys().next().value;
+      if (oldestRequestId === undefined) {
+        break;
+      }
+      this.correlationMap.delete(oldestRequestId);
+    }
   }
 
   static getMonitoringReport(): {

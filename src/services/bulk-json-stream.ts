@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { parser } from 'stream-json';
-import { streamArray } from 'stream-json/streamers/stream-array';
+import { streamArray } from 'stream-json/streamers/stream-array.js';
 import chain from 'stream-chain';
 
 export async function* iterateArrayStream<T>(
