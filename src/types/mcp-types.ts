@@ -180,6 +180,7 @@ export const RATE_LIMIT_CONFIG = {
 // MCP Tool Definitions
 export interface ToolDefinition {
   name: string;
+  title?: string;
   description: string;
   inputSchema: {
     type: "object";
@@ -194,6 +195,8 @@ export interface ToolDefinition {
     >;
     required?: string[];
   };
+  annotations?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
 }
 
 // MCP Resource Definitions
@@ -202,6 +205,7 @@ export interface ResourceDefinition {
   name: string;
   description: string;
   mimeType?: string;
+  _meta?: Record<string, unknown>;
 }
 
 // MCP Prompt Definitions

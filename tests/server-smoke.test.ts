@@ -50,11 +50,48 @@ describe('MCP server smoke tests', () => {
 
   it('lists registered tools through the MCP server handler', async () => {
     const result = await invokeRequest(sdkServer, 'tools/list');
-    const tools = (result as { tools: Array<{ name: string }> }).tools.map((tool) => tool.name);
+    const listedTools = (result as {
+      tools: Array<{ name: string; inputSchema?: { properties?: Record<string, { type?: string }> }; _meta?: Record<string, unknown> }>;
+    }).tools;
+    const tools = listedTools.map((tool) => tool.name);
 
     expect(tools).toContain('search_cards');
     expect(tools).toContain('query_rules');
     expect(tools).toContain('suggest_mana_base');
+    expect(tools).toContain('show_card_search');
+    expect(listedTools.find((tool) => tool.name === 'show_card_search')?._meta).toMatchObject({
+      ui: {
+        resourceUri: 'ui://widget/card-search.html',
+      },
+    });
+    expect(listedTools.find((tool) => tool.name === 'show_card_search')?.inputSchema?.properties?.limit?.type).toBe('integer');
+  });
+
+  it('exposes the ChatGPT card search widget as an MCP app resource', async () => {
+    const listResult = await invokeRequest(sdkServer, 'resources/list');
+    const resources = (listResult as { resources: Array<{ uri: string; mimeType?: string }> }).resources;
+
+    expect(resources).toContainEqual(
+      expect.objectContaining({
+        uri: 'ui://widget/card-search.html',
+        mimeType: 'text/html;profile=mcp-app',
+      })
+    );
+
+    const readResult = await invokeRequest(sdkServer, 'resources/read', {
+      uri: 'ui://widget/card-search.html',
+    });
+    const contents = (readResult as { contents: Array<{ text: string; _meta?: Record<string, unknown> }> }).contents;
+
+    expect(contents[0].text).toContain('ui/notifications/tool-result');
+    expect(contents[0].text).toContain('View on Scryfall');
+    expect(contents[0]._meta).toMatchObject({
+      ui: {
+        csp: {
+          resourceDomains: ['https://cards.scryfall.io'],
+        },
+      },
+    });
   });
 
   it('executes a search tool through the server layer using the registered call handler', async () => {
@@ -93,6 +130,53 @@ describe('MCP server smoke tests', () => {
         limit: 5,
       })
     );
+  });
+
+  it('returns structured widget data from the ChatGPT card search tool', async () => {
+    mockScryfallClient.searchCards.mockResolvedValue({
+      total_cards: 1,
+      has_more: false,
+      data: [
+        {
+          object: 'card',
+          id: 'bolt-id',
+          name: 'Lightning Bolt',
+          mana_cost: '{R}',
+          type_line: 'Instant',
+          image_uris: { normal: 'https://cards.scryfall.io/normal/front/bolt.jpg' },
+          set: 'm10',
+          rarity: 'common',
+          artist: 'Christopher Rush',
+          scryfall_uri: 'https://scryfall.com/card/m10/146/lightning-bolt',
+        },
+      ],
+    });
+
+    const result = await invokeRequest(sdkServer, 'tools/call', {
+      name: 'show_card_search',
+      arguments: {
+        query: 'Lightning Bolt',
+        limit: 1,
+      },
+    });
+
+    const response = result as {
+      content: Array<{ text: string }>;
+      structuredContent?: {
+        cards?: Array<{ name: string; imageUrl?: string; artist?: string; scryfallUrl?: string }>;
+        totalCards?: number;
+      };
+      isError?: boolean;
+    };
+    expect(response.isError).toBeUndefined();
+    expect(response.content[0].text).toContain('Showing 1 Scryfall card result');
+    expect(response.structuredContent?.totalCards).toBe(1);
+    expect(response.structuredContent?.cards?.[0]).toMatchObject({
+      name: 'Lightning Bolt',
+      imageUrl: 'https://cards.scryfall.io/normal/front/bolt.jpg',
+      artist: 'Christopher Rush',
+      scryfallUrl: 'https://scryfall.com/card/m10/146/lightning-bolt',
+    });
   });
 
   it('continues serving valid search calls after a user-correctable invalid search', async () => {

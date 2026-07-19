@@ -8,6 +8,7 @@ export interface ToolResponseContent {
 export interface ToolResponse {
   content: ToolResponseContent[];
   isError?: boolean;
+  structuredContent?: Record<string, unknown>;
   _meta?: Record<string, unknown>;
 }
 

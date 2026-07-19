@@ -42,10 +42,12 @@ import { ValidateBrawlCommanderTool } from "./tools/validate-brawl-commander.js"
 import { BuildScryfallQueryTool } from "./tools/build-scryfall-query.js";
 import { AnalyzeDeckCompositionTool } from "./tools/analyze-deck-composition.js";
 import { SuggestManaBaseTool } from "./tools/suggest-mana-base.js";
+import { ShowCardSearchTool } from "./tools/show-card-search.js";
 
 // Resources
 import { CardDatabaseResource } from "./resources/card-database.js";
 import { SetDatabaseResource } from "./resources/set-database.js";
+import { CardSearchWidgetResource } from "./resources/card-search-widget.js";
 
 // Prompts
 import { AnalyzeCardPrompt } from "./prompts/analyze-card.js";
@@ -114,11 +116,13 @@ export class ScryfallMCPServer {
       new BuildScryfallQueryTool(this.scryfallClient),
       new AnalyzeDeckCompositionTool(this.scryfallClient),
       new SuggestManaBaseTool(this.scryfallClient),
+      new ShowCardSearchTool(this.scryfallClient),
     ]);
 
     this.resources = createUriRegistry<ResourceContract>([
       new CardDatabaseResource(this.scryfallClient, this.cache),
       new SetDatabaseResource(this.scryfallClient, this.cache),
+      new CardSearchWidgetResource(),
     ]);
 
     this.prompts = createNamedRegistry<PromptContract>([
@@ -133,8 +137,11 @@ export class ScryfallMCPServer {
       return {
         tools: Array.from(this.tools.values()).map((tool) => ({
           name: tool.name,
+          title: tool.title,
           description: tool.description,
           inputSchema: tool.inputSchema,
+          annotations: tool.annotations,
+          _meta: tool._meta,
         })),
       };
     });
@@ -182,6 +189,7 @@ export class ScryfallMCPServer {
           name: resource.name,
           description: resource.description,
           mimeType: resource.mimeType,
+          _meta: resource._meta,
         })),
       };
     });
@@ -215,6 +223,7 @@ export class ScryfallMCPServer {
               uri,
               mimeType: resource.mimeType,
               text: data,
+              _meta: resource._meta,
             },
           ],
         };
