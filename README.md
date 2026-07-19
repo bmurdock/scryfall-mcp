@@ -6,7 +6,7 @@ The project currently supports:
 
 - `stdio` as the primary transport for local MCP clients
 - local-first Streamable HTTP via `src/http.ts`
-- 14 MCP tools, 2 resources, and 2 prompts
+- 15 MCP tools, 3 resources, and 2 prompts
 
 ## What It Exposes
 
@@ -26,11 +26,13 @@ The project currently supports:
 - `validate_brawl_commander`: Check Brawl and Standard Brawl commander legality.
 - `analyze_deck_composition`: Evaluate deck lists for curve, colors, and structural issues.
 - `suggest_mana_base`: Recommend land counts and fixing packages from color requirements.
+- `show_card_search`: Render a ChatGPT Apps widget for visual Scryfall card search results.
 
 ### Resources
 
 - `card-database://bulk`: Cached Oracle bulk snapshot.
 - `set-database://all`: Cached set list snapshot.
+- `ui://widget/card-search.html`: ChatGPT Apps widget template for `show_card_search`.
 
 ### Prompts
 
@@ -81,6 +83,24 @@ Current HTTP behavior:
 - rejects non-loopback `Origin` headers by default unless `HTTP_ALLOWED_ORIGINS` is set
 
 The HTTP entrypoint is useful today, but it is still documented conservatively. It is not presented here as a public-hosting story.
+
+### ChatGPT App Development
+
+The HTTP MCP endpoint can be connected to ChatGPT Developer Mode as a local app prototype. Start the server on loopback:
+
+```bash
+npm run dev:http:local
+```
+
+Expose that local endpoint with an HTTPS tunnel:
+
+```bash
+ngrok http 3000
+```
+
+Then connect the tunneled `https://.../mcp` URL in ChatGPT Developer Mode. Refresh the app after changing tool descriptors, widget resources, or metadata so ChatGPT reloads the current MCP surface.
+
+The current ChatGPT-facing widget is `show_card_search`, which returns concise `structuredContent` for the model and renders `ui://widget/card-search.html` in ChatGPT. The widget is read-only against Scryfall, uses Scryfall image URLs, and keeps its CSP resource allowlist limited to `https://cards.scryfall.io`.
 
 ## Setup
 
@@ -153,7 +173,7 @@ Operational notes:
 - Scryfall API calls are globally serialized by the shared rate limiter. Batch tools may schedule multiple local lookups, but upstream Scryfall request completion remains one-at-a-time by design.
 - The default pacing is 100 ms for general API endpoints and at least 500 ms for Scryfall's 2/sec card endpoints: `/cards/search`, `/cards/named`, `/cards/random`, and `/cards/collection`.
 - HTTP 429 responses are not retried automatically. The server records Scryfall's throttle window and delays the next request start so callers can decide whether to retry.
-- `CACHE_MAX_MEMORY_MB` controls whether large in-memory snapshots, including `card-database://bulk`, can be retained. Bulk resource rebuilds stream to a temp file first; oversized snapshots remain on disk for warm reads instead of being retained in memory.
+- `CACHE_MAX_MEMORY_MB` controls whether large in-memory snapshots, including `card-database://bulk`, can be retained. Bulk resource rebuilds stream to a temp file first; oversized snapshots remain on disk for warm reads instead of being retained in the cache. Each MCP resource response still materializes the complete serialized bulk payload required by the resource protocol, so callers should allow memory proportional to that response size.
 - Card detail output includes Scryfall source links and artist attribution when available. Consumers that render Scryfall image URLs should preserve copyright, artist, and source context and should not crop, distort, recolor, watermark, or imply ownership of card images.
 - Deck-list analysis resolves card names exactly first, then falls back to fuzzy lookup for exact misses and reports any fuzzy resolutions in the response.
 - Deck-scale tools may return partial analysis or an explicit retry-after message when Scryfall throttles the underlying card lookups.
@@ -242,7 +262,7 @@ Windows path: `%APPDATA%/Claude/claude_desktop_config.json`
 
 - Rate limiting is enforced in-process with a 100 ms default minimum interval between general Scryfall API requests and a 500 ms minimum for Scryfall's 2/sec card endpoints.
 - Search responses, card details, prices, sets, and bulk snapshots are cached with bounded in-memory limits.
-- The bulk card resource streams rebuilds through disk and stores a pre-serialized snapshot to keep repeated reads cheap.
+- The bulk card resource streams rebuilds through disk and stores a pre-serialized snapshot to keep repeated reads cheap. Cache retention is bounded, but producing a bulk resource response still requires the full serialized response text in process memory.
 - Set filtering is derived from one canonical cached `/sets` dataset to avoid incorrect filtered cache reuse.
 - Health checks are available through `ScryfallMCPServer.healthCheck()` and the HTTP `/health` endpoint.
 - If an MCP connector reports a JSON-RPC/SSE deserialization error, compare it against the raw HTTP smoke path:

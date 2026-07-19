@@ -34,7 +34,7 @@ Important implementation notes:
 
 - bulk card data is discovered through the bulk endpoint, streamed from the direct download URI, and cached as a serialized snapshot
 - set filtering is derived from one canonical cached `/sets` dataset
-- cache size and memory usage are bounded in-process
+- in-process cache retention is bounded; a complete bulk MCP resource response still occupies memory while it is returned
 - oversized bulk snapshots are streamed through disk and retained on disk for warm reads when the serialized payload is too large for the configured in-memory cache
 
 ### Bulk Data
