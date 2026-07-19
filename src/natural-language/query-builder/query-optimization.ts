@@ -101,7 +101,7 @@ export async function testAndAdjustQuery(
     const optimizations: QueryOptimization[] = [];
     let adjustedQuery = query;
     const totalCards = testResult.total_cards ?? 0;
-    const testSummary: QueryTestSummary = {
+    let testSummary: QueryTestSummary = {
       total_cards: totalCards,
       has_more: testResult.has_more ?? false,
     };
@@ -120,6 +120,25 @@ export async function testAndAdjustQuery(
         reason: `Original query returned ${totalCards} results`,
         change: `${query} → ${adjustedQuery}`
       });
+    }
+
+    if (adjustedQuery !== query) {
+      try {
+        const adjustedResult = await scryfallClient.searchCards({
+          query: adjustedQuery,
+          limit: 1,
+        });
+        testSummary = {
+          total_cards: adjustedResult.total_cards ?? 0,
+          has_more: adjustedResult.has_more ?? false,
+        };
+      } catch (error) {
+        mcpLogger.warn(
+          { operation: 'adjusted_query_test', error: error instanceof Error ? error.message : String(error) },
+          'Adjusted query testing failed'
+        );
+        return { query: adjustedQuery, optimizations };
+      }
     }
 
     return { query: adjustedQuery, optimizations, testSummary };

@@ -7,10 +7,9 @@
  */
 
 import { TypeConcept, SubtypeConcept } from '../types.js';
+import { containsWholePhrase } from '../text-matching.js';
 
-type CardTypeDefinition = Pick<TypeConcept, 'type' | 'supertype' | 'confidence'> & {
-  function?: string;
-};
+type CardTypeDefinition = Pick<TypeConcept, 'type' | 'supertype' | 'function' | 'confidence'>;
 
 type SubtypeCategory = SubtypeConcept['category'];
 
@@ -61,8 +60,8 @@ export class TypePatternEngine {
     
     // Functional groupings
     ['removal', { function: 'removal', confidence: 0.88 }],
-    ['counterspell', { function: 'counterspell', confidence: 0.90 }],
-    ['counterspells', { function: 'counterspell', confidence: 0.90 }],
+    ['counterspell', { type: 'instant OR sorcery', function: 'counterspell', confidence: 0.90 }],
+    ['counterspells', { type: 'instant OR sorcery', function: 'counterspell', confidence: 0.90 }],
     ['draw', { function: 'draw', confidence: 0.85 }],
     ['card draw', { function: 'draw', confidence: 0.88 }],
     ['ramp', { function: 'ramp', confidence: 0.90 }],
@@ -141,10 +140,11 @@ export class TypePatternEngine {
     const lowerText = text.toLowerCase();
     
     for (const [pattern, definition] of this.cardTypes) {
-      if (lowerText.includes(pattern)) {
+      if (containsWholePhrase(lowerText, pattern)) {
         concepts.push({
           type: definition.type,
           supertype: definition.supertype,
+          function: definition.function,
           confidence: definition.confidence,
           context: this.getContextWindow(text, pattern, 3)
         });
@@ -162,7 +162,7 @@ export class TypePatternEngine {
     const lowerText = text.toLowerCase();
     
     for (const [pattern, definition] of this.subtypes) {
-      if (lowerText.includes(pattern)) {
+      if (containsWholePhrase(lowerText, pattern)) {
         concepts.push({
           subtype: definition.subtype,
           category: definition.category,
@@ -171,7 +171,15 @@ export class TypePatternEngine {
       }
     }
     
-    return concepts;
+    const unique = new Map<string, SubtypeConcept>();
+    for (const concept of concepts) {
+      const existing = unique.get(concept.subtype);
+      if (!existing || concept.confidence > existing.confidence) {
+        unique.set(concept.subtype, concept);
+      }
+    }
+
+    return Array.from(unique.values());
   }
   
   /**
@@ -205,7 +213,7 @@ export class TypePatternEngine {
     const seen = new Set<string>();
     
     for (const concept of concepts) {
-      const key = concept.type || concept.supertype || '';
+      const key = concept.type || concept.supertype || concept.function || '';
       if (!seen.has(key)) {
         merged.push(concept);
         seen.add(key);

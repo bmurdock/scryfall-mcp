@@ -69,6 +69,7 @@ export class BuildScryfallQueryTool {
             description: 'Currency for price constraints'
           }
         },
+        required: ['max'],
         description: 'Price constraints for the search'
       },
       include_alternatives: {

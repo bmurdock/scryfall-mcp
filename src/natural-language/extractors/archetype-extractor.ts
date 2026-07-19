@@ -7,6 +7,7 @@
  */
 
 import { ArchetypeConcept } from '../types.js';
+import { containsWholePhrase } from '../text-matching.js';
 
 /**
  * Engine for extracting archetype concepts from natural language
@@ -166,11 +167,11 @@ export class ArchetypePatternEngine {
    */
   private matchesArchetype(text: string, archetype: string): boolean {
     // Direct mention
-    if (text.includes(archetype)) return true;
+    if (containsWholePhrase(text, archetype)) return true;
     
     // Synonym matching
     const synonyms = this.getArchetypeSynonyms(archetype);
-    return synonyms.some(synonym => text.includes(synonym));
+    return synonyms.some(synonym => containsWholePhrase(text, synonym));
   }
   
   /**

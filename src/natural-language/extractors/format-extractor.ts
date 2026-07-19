@@ -26,7 +26,6 @@ export class FormatPatternEngine {
     ['penny', { name: 'penny', confidence: 0.95 }],
     ['historic', { name: 'historic', confidence: 0.95 }],
     ['alchemy', { name: 'alchemy', confidence: 0.95 }],
-    ['explorer', { name: 'explorer', confidence: 0.95 }],
     ['timeless', { name: 'timeless', confidence: 0.95 }],
     
     // Format variations and synonyms

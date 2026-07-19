@@ -63,6 +63,7 @@ export interface ColorConcept {
 export interface TypeConcept {
   type?: string;             // "creature", "instant", etc.
   supertype?: string;        // "legendary", "basic", etc.
+  function?: string;         // "counterspell", "removal", etc.
   confidence: number;
   context?: string;          // surrounding text for context
 }
@@ -220,6 +221,7 @@ export interface ConceptMapping {
   value: string;
   comparison?: '=' | '>' | '<' | '>=' | '<=' | '!=';
   negation?: boolean;
+  conjunction?: boolean;
   confidence: number;
   priority: number; // For conflict resolution
 }

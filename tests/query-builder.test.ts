@@ -84,7 +84,9 @@ describe('Natural-Language Query Builder', () => {
         searchCards: vi
           .fn()
           .mockResolvedValueOnce({ total_cards: 0, data: [] })
-          .mockResolvedValueOnce({ total_cards: 500, data: [] }),
+          .mockResolvedValueOnce({ total_cards: 12, data: [] })
+          .mockResolvedValueOnce({ total_cards: 500, data: [] })
+          .mockResolvedValueOnce({ total_cards: 18, data: [] }),
       };
 
       const broadened = await testAndAdjustQuery(
@@ -101,10 +103,32 @@ describe('Natural-Language Query Builder', () => {
       expect(broadened.query).toContain('cmc<=4');
       expect(broadened.query).toContain('usd<=10');
       expect(broadened.optimizations[0]?.type).toBe('broadening');
+      expect(broadened.testSummary).toEqual({ total_cards: 12, has_more: false });
 
       expect(narrowed.query).toContain('f:modern');
       expect(narrowed.query).toContain('usd<=20');
       expect(narrowed.optimizations[0]?.type).toBe('narrowing');
+      expect(narrowed.testSummary).toEqual({ total_cards: 18, has_more: false });
+      expect(mockClient.searchCards).toHaveBeenCalledTimes(4);
+    });
+
+    it('keeps an adjustment when only the adjusted-query recount fails', async () => {
+      const mockClient = {
+        searchCards: vi
+          .fn()
+          .mockResolvedValueOnce({ total_cards: 0, data: [] })
+          .mockRejectedValueOnce(new Error('temporary recount failure')),
+      };
+
+      const result = await testAndAdjustQuery(
+        mockClient as never,
+        't:creature usd<=5',
+        { optimize_for: 'precision', max_results: 20 }
+      );
+
+      expect(result.query).toContain('usd<=10');
+      expect(result.optimizations[0]?.type).toBe('broadening');
+      expect(result.testSummary).toBeUndefined();
     });
   });
 
@@ -146,7 +170,7 @@ describe('Natural-Language Query Builder', () => {
       const parser = new NaturalLanguageParser();
       const mockClient = {
         searchCards: vi.fn(async ({ query }: { query: string }) => ({
-          total_cards: query.includes('usd:<=10') ? 12 : 0,
+          total_cards: query.includes('usd<=10') ? 12 : 0,
           data: [],
         })),
       };
@@ -167,9 +191,9 @@ describe('Natural-Language Query Builder', () => {
       expect(result.query).toContain('f:modern');
       expect(result.query).toContain('usd<=10');
       expect(result.query).toContain('c:>=u');
-      expect(result.query).toContain('instant OR sorcery');
+      expect(result.query).toContain('(t:instant OR t:sorcery)');
       expect(result.optimizations.some((optimization) => optimization.type === 'broadening')).toBe(true);
-      expect(result.testSummary).toEqual({ total_cards: 0, has_more: false });
+      expect(result.testSummary).toEqual({ total_cards: 12, has_more: false });
       expect(result.explanation).toContain('priced <=$5');
     });
 
@@ -226,6 +250,82 @@ describe('Natural-Language Query Builder', () => {
       expect(result.optimizations).toEqual([]);
       expect(result.testSummary).toBeUndefined();
       expect(result.query).toContain('f:modern');
+    });
+
+    it('preserves functional, subtype, and mechanic intent in generated queries', async () => {
+      const parser = new NaturalLanguageParser();
+      const builder = new QueryBuilderEngine(new ConceptExtractor(), { searchCards: vi.fn() } as never);
+
+      const counterspellResult = await builder.build(
+        parser.parse('blue counterspells under $5 for modern'),
+        { optimize_for: 'precision', format: 'modern', max_results: 20, test_query: false }
+      );
+      const dragonResult = await builder.build(
+        parser.parse('modern dragon creatures with cycling'),
+        { optimize_for: 'precision', format: 'modern', max_results: 20, test_query: false }
+      );
+
+      expect(counterspellResult.query).toContain('function:counterspell');
+      expect(counterspellResult.query).toContain('(t:instant OR t:sorcery)');
+      expect(counterspellResult.query).not.toContain('t:instant OR sorcery');
+      expect(dragonResult.query).toContain('t:dragon');
+      expect(dragonResult.query).toContain('t:creature t:dragon');
+      expect(dragonResult.query).toContain('o:cycling');
+    });
+
+    it('keeps independent type and oracle constraints conjunctive', async () => {
+      const parser = new NaturalLanguageParser();
+      const builder = new QueryBuilderEngine(new ConceptExtractor(), { searchCards: vi.fn() } as never);
+
+      const result = await builder.build(
+        parser.parse('artifact creatures with flying and cycling'),
+        { optimize_for: 'precision', max_results: 20, test_query: false }
+      );
+
+      expect(result.query).toContain('t:artifact');
+      expect(result.query).toContain('t:creature');
+      expect(result.query).not.toContain('(t:creature OR t:artifact)');
+      expect(result.query).not.toContain('(t:artifact OR t:creature)');
+      expect(result.query).toContain('o:"flying"');
+      expect(result.query).toContain('o:"cycling"');
+      expect(result.query).not.toContain('(o:"cycling" OR o:"flying")');
+      expect(result.query).not.toContain('(o:"flying" OR o:"cycling")');
+    });
+
+    it('preserves explicit price budgets in every generated alternative', async () => {
+      const parser = new NaturalLanguageParser();
+      const builder = new QueryBuilderEngine(new ConceptExtractor(), { searchCards: vi.fn() } as never);
+
+      const result = await builder.build(
+        parser.parse('blue creatures'),
+        {
+          optimize_for: 'precision',
+          max_results: 20,
+          price_budget: { max: 7, currency: 'usd' },
+          test_query: false,
+        }
+      );
+
+      expect(result.query).toContain('usd<=7');
+      expect(result.alternatives.length).toBeGreaterThan(0);
+      expect(result.alternatives.every(alternative => alternative.query.includes('usd<=7'))).toBe(true);
+    });
+
+    it('does not infer subtypes or mechanics from substrings inside unrelated words', async () => {
+      const parser = new NaturalLanguageParser();
+      const builder = new QueryBuilderEngine(new ConceptExtractor(), { searchCards: vi.fn() } as never);
+
+      const selfMillResult = await builder.build(
+        parser.parse('self mill cards'),
+        { optimize_for: 'precision', max_results: 20, test_query: false }
+      );
+      const brainstormResult = await builder.build(
+        parser.parse('cards named Brainstorm'),
+        { optimize_for: 'precision', max_results: 20, test_query: false }
+      );
+
+      expect(selfMillResult.query).not.toContain('t:elf');
+      expect(brainstormResult.query).not.toContain('o:storm');
     });
   });
 });

@@ -22,6 +22,7 @@ import { ArchetypePatternEngine } from './extractors/archetype-extractor.js';
 import { PricePatternEngine } from './extractors/price-extractor.js';
 import { TypePatternEngine } from './extractors/type-extractor.js';
 import { FormatPatternEngine } from './extractors/format-extractor.js';
+import { containsWholePhrase } from './text-matching.js';
 
 type ExtractedConcepts = Omit<ParsedQuery, 'confidence' | 'ambiguities' | 'context'>;
 type SupplementalConcepts = Pick<
@@ -131,7 +132,7 @@ export class NaturalLanguageParser {
   private extractKeywords(text: string): KeywordConcept[] {
     const keywords = ['flying', 'trample', 'haste', 'vigilance', 'lifelink', 'deathtouch', 'first strike', 'double strike'];
     return keywords
-      .filter(keyword => text.includes(keyword))
+      .filter(keyword => containsWholePhrase(text, keyword))
       .map(keyword => ({ keyword, confidence: 0.85 }));
   }
   
@@ -141,7 +142,7 @@ export class NaturalLanguageParser {
   private extractAbilities(text: string): AbilityConcept[] {
     const abilities = ['enters the battlefield', 'when dies', 'tap to add', 'sacrifice to'];
     return abilities
-      .filter(ability => text.includes(ability))
+      .filter(ability => containsWholePhrase(text, ability))
       .map(ability => ({ ability, confidence: 0.80 }));
   }
   
@@ -151,7 +152,7 @@ export class NaturalLanguageParser {
   private extractMechanics(text: string): MechanicConcept[] {
     const mechanics = ['storm', 'cascade', 'flashback', 'madness', 'cycling'];
     return mechanics
-      .filter(mechanic => text.includes(mechanic))
+      .filter(mechanic => containsWholePhrase(text, mechanic))
       .map(mechanic => ({ mechanic, confidence: 0.85 }));
   }
   

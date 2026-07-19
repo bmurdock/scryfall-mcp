@@ -53,13 +53,35 @@ function buildOperatorQuery(operator: string, mappings: ConceptMapping[]): strin
   }
 
   if (operator === 'o') {
-    const values = mappings.map(m => m.value);
-    return `(${values.map(value => `o:"${value}"`).join(' OR ')})`;
+    const alternatives = mappings.filter(mapping => !mapping.conjunction);
+    const conjunctive = mappings.filter(mapping => mapping.conjunction);
+    const parts: string[] = [];
+
+    if (alternatives.length === 1) {
+      parts.push(`o:"${alternatives[0].value}"`);
+    } else if (alternatives.length > 1) {
+      parts.push(`(${alternatives.map(mapping => `o:"${mapping.value}"`).join(' OR ')})`);
+    }
+
+    parts.push(...conjunctive.map(mapping => `o:"${mapping.value}"`));
+    return parts.join(' ');
   }
 
   if (operator === 't') {
-    const values = mappings.map(m => m.value);
-    return `(${values.map(value => `t:${value}`).join(' OR ')})`;
+    const positive = mappings.filter(mapping => !mapping.negation && !mapping.conjunction);
+    const conjunctive = mappings.filter(mapping => !mapping.negation && mapping.conjunction);
+    const negative = mappings.filter(mapping => mapping.negation);
+    const parts: string[] = [];
+
+    if (positive.length === 1) {
+      parts.push(formatQueryToken(operator, positive[0].value));
+    } else if (positive.length > 1) {
+      parts.push(`(${positive.map(mapping => formatQueryToken(operator, mapping.value)).join(' OR ')})`);
+    }
+
+    parts.push(...conjunctive.map(mapping => formatQueryToken(operator, mapping.value)));
+    parts.push(...negative.map(mapping => formatQueryToken(operator, mapping.value, undefined, true)));
+    return parts.join(' ');
   }
 
   if (NUMERIC_OPERATORS.has(operator)) {
@@ -113,5 +135,6 @@ function buildNumericRange(operator: string, mappings: ConceptMapping[]): string
 export function applyFormat(query: string, format?: string): string {
   if (!format) return query;
   const formatPart = `f:${format}`;
+  if (new RegExp(`(?:^|\\s)${formatPart}(?:\\s|$)`).test(query)) return query;
   return query ? `${query} ${formatPart}` : formatPart;
 }

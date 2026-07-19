@@ -32,10 +32,31 @@ export class ConceptExtractor {
     // Map each concept type to Scryfall operators
     mappings.push(...this.mapColors(parsed.colors));
     mappings.push(...this.mapTypes(parsed.types));
+    mappings.push(...parsed.subtypes.map(subtype => ({
+      operator: 't',
+      value: subtype.subtype,
+      conjunction: true,
+      confidence: subtype.confidence,
+      priority: 8,
+    })));
     mappings.push(...this.mapArchetypes(parsed.archetypes));
     mappings.push(...this.mapPrices(parsed.priceConstraints));
     mappings.push(...this.mapFormats(parsed.formats));
     mappings.push(...this.mapKeywords(parsed.keywords));
+    mappings.push(...parsed.abilities.map(ability => ({
+      operator: 'o',
+      value: ability.ability,
+      conjunction: true,
+      confidence: ability.confidence,
+      priority: 6,
+    })));
+    mappings.push(...parsed.mechanics.map(mechanic => ({
+      operator: 'o',
+      value: mechanic.mechanic,
+      conjunction: true,
+      confidence: mechanic.confidence,
+      priority: 6,
+    })));
     mappings.push(...this.mapManaCost(parsed.manaCost));
     mappings.push(...this.mapPowerToughness(parsed.powerToughness));
     
@@ -91,20 +112,36 @@ export class ConceptExtractor {
     
     for (const typeConcept of types) {
       if (typeConcept.type) {
-        mappings.push({
-          operator: 't',
-          value: typeConcept.type,
-          confidence: typeConcept.confidence,
-          priority: 8
-        });
+        const alternatives = typeConcept.type.split(' OR ');
+        for (const type of alternatives) {
+          const negatedType = type.startsWith('-t:');
+          mappings.push({
+            operator: 't',
+            value: negatedType ? type.slice(3) : type,
+            negation: negatedType,
+            conjunction: alternatives.length === 1,
+            confidence: typeConcept.confidence,
+            priority: 8
+          });
+        }
       }
       
       if (typeConcept.supertype) {
         mappings.push({
           operator: 't',
           value: typeConcept.supertype,
+          conjunction: true,
           confidence: typeConcept.confidence,
           priority: 8
+        });
+      }
+
+      if (typeConcept.function) {
+        mappings.push({
+          operator: 'function',
+          value: typeConcept.function,
+          confidence: typeConcept.confidence,
+          priority: 8,
         });
       }
     }
@@ -253,6 +290,7 @@ export class ConceptExtractor {
       mappings.push({
         operator: 'o',
         value: keyword.keyword,
+        conjunction: true,
         confidence: keyword.confidence,
         priority: 5
       });
@@ -381,6 +419,15 @@ export class ConceptExtractor {
         resolved.push(...this.resolveCmcConflicts(sorted));
       } else if (['usd', 'eur', 'tix'].includes(operator)) {
         resolved.push(...this.resolvePriceConflicts(sorted));
+      } else if (operator === 't' || operator === 'o') {
+        const unique = new Map<string, ConceptMapping>();
+        for (const mapping of sorted) {
+          const key = `${mapping.negation ? '-' : ''}${mapping.conjunction ? '&' : ''}${mapping.value}`;
+          if (!unique.has(key)) {
+            unique.set(key, mapping);
+          }
+        }
+        resolved.push(...unique.values());
       } else {
         // Default: take highest priority/confidence
         resolved.push(sorted[0]);

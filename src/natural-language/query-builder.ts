@@ -13,7 +13,7 @@ import {
 } from './types.js';
 import { ConceptExtractor } from './concept-extractor.js';
 import { ScryfallClient } from '../services/scryfall-client.js';
-import { applyFormat, buildBaseQuery } from './query-builder/query-assembly.js';
+import { applyFormat, buildBaseQuery, formatQueryToken } from './query-builder/query-assembly.js';
 import {
   applyOptimization,
   TestedQuery,
@@ -35,14 +35,20 @@ export class QueryBuilderEngine {
 
   async build(parsed: ParsedQuery, options: BuildOptions): Promise<BuildResult> {
     const mappings = this.conceptExtractor.extractMappings(parsed);
-    const baseQuery = buildBaseQuery(mappings);
+    const buildConstrainedBaseQuery = (candidateMappings: ConceptMapping[]): string => {
+      const query = buildBaseQuery(candidateMappings);
+      return options.price_budget
+        ? `${query} ${formatQueryToken(options.price_budget.currency, String(options.price_budget.max), '<=')}`.trim()
+        : query;
+    };
+    const baseQuery = buildConstrainedBaseQuery(mappings);
     const formatQuery = applyFormat(baseQuery, options.format);
     const optimizedQuery = applyOptimization(formatQuery, options.optimize_for);
     const testedQuery = options.test_query
       ? await testAndAdjustQuery(this.scryfallClient, optimizedQuery, options)
       : { query: optimizedQuery, optimizations: [] };
     const explanation = generateExplanation(mappings, options);
-    const alternatives = generateAlternatives(parsed, mappings, options, buildBaseQuery);
+    const alternatives = generateAlternatives(parsed, mappings, options, buildConstrainedBaseQuery);
 
     return {
       query: testedQuery.query,
