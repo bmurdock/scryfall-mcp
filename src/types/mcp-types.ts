@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MagicFormat } from "./scryfall-api.js";
+import { MagicFormat, SET_TYPES } from "./scryfall-api.js";
 import {
   trimmedString,
   normalizedEnum
@@ -47,7 +47,7 @@ export const GetCardParamsSchema = z.object({
   identifier: trimmedString(1, "Identifier cannot be empty"),
   set: z.preprocess(
     (value) => typeof value === "string" ? value.trim().toLowerCase() : value,
-    z.string().regex(/^[a-z0-9]{3,4}$/i, "Expected a 3-4 character set code")
+    z.string().regex(/^[a-z0-9]{3,8}$/i, "Expected a 3-8 character set code")
   ).optional(),
   lang: z.preprocess((value) => typeof value === "string" ? value.trim().toLowerCase() : value, z.string().length(2)).optional().default("en"),
   face: normalizedEnum(["front", "back"]).optional(),
@@ -64,7 +64,6 @@ export interface BatchCardAnalysisParams {
   currency?: "usd" | "eur" | "tix";
   include_images?: boolean;
   include_suggestions?: boolean;
-  group_by?: string;
 }
 
 export const GetCardPricesParamsSchema = z.object({
@@ -93,7 +92,7 @@ export const RandomCardParamsSchema = z.object({
 
 export const SearchSetsParamsSchema = z.object({
   query: z.preprocess((value) => typeof value === "string" ? value.trim() : value, z.string()).optional(),
-  type: normalizedEnum(["core", "expansion", "masters", "commander", "draft_innovation", "funny"]).optional(),
+  type: normalizedEnum(SET_TYPES).optional(),
   released_after: z.preprocess(
     (value) => typeof value === "string" ? value.trim() : value,
     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD date format")

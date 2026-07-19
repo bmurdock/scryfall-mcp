@@ -27,7 +27,7 @@ export class SearchSetsTool {
       },
       type: {
         type: 'string',
-        enum: SET_TYPES,
+        enum: [...SET_TYPES],
         description: 'Filter by set type. Common types: core (yearly core sets), expansion (rotational sets), masters (reprint sets), commander (preconstructed Commander decks), promo (promotional cards), token (tokens and emblems)'
       },
       released_after: {

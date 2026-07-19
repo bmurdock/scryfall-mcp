@@ -50,11 +50,6 @@ export class BatchCardAnalysisTool {
         type: 'boolean',
         default: false,
         description: 'Include improvement suggestions'
-      },
-      group_by: {
-        type: 'string',
-        enum: ['type', 'cmc', 'color', 'rarity', 'price_range'],
-        description: 'How to group analysis results'
       }
     },
     required: ['card_list', 'analysis_type']
@@ -72,7 +67,6 @@ export class BatchCardAnalysisTool {
     const normalizedAnalysisType = normalizeLowercaseString(params.analysis_type);
     const normalizedFormat = normalizeLowercaseString(params.format);
     const normalizedCurrency = normalizeLowercaseString(params.currency);
-    const normalizedGroupBy = normalizeLowercaseString(params.group_by);
 
     if (!Array.isArray(normalizedCardList) || normalizedCardList.length === 0) {
       throw new ValidationError('Card list is required and must be a non-empty array');
@@ -113,20 +107,12 @@ export class BatchCardAnalysisTool {
       throw new ValidationError('Include suggestions must be a boolean');
     }
 
-    if (normalizedGroupBy) {
-      const validGroupBy = ['type', 'cmc', 'color', 'rarity', 'price_range'];
-      if (typeof normalizedGroupBy !== 'string' || !validGroupBy.includes(normalizedGroupBy)) {
-        throw new ValidationError(`Group by must be one of: ${validGroupBy.join(', ')}`);
-      }
-    }
-
     return {
       card_list: normalizedCardList.map((card: string) => card.trim()),
       analysis_type: normalizedAnalysisType as ValidatedBatchCardAnalysisParams['analysis_type'],
       format: normalizedFormat as MagicFormat | undefined,
       currency: currency as ValidatedBatchCardAnalysisParams['currency'],
-      include_suggestions: includeSuggestions,
-      group_by: typeof normalizedGroupBy === 'string' ? normalizedGroupBy : undefined
+      include_suggestions: includeSuggestions
     };
   }
 

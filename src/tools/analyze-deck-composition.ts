@@ -31,6 +31,7 @@ interface PriceEntry {
 }
 
 interface DeckCompositionAnalysis {
+  requestedCards: number;
   totalCards: number;
   manaCurve: Record<number, number>;
   typeBreakdown: Record<string, number>;
@@ -46,6 +47,8 @@ interface DeckFetchWarnings {
   analyzedCardNames: number;
   totalCardNames: number;
   fuzzyResolutions: FetchCardsMapResult['fuzzyResolutions'];
+  unresolvedEntries: DeckCardEntry[];
+  recommendationsOmitted: boolean;
 }
 
 function getExpectedLandCount(format: string | undefined, totalCards: number): number {
@@ -98,7 +101,7 @@ export class AnalyzeDeckCompositionTool {
     properties: {
       deck_list: {
         type: 'string',
-        description: 'List of card names in the deck, one per line or comma-separated'
+        description: 'Deck list with one card per line, optionally prefixed by a quantity (Arena headers and set suffixes are accepted)'
       },
       format: {
         type: 'string',
@@ -164,7 +167,7 @@ export class AnalyzeDeckCompositionTool {
         return {
           content: [{
             type: 'text',
-            text: 'No valid card names found in deck list. Please provide a list of card names separated by commas or newlines.'
+            text: 'No valid card names found in deck list. Please provide one card per line, optionally prefixed by a quantity.'
           }],
           isError: true
         };
@@ -202,7 +205,10 @@ export class AnalyzeDeckCompositionTool {
       const analysis = this.analyzeComposition(deckEntries, cardData);
       
       // Generate recommendations
-      const recommendations = this.generateRecommendations(analysis, params);
+      const recommendationsOmitted = analysis.totalCards !== analysis.requestedCards;
+      const recommendations = recommendationsOmitted
+        ? []
+        : this.generateRecommendations(analysis, params);
       
       // Format response
       const responseText = this.formatAnalysisResponse(analysis, recommendations, params, {
@@ -210,6 +216,8 @@ export class AnalyzeDeckCompositionTool {
         analyzedCardNames: cardData.size,
         totalCardNames: deckEntries.length,
         fuzzyResolutions: fetchResult.fuzzyResolutions,
+        unresolvedEntries: deckEntries.filter(entry => fetchResult.notFound.includes(entry.name)),
+        recommendationsOmitted,
       });
       
       return {
@@ -268,7 +276,8 @@ export class AnalyzeDeckCompositionTool {
    */
   private analyzeComposition(deckEntries: DeckCardEntry[], cardData: Map<string, ScryfallCard>): DeckCompositionAnalysis {
     const analysis: DeckCompositionAnalysis = {
-      totalCards: deckEntries.reduce((sum, entry) => sum + entry.quantity, 0),
+      requestedCards: deckEntries.reduce((sum, entry) => sum + entry.quantity, 0),
+      totalCards: 0,
       manaCurve: {},
       typeBreakdown: {},
       colorBreakdown: {},
@@ -286,6 +295,7 @@ export class AnalyzeDeckCompositionTool {
       if (!card) continue;
 
       const quantity = entry.quantity;
+      analysis.totalCards += quantity;
       const cmc = card.cmc || 0;
       const types = card.type_line?.toLowerCase() || '';
       const colors = card.color_identity || [];
@@ -356,7 +366,7 @@ export class AnalyzeDeckCompositionTool {
     
     // Land count recommendations
     const landCount = analysis.typeBreakdown.lands || 0;
-    const expectedLands = getExpectedLandCount(format, analysis.totalCards);
+    const expectedLands = getExpectedLandCount(format, analysis.requestedCards);
     
     if (landCount < expectedLands - 2) {
       recommendations.push(`🌍 Consider adding ${expectedLands - landCount} more lands`);
@@ -418,10 +428,21 @@ export class AnalyzeDeckCompositionTool {
       }
       response += '\n';
     }
+
+    if (warnings?.unresolvedEntries.length) {
+      response += `⚠️ **Cards not found:**\n`;
+      for (const entry of warnings.unresolvedEntries) {
+        response += `• ${entry.quantity}x ${entry.name}\n`;
+      }
+      response += '\n';
+    }
     
     // Basic stats
     response += `📊 **Overview:**\n`;
-    response += `• Total Cards: ${analysis.totalCards}\n`;
+    response += `• Total Cards: ${analysis.requestedCards}\n`;
+    if (analysis.totalCards !== analysis.requestedCards) {
+      response += `• Analyzed Cards: ${analysis.totalCards} of ${analysis.requestedCards}\n`;
+    }
     response += `• Average CMC: ${analysis.averageCMC.toFixed(2)}\n`;
     if (params.strategy !== 'unknown') {
       response += `• Strategy: ${params.strategy}\n`;
@@ -433,11 +454,16 @@ export class AnalyzeDeckCompositionTool {
     
     // Mana curve
     response += `⚡ **Mana Curve:**\n`;
-    for (let i = 0; i <= 7; i++) {
-      const count = analysis.manaCurve[i] || 0;
+    const displayedManaValues = Object.entries(analysis.manaCurve)
+      .filter(([manaValue]) => Number(manaValue) < 7)
+      .sort(([left], [right]) => Number(left) - Number(right));
+    const highManaCount = Object.entries(analysis.manaCurve)
+      .filter(([manaValue]) => Number(manaValue) >= 7)
+      .reduce((sum, [, quantity]) => sum + quantity, 0);
+    for (const [manaValue, count] of [...displayedManaValues, ['7+', highManaCount] as const]) {
       if (count > 0) {
         const bar = '█'.repeat(Math.max(1, Math.floor(count / 2)));
-        response += `• ${i}${i === 7 ? '+' : ''} CMC: ${count} ${bar}\n`;
+        response += `• ${manaValue} CMC: ${count} ${bar}\n`;
       }
     }
     response += '\n';
@@ -460,6 +486,10 @@ export class AnalyzeDeckCompositionTool {
       response += '\n';
     }
     
+    if (warnings?.recommendationsOmitted) {
+      response += `⚠️ **Recommendations omitted:** one or more requested cards could not be analyzed.\n\n`;
+    }
+
     // Recommendations
     if (recommendations.length > 0) {
       response += `💡 **Recommendations:**\n`;

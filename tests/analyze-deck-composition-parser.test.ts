@@ -39,6 +39,14 @@ describe('parseDeckListEntries', () => {
 });
 
 describe('AnalyzeDeckCompositionTool Brawl land recommendations', () => {
+  it('documents the newline-delimited deck grammar that the parser accepts', () => {
+    const tool = new AnalyzeDeckCompositionTool({} as never);
+    const description = tool.inputSchema.properties.deck_list.description;
+
+    expect(description).toContain('one card per line');
+    expect(description).not.toContain('comma-separated');
+  });
+
   it('does not recommend reducing realistic 100-card Brawl land counts', async () => {
     const client = {
       getCard: async ({ identifier }: { identifier: string }) => identifier === 'Island' ? islandCard : optCard,
@@ -131,5 +139,68 @@ describe('AnalyzeDeckCompositionTool Brawl land recommendations', () => {
     expect(result.content[0].text).toContain('Retry after 30s');
     expect(result.content[0].text).toContain('1 card name was not analyzed');
     expect(result.content[0].text).toContain('Total Cards: 2');
+  });
+
+  it('reports unresolved quantities and suppresses recommendations for low-coverage analysis', async () => {
+    const client = {
+      getCard: async ({ identifier }: { identifier: string }) => {
+        if (identifier === 'Missing Card') {
+          throw new ScryfallAPIError('Not found', 404);
+        }
+
+        return islandCard;
+      },
+    };
+    const tool = new AnalyzeDeckCompositionTool(client as never);
+
+    const result = await tool.execute({
+      deck_list: '1 Island\n9 Missing Card',
+      format: 'brawl',
+      strategy: 'combo',
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain('Total Cards: 10');
+    expect(result.content[0].text).toContain('Analyzed Cards: 1 of 10');
+    expect(result.content[0].text).toContain('9x Missing Card');
+    expect(result.content[0].text).toContain('Recommendations omitted');
+    expect(result.content[0].text).not.toContain('Consider adding');
+  });
+
+  it('suppresses type-dependent recommendations whenever analysis is incomplete', async () => {
+    const client = {
+      getCard: async ({ identifier }: { identifier: string }) => {
+        if (identifier === 'Missing Card') {
+          throw new ScryfallAPIError('Not found', 404);
+        }
+
+        return identifier === 'Island' ? islandCard : optCard;
+      },
+    };
+    const tool = new AnalyzeDeckCompositionTool(client as never);
+
+    const result = await tool.execute({
+      deck_list: '38 Island\n47 Opt\n15 Missing Card',
+      format: 'brawl',
+      strategy: 'combo',
+    });
+
+    expect(result.content[0].text).toContain('Analyzed Cards: 85 of 100');
+    expect(result.content[0].text).toContain('Recommendations omitted');
+    expect(result.content[0].text).not.toContain('Consider reducing lands');
+  });
+
+  it('groups mana values above seven into the displayed 7+ bucket', async () => {
+    const client = {
+      getCard: async () => ({ ...optCard, name: 'High-Cost Card', cmc: 8 }),
+    };
+    const tool = new AnalyzeDeckCompositionTool(client as never);
+
+    const result = await tool.execute({
+      deck_list: '2 High-Cost Card',
+      strategy: 'unknown',
+    });
+
+    expect(result.content[0].text).toContain('7+ CMC: 2');
   });
 });

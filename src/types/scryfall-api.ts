@@ -105,7 +105,6 @@ export interface Legalities {
   timeless: Legality;
   gladiator: Legality;
   pioneer: Legality;
-  explorer: Legality;
   modern: Legality;
   legacy: Legality;
   pauper: Legality;
@@ -115,7 +114,8 @@ export interface Legalities {
   oathbreaker: Legality;
   standardbrawl: Legality;
   brawl: Legality;
-  historicbrawl: Legality;
+  competitivebrawl: Legality;
+  tlr: Legality;
   alchemy: Legality;
   paupercommander: Legality;
   duel: Legality;
@@ -230,15 +230,16 @@ export type SetType =
   | 'core' | 'expansion' | 'masters' | 'alchemy' | 'masterpiece' | 'arsenal' 
   | 'from_the_vault' | 'spellbook' | 'premium_deck' | 'duel_deck' | 'draft_innovation' 
   | 'treasure_chest' | 'commander' | 'planechase' | 'archenemy' | 'vanguard' 
-  | 'funny' | 'starter' | 'box' | 'promo' | 'token' | 'memorabilia' | 'minigame';
+  | 'funny' | 'starter' | 'box' | 'promo' | 'token' | 'memorabilia' | 'minigame'
+  | 'eternal';
 
 // Array of all set types for use in tool schemas
-export const SET_TYPES: SetType[] = [
+export const SET_TYPES = [
   'core', 'expansion', 'masters', 'alchemy', 'masterpiece', 'arsenal',
   'from_the_vault', 'spellbook', 'premium_deck', 'duel_deck', 'draft_innovation',
   'treasure_chest', 'commander', 'planechase', 'archenemy', 'vanguard',
-  'funny', 'starter', 'box', 'promo', 'token', 'memorabilia', 'minigame'
-];
+  'funny', 'starter', 'box', 'promo', 'token', 'memorabilia', 'minigame', 'eternal'
+] as const satisfies readonly SetType[];
 
 // Error Response Types
 export interface ScryfallError {

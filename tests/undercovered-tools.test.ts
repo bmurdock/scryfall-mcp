@@ -3,6 +3,7 @@ import { GetCardPricesTool } from '../src/tools/get-card-prices.js';
 import { SearchSetsTool } from '../src/tools/search-sets.js';
 import { RandomCardTool } from '../src/tools/random-card.js';
 import { ValidateBrawlCommanderTool } from '../src/tools/validate-brawl-commander.js';
+import { BatchCardAnalysisTool } from '../src/tools/batch-card-analysis.js';
 import { ScryfallAPIError } from '../src/types/mcp-types.js';
 
 describe('Under-Covered User-Facing Tools', () => {
@@ -91,6 +92,16 @@ describe('Under-Covered User-Facing Tools', () => {
   });
 
   describe('SearchSetsTool', () => {
+    it('accepts every set type exposed by the tool schema', async () => {
+      const mockClient = { getSets: vi.fn().mockResolvedValue([]) };
+      const tool = new SearchSetsTool(mockClient as never);
+
+      const result = await tool.execute({ type: 'eternal' });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockClient.getSets).toHaveBeenCalledWith(expect.objectContaining({ type: 'eternal' }));
+    });
+
     it('includes formatted set details and explicit filter context in successful searches', async () => {
       const mockClient = {
         getSets: vi.fn().mockResolvedValue([
@@ -136,6 +147,14 @@ describe('Under-Covered User-Facing Tools', () => {
       expect(result.isError).toBe(true);
       expect(mockClient.getSets).not.toHaveBeenCalled();
       expect(result.content[0].text).toContain('released_after date must be before released_before date');
+    });
+  });
+
+  describe('BatchCardAnalysisTool', () => {
+    it('does not advertise grouping that is not implemented', () => {
+      const tool = new BatchCardAnalysisTool({} as never);
+
+      expect(tool.inputSchema.properties).not.toHaveProperty('group_by');
     });
   });
 
