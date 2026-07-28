@@ -147,6 +147,7 @@ dist
 .serena/
 .code/
 .claude/
+.codex/
 
 # AI assistant instructions
 AGENTS.md
