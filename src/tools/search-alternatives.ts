@@ -3,6 +3,7 @@ import { ValidationError, ScryfallAPIError } from '../types/mcp-types.js';
 import { formatSearchResultsAsText } from '../utils/formatters.js';
 import { ScryfallCard } from '../types/scryfall-api.js';
 import { normalizeLowercaseString, normalizeTrimmedString } from '../utils/input-normalization.js';
+import { excludeLogicalCardFromQuery, isSameLogicalCard } from '../utils/card-identity.js';
 
 interface SearchAlternativesInput {
   target_card: string;
@@ -171,19 +172,24 @@ export class SearchAlternativesTool {
       }
 
       // Build search query for alternatives
-      const query = this.buildAlternativesQuery(targetCard, params);
+      const query = excludeLogicalCardFromQuery(
+        this.buildAlternativesQuery(targetCard, params),
+        targetCard
+      );
 
       // Execute search
       const results = await this.scryfallClient.searchCards({
         query,
         limit: params.limit,
-        order: this.getOrderForDirection(params.direction)
+        order: this.getOrderForDirection(params.direction),
+        unique: 'cards'
       });
 
       // Filter out the original card from results
+      const alternatives = results.data.filter(card => !isSameLogicalCard(card, targetCard));
       const filteredResults = {
         ...results,
-        data: results.data.filter(card => card.id !== targetCard.id)
+        data: alternatives
       };
 
       // Format results

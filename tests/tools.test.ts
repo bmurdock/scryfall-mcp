@@ -588,6 +588,124 @@ describe('MCP Tools', () => {
       expect(result.content[0].text).toContain('Shock');
     });
 
+    it('should exclude other printings of the target card from alternatives', async () => {
+      mockScryfallClient.getCard.mockResolvedValue({
+        id: 'target-print-id',
+        oracle_id: 'lightning-bolt-oracle',
+        name: 'Lightning Bolt',
+        cmc: 1,
+        type_line: 'Instant',
+        prices: { usd: '2.00' }
+      });
+      mockScryfallClient.searchCards.mockImplementation(async ({
+        query,
+        limit = 20
+      }: {
+        query: string;
+        limit?: number;
+      }) => {
+        const candidates = [
+          {
+            id: 'other-print-id',
+            oracle_id: 'lightning-bolt-oracle',
+            name: 'Lightning Bolt',
+            type_line: 'Instant',
+            prices: { usd: '1.00' },
+            legalities: { modern: 'legal' }
+          },
+          {
+            id: 'shock-id',
+            oracle_id: 'shock-oracle',
+            name: 'Shock',
+            type_line: 'Instant',
+            prices: { usd: '0.25' },
+            legalities: { modern: 'legal' }
+          }
+        ];
+        const data = query.includes('-oracleid:lightning-bolt-oracle')
+          ? candidates.filter(card => card.oracle_id !== 'lightning-bolt-oracle')
+          : candidates;
+
+        return {
+          total_cards: data.length,
+          has_more: data.length > limit,
+          data: data.slice(0, limit)
+        };
+      });
+
+      const result = await tool.execute({
+        target_card: 'Lightning Bolt',
+        direction: 'cheaper',
+        limit: 1
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Found 1 card:');
+      expect(result.content[0].text).toContain('Shock');
+      expect(result.content[0].text).not.toContain('**Lightning Bolt**');
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        query: expect.stringContaining('-oracleid:lightning-bolt-oracle'),
+        unique: 'cards'
+      }));
+    });
+
+    it('should exclude a reversible target that has no top-level Oracle ID', async () => {
+      mockScryfallClient.getCard.mockResolvedValue({
+        id: 'reversible-target-id',
+        name: 'Front Face // Back Face',
+        cmc: 2,
+        type_line: 'Creature',
+        prices: { usd: '2.00' }
+      });
+      mockScryfallClient.searchCards.mockImplementation(async ({
+        query,
+        limit = 20
+      }: {
+        query: string;
+        limit?: number;
+      }) => {
+        const candidates = [
+          {
+            id: 'other-reversible-print',
+            name: 'Front Face // Back Face',
+            type_line: 'Creature',
+            prices: { usd: '1.00' },
+            legalities: { modern: 'legal' }
+          },
+          {
+            id: 'alternative-id',
+            oracle_id: 'alternative-oracle',
+            name: 'Alternative Card',
+            type_line: 'Creature',
+            prices: { usd: '0.25' },
+            legalities: { modern: 'legal' }
+          }
+        ];
+        const data = query.includes('-!"Front Face // Back Face"')
+          ? candidates.filter(card => card.name !== 'Front Face // Back Face')
+          : candidates;
+
+        return {
+          total_cards: data.length,
+          has_more: data.length > limit,
+          data: data.slice(0, limit)
+        };
+      });
+
+      const result = await tool.execute({
+        target_card: 'Front Face // Back Face',
+        direction: 'cheaper',
+        limit: 1
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Found 1 card:');
+      expect(result.content[0].text).toContain('Alternative Card');
+      expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
+        query: expect.stringContaining('-!"Front Face // Back Face"')
+      }));
+    });
+
     it('should preserve the actual card type instead of the first type-line token', async () => {
       const targetCard = {
         id: 'target-id',

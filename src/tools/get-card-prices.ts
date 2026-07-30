@@ -7,6 +7,7 @@ import {
   RateLimitError 
 } from '../types/mcp-types.js';
 import { MagicFormat, Prices, ScryfallCard } from '../types/scryfall-api.js';
+import { excludeLogicalCardFromQuery, isSameLogicalCard } from '../utils/card-identity.js';
 
 const getPriceForCurrency = (prices: Prices, currency: string): string | undefined =>
   prices[currency as keyof Prices];
@@ -79,13 +80,18 @@ export class GetCardPricesTool {
       // Get cheaper alternatives
       try {
         const cheaperResults = await this.scryfallClient.searchCards({
-          query: cheaperQuery + (format ? ` f:${format}` : ''),
-          limit: 3
+          query: excludeLogicalCardFromQuery(
+            cheaperQuery + (format ? ` f:${format}` : ''),
+            card
+          ),
+          limit: 3,
+          unique: 'cards'
         });
 
-        if (cheaperResults.data.length > 0) {
+        const cheaperAlternatives = cheaperResults.data.filter(alt => !isSameLogicalCard(alt, card)).slice(0, 3);
+        if (cheaperAlternatives.length > 0) {
           alternatives += '\n\n*Budget Options:*';
-          for (const alt of cheaperResults.data.slice(0, 3)) {
+          for (const alt of cheaperAlternatives) {
             const price = getPriceForCurrency(alt.prices, currency) || 'N/A';
             alternatives += `\n- ${alt.name}: ${currency.toUpperCase()} ${price}`;
           }
@@ -97,13 +103,18 @@ export class GetCardPricesTool {
       // Get more expensive alternatives (upgrades)
       try {
         const expensiveResults = await this.scryfallClient.searchCards({
-          query: expensiveQuery + (format ? ` f:${format}` : ''),
-          limit: 3
+          query: excludeLogicalCardFromQuery(
+            expensiveQuery + (format ? ` f:${format}` : ''),
+            card
+          ),
+          limit: 3,
+          unique: 'cards'
         });
 
-        if (expensiveResults.data.length > 0) {
+        const upgradeAlternatives = expensiveResults.data.filter(alt => !isSameLogicalCard(alt, card)).slice(0, 3);
+        if (upgradeAlternatives.length > 0) {
           alternatives += '\n\n*Upgrade Options:*';
-          for (const alt of expensiveResults.data.slice(0, 3)) {
+          for (const alt of upgradeAlternatives) {
             const price = getPriceForCurrency(alt.prices, currency) || 'N/A';
             alternatives += `\n- ${alt.name}: ${currency.toUpperCase()} ${price}`;
           }

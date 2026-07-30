@@ -12,6 +12,7 @@ describe('Under-Covered User-Facing Tools', () => {
       const mockClient = {
         getCard: vi.fn().mockResolvedValue({
           id: 'atraxa-id',
+          oracle_id: 'atraxa-oracle',
           name: 'Atraxa, Praetors\' Voice',
           mana_cost: '{1}{G}{W}{U}{B}',
           cmc: 5,
@@ -50,12 +51,14 @@ describe('Under-Covered User-Facing Tools', () => {
 
       expect(result.isError).toBeUndefined();
       expect(mockClient.searchCards).toHaveBeenNthCalledWith(1, {
-        query: 't:creature cmc:5 usd<7.5 f:commander',
-        limit: 3
+        query: 't:creature cmc:5 usd<7.5 f:commander -oracleid:atraxa-oracle',
+        limit: 3,
+        unique: 'cards'
       });
       expect(mockClient.searchCards).toHaveBeenNthCalledWith(2, {
-        query: 't:creature cmc:5 usd>7.5 f:commander',
-        limit: 3
+        query: 't:creature cmc:5 usd>7.5 f:commander -oracleid:atraxa-oracle',
+        limit: 3,
+        unique: 'cards'
       });
       expect(text).toContain('**Alternatives:**');
       expect(text).toContain('*Budget Options:*');
@@ -88,6 +91,72 @@ describe('Under-Covered User-Facing Tools', () => {
       expect(result.isError).toBeUndefined();
       expect(mockClient.searchCards).not.toHaveBeenCalled();
       expect(result.content[0].text).toContain('Price data not available for comparison');
+    });
+
+    it('excludes other printings of the priced card from budget and upgrade options', async () => {
+      const mockClient = {
+        getCard: vi.fn().mockResolvedValue({
+          id: 'target-print',
+          oracle_id: 'target-oracle',
+          name: 'Target Card',
+          cmc: 2,
+          type_line: 'Creature',
+          prices: { usd: '5.00' },
+          legalities: { modern: 'legal' }
+        }),
+        searchCards: vi.fn().mockImplementation(async ({
+          query,
+          limit = 20
+        }: {
+          query: string;
+          limit?: number;
+        }) => {
+          const candidates = query.includes('usd<')
+            ? [
+                { id: 'cheaper-print', oracle_id: 'target-oracle', name: 'Target Card', prices: { usd: '3.00' } },
+                { id: 'budget-id-1', oracle_id: 'budget-oracle-1', name: 'Budget Creature 1', prices: { usd: '2.00' } },
+                { id: 'budget-id-2', oracle_id: 'budget-oracle-2', name: 'Budget Creature 2', prices: { usd: '1.50' } },
+                { id: 'budget-id-3', oracle_id: 'budget-oracle-3', name: 'Budget Creature 3', prices: { usd: '1.00' } }
+              ]
+            : [
+                { id: 'premium-print', oracle_id: 'target-oracle', name: 'Target Card', prices: { usd: '8.00' } },
+                { id: 'upgrade-id-1', oracle_id: 'upgrade-oracle-1', name: 'Upgrade Creature 1', prices: { usd: '10.00' } },
+                { id: 'upgrade-id-2', oracle_id: 'upgrade-oracle-2', name: 'Upgrade Creature 2', prices: { usd: '12.00' } },
+                { id: 'upgrade-id-3', oracle_id: 'upgrade-oracle-3', name: 'Upgrade Creature 3', prices: { usd: '15.00' } }
+              ];
+          const data = query.includes('-oracleid:target-oracle')
+            ? candidates.filter(card => card.oracle_id !== 'target-oracle')
+            : candidates;
+
+          return {
+            total_cards: data.length,
+            has_more: data.length > limit,
+            data: data.slice(0, limit)
+          };
+        })
+      };
+      const tool = new GetCardPricesTool(mockClient as never);
+
+      const result = await tool.execute({
+        card_identifier: 'Target Card',
+        currency: 'usd',
+        include_alternatives: true
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Budget Creature 1: USD 2.00');
+      expect(result.content[0].text).toContain('Budget Creature 3: USD 1.00');
+      expect(result.content[0].text).toContain('Upgrade Creature 1: USD 10.00');
+      expect(result.content[0].text).toContain('Upgrade Creature 3: USD 15.00');
+      expect(result.content[0].text).not.toContain('- Target Card:');
+      expect(mockClient.searchCards).toHaveBeenCalledTimes(2);
+      for (const [params] of mockClient.searchCards.mock.calls) {
+        expect(params).toEqual(expect.objectContaining({
+          query: expect.stringContaining('-oracleid:target-oracle'),
+          unique: 'cards',
+          limit: 3
+        }));
+      }
     });
   });
 

@@ -2,7 +2,7 @@
 export interface ScryfallCard {
   object: 'card';
   id: string;
-  oracle_id: string;
+  oracle_id?: string;
   multiverse_ids?: number[];
   mtgo_id?: number;
   mtgo_foil_id?: number;
