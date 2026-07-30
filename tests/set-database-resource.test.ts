@@ -4,6 +4,17 @@ import { CacheService } from "../src/services/cache-service.js";
 import { ScryfallClient } from "../src/services/scryfall-client.js";
 import type { ScryfallSet } from "../src/types/scryfall-api.js";
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 function createSet(overrides: Partial<ScryfallSet> = {}): ScryfallSet {
   return {
     object: "set",
@@ -182,6 +193,100 @@ describe("SetDatabaseResource", () => {
     expect(first).toBe(second);
     expect(JSON.parse(second).total_sets).toBe(2);
     expect(JSON.parse(second).source).toBeUndefined();
+  });
+
+  it("serves a stale snapshot when a scheduled refresh fails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+    const staleSets = [createSet({ id: "stale-id", code: "old", name: "Stale Set" })];
+    const freshSets = [createSet({ id: "fresh-id", code: "new", name: "Fresh Set" })];
+    const getSets = vi.fn()
+      .mockResolvedValueOnce(staleSets)
+      .mockRejectedValueOnce(new Error("upstream unavailable"))
+      .mockResolvedValueOnce(freshSets);
+    const resource = new SetDatabaseResource({ getSets } as never, cache);
+
+    try {
+      const stalePayload = await resource.getData();
+      vi.advanceTimersByTime(8 * 24 * 60 * 60 * 1000);
+
+      await expect(resource.getData()).resolves.toBe(stalePayload);
+      expect(getSets).toHaveBeenCalledTimes(2);
+      expect(cache.get(CacheService.createSetKey("serialized"))).toBe(stalePayload);
+
+      vi.advanceTimersByTime(5 * 60 * 1000);
+      const refreshedPayload = await resource.getData();
+      expect(getSets).toHaveBeenCalledTimes(3);
+      expect(JSON.parse(refreshedPayload).data[0].name).toBe("Fresh Set");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves the current snapshot when force refresh fails", async () => {
+    const sets = [createSet({ id: "current-id", code: "cur", name: "Current Set" })];
+    const getSets = vi.fn()
+      .mockResolvedValueOnce(sets)
+      .mockRejectedValueOnce(new Error("forced refresh failed"));
+    const resource = new SetDatabaseResource({ getSets } as never, cache);
+    const currentPayload = await resource.getData();
+
+    await expect(resource.forceRefresh()).rejects.toThrow("forced refresh failed");
+    expect(cache.get(CacheService.createSetKey("serialized"))).toBe(currentPayload);
+    expect(cache.get(CacheService.createSetKey())).not.toBeNull();
+  });
+
+  it("serves stale set models to filtered reads after refresh failure", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+    const sets = [createSet({ id: "stale-id", code: "old", name: "Stale Set" })];
+    const getSets = vi.fn()
+      .mockResolvedValueOnce(sets)
+      .mockRejectedValueOnce(new Error("upstream unavailable"));
+    const resource = new SetDatabaseResource({ getSets } as never, cache);
+
+    try {
+      await resource.getData();
+      vi.advanceTimersByTime(8 * 24 * 60 * 60 * 1000);
+
+      const filtered = JSON.parse(await resource.getFilteredSets({ query: "stale" }));
+      expect(filtered.data.map((set: ScryfallSet) => set.name)).toEqual(["Stale Set"]);
+      expect(getSets).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("serializes force refresh behind an in-flight refresh", async () => {
+    const first = createDeferred<ScryfallSet[]>();
+    const second = createDeferred<ScryfallSet[]>();
+    const getSets = vi.fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const resource = new SetDatabaseResource({ getSets } as never, cache);
+    const scheduledRefresh = resource.getData();
+
+    await vi.waitFor(() => expect(getSets).toHaveBeenCalledTimes(1));
+    const forcedRefresh = resource.forceRefresh();
+
+    try {
+      await Promise.resolve();
+      expect(getSets).toHaveBeenCalledTimes(1);
+
+      first.resolve([createSet({ id: "older-id", code: "old", name: "Older Set" })]);
+      await scheduledRefresh;
+      await vi.waitFor(() => expect(getSets).toHaveBeenCalledTimes(2));
+
+      second.resolve([createSet({ id: "newer-id", code: "new", name: "Newer Set" })]);
+      await forcedRefresh;
+
+      const finalPayload = JSON.parse(await resource.getData());
+      expect(finalPayload.data[0].name).toBe("Newer Set");
+    } finally {
+      first.resolve([]);
+      second.resolve([]);
+      await Promise.allSettled([scheduledRefresh, forcedRefresh]);
+    }
   });
 
   it("warms the shared raw set cache in the client-compatible shape", async () => {

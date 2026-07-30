@@ -15,6 +15,9 @@ type CachedSetData = ScryfallSet[] | { data: ScryfallSet[] };
 const SET_DATA_KEY = CacheService.createSetKey();
 const SET_PAYLOAD_KEY = CacheService.createSetKey('serialized');
 const SET_METADATA_KEY = CacheService.createSetKey('metadata');
+const SET_LAST_UPDATE_KEY = CacheService.createSetKey('last_update');
+const SET_STALE_DATA_KEY = CacheService.createSetKey('stale');
+const SET_STALE_RETENTION_MS = 4 * 7 * 24 * 60 * 60 * 1000;
 
 /**
  * MCP Resource for accessing set database
@@ -26,7 +29,9 @@ export class SetDatabaseResource {
   readonly mimeType = 'application/json';
 
   private lastUpdateCheck = 0;
+  private nextUpdateCheckAt = 0;
   private readonly updateCheckInterval = 7 * 24 * 60 * 60 * 1000; // 1 week
+  private readonly refreshFailureRetryInterval = 5 * 60 * 1000; // 5 minutes
   private loadInFlight?: Promise<ScryfallSet[]>;
 
   constructor(
@@ -40,27 +45,40 @@ export class SetDatabaseResource {
   async getData(): Promise<string> {
     try {
       const now = Date.now();
-      if (now - this.lastUpdateCheck > this.updateCheckInterval) {
-        await this.checkForUpdates();
+      const cachedPayload = this.cache.getWithStats<string>(SET_PAYLOAD_KEY);
+
+      if (now >= this.nextUpdateCheckAt) {
         this.lastUpdateCheck = now;
+
+        if (this.isRefreshDue()) {
+          try {
+            const sets = await this.getSetDataModel(true);
+            const payload = this.storeSerializedSnapshot(sets);
+            this.nextUpdateCheckAt = Date.now() + this.updateCheckInterval;
+            return payload;
+          } catch (error) {
+            this.nextUpdateCheckAt = Date.now() + this.refreshFailureRetryInterval;
+            if (cachedPayload) {
+              mcpLogger.warn(
+                { operation: 'set_snapshot_refresh', error },
+                'Serving stale set snapshot after refresh failure'
+              );
+              return cachedPayload;
+            }
+
+            throw error;
+          }
+        }
+
+        this.nextUpdateCheckAt = now + this.updateCheckInterval;
       }
 
-      const cachedPayload = this.cache.getWithStats<string>(SET_PAYLOAD_KEY);
       if (cachedPayload) {
         return cachedPayload;
       }
 
       const sets = await this.getSetDataModel();
-      const updatedAt = new Date().toISOString();
-      const payload = this.serializeSetPayload(sets, updatedAt);
-
-      this.cache.setWithType(SET_PAYLOAD_KEY, payload, 'set_data');
-      this.cache.setWithType(SET_METADATA_KEY, {
-        updatedAt,
-        totalSets: sets.length,
-      } satisfies SetSnapshotMetadata, 'set_data');
-
-      return payload;
+      return this.storeSerializedSnapshot(sets);
 
     } catch (error) {
       throw new ScryfallAPIError(
@@ -71,10 +89,12 @@ export class SetDatabaseResource {
     }
   }
 
-  private async getSetDataModel(): Promise<ScryfallSet[]> {
-    const cached = this.cache.getWithStats<CachedSetData>(SET_DATA_KEY);
-    if (cached) {
-      return this.normalizeCachedSetData(cached);
+  private async getSetDataModel(forceRefresh = false): Promise<ScryfallSet[]> {
+    if (!forceRefresh) {
+      const cached = this.cache.getWithStats<CachedSetData>(SET_DATA_KEY);
+      if (cached) {
+        return this.normalizeCachedSetData(cached);
+      }
     }
 
     if (!this.loadInFlight) {
@@ -88,7 +108,22 @@ export class SetDatabaseResource {
         });
     }
 
-    return this.loadInFlight;
+    try {
+      return await this.loadInFlight;
+    } catch (error) {
+      if (!forceRefresh) {
+        const stale = this.cache.get<CachedSetData>(SET_STALE_DATA_KEY);
+        if (stale) {
+          mcpLogger.warn(
+            { operation: 'set_model_refresh', error },
+            'Serving stale set model after refresh failure'
+          );
+          return this.normalizeCachedSetData(stale);
+        }
+      }
+
+      throw error;
+    }
   }
 
   private normalizeCachedSetData(cached: CachedSetData): ScryfallSet[] {
@@ -113,30 +148,29 @@ export class SetDatabaseResource {
     });
   }
 
-  /**
-   * Checks for updates to set data
-   */
-  private async checkForUpdates(): Promise<void> {
-    try {
-      // Sets don't have a bulk data endpoint, so we check periodically
-      const cacheKey = CacheService.createSetKey();
-      const lastUpdateKey = CacheService.createSetKey('last_update');
-      
-      const lastUpdate = this.cache.get<string>(lastUpdateKey);
-      const weekAgo = new Date(Date.now() - this.updateCheckInterval).toISOString();
-      
-      if (!lastUpdate || lastUpdate < weekAgo) {
-        // Clear old cache and mark for refresh
-        this.cache.delete(cacheKey);
-        this.cache.delete(SET_PAYLOAD_KEY);
-        this.cache.delete(SET_METADATA_KEY);
-        this.cache.set(lastUpdateKey, new Date().toISOString(), this.updateCheckInterval);
-      }
+  private isRefreshDue(): boolean {
+    const lastUpdate = this.cache.get<string>(SET_LAST_UPDATE_KEY);
+    const weekAgo = new Date(Date.now() - this.updateCheckInterval).toISOString();
+    return !lastUpdate || lastUpdate < weekAgo;
+  }
 
-    } catch (error) {
-      // Log error but don't fail - we can still serve cached data
-      mcpLogger.warn({ operation: 'set_update_check', error }, 'Failed to check for set data updates');
-    }
+  private storeSerializedSnapshot(sets: ScryfallSet[]): string {
+    const updatedAt = new Date().toISOString();
+    const payload = this.serializeSetPayload(sets, updatedAt);
+
+    this.cache.set(SET_PAYLOAD_KEY, payload, SET_STALE_RETENTION_MS, { sizeBytes: payload.length * 2 });
+    this.cache.set(SET_METADATA_KEY, {
+      updatedAt,
+      totalSets: sets.length,
+    } satisfies SetSnapshotMetadata, SET_STALE_RETENTION_MS);
+    this.cache.set(
+      SET_STALE_DATA_KEY,
+      { data: sets } satisfies Exclude<CachedSetData, ScryfallSet[]>,
+      SET_STALE_RETENTION_MS
+    );
+    this.cache.set(SET_LAST_UPDATE_KEY, updatedAt, this.updateCheckInterval);
+
+    return payload;
   }
 
   /**
@@ -193,7 +227,7 @@ export class SetDatabaseResource {
       snapshot_updated_at: snapshot?.updatedAt,
       cached_total_sets: snapshot?.totalSets,
       last_update_check: new Date(this.lastUpdateCheck).toISOString(),
-      next_update_check: new Date(this.lastUpdateCheck + this.updateCheckInterval).toISOString()
+      next_update_check: new Date(this.nextUpdateCheckAt).toISOString()
     };
   }
 
@@ -201,12 +235,29 @@ export class SetDatabaseResource {
    * Forces a refresh of the set data
    */
   async forceRefresh(): Promise<void> {
-    this.cache.delete(SET_DATA_KEY);
-    this.cache.delete(SET_PAYLOAD_KEY);
-    this.cache.delete(SET_METADATA_KEY);
-    this.loadInFlight = undefined;
-    this.lastUpdateCheck = 0;
-    await this.getData(); // This will trigger a fresh download
+    if (this.loadInFlight) {
+      try {
+        await this.loadInFlight;
+      } catch {
+        // A force refresh still makes its own attempt after an in-flight failure.
+      }
+    }
+
+    const now = Date.now();
+    this.lastUpdateCheck = now;
+    this.nextUpdateCheckAt = now + this.refreshFailureRetryInterval;
+
+    try {
+      const sets = await this.getSetDataModel(true);
+      this.storeSerializedSnapshot(sets);
+      this.nextUpdateCheckAt = Date.now() + this.updateCheckInterval;
+    } catch (error) {
+      throw new ScryfallAPIError(
+        `Failed to refresh set database: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        500,
+        'resource_error'
+      );
+    }
   }
 
   /**
