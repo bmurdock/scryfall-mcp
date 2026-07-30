@@ -1,7 +1,9 @@
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { fileURLToPath } from 'node:url';
 import { ValidationError } from '../types/mcp-types.js';
 import { mcpLogger } from '../services/logger.js';
+
+const RULES_PATH = fileURLToPath(new URL('../../mtgrules.txt', import.meta.url));
 
 /**
  * MCP Tool for searching Magic: The Gathering comprehensive rules
@@ -61,9 +63,7 @@ export class QueryRulesTool {
    */
   private loadRulesFile(): void {
     try {
-      // Try to load from the project root
-      const rulesPath = join(process.cwd(), 'mtgrules.txt');
-      this.rulesContent = readFileSync(rulesPath, 'utf-8');
+      this.rulesContent = readFileSync(RULES_PATH, 'utf-8');
       this.rulesLines = this.rulesContent.split('\n');
     } catch (error) {
       mcpLogger.warn({ operation: 'rules_load', error }, 'Could not load MTG rules file');

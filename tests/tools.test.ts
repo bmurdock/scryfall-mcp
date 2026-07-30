@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { tmpdir } from 'node:os';
 import { SearchCardsTool } from '../src/tools/search-cards.js';
 import { GetCardTool } from '../src/tools/get-card.js';
 import { GetCardPricesTool } from '../src/tools/get-card-prices.js';
@@ -395,6 +396,21 @@ describe('MCP Tools', () => {
       } else {
         // If rules file is available, should return search results
         expect(result.content[0].text).toMatch(/Found \d+ rule|No rules found/);
+      }
+    });
+
+    it('should load the bundled rules independently of the process working directory', async () => {
+      const originalCwd = process.cwd();
+
+      try {
+        process.chdir(tmpdir());
+        const isolatedTool = new QueryRulesTool();
+        const result = await isolatedTool.execute({ query: 'priority' });
+
+        expect(result.isError).toBeUndefined();
+        expect(result.content[0].text).toMatch(/Found \d+ rule/);
+      } finally {
+        process.chdir(originalCwd);
       }
     });
   });
