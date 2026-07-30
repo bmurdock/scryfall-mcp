@@ -4,6 +4,7 @@
  */
 
 import pino from 'pino';
+import { APP_VERSION } from '../version.js';
 import { MCPError } from '../types/mcp-errors.js';
 
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
@@ -57,7 +58,7 @@ function createLogger() {
         pid: bindings.pid,
         hostname: bindings.hostname,
         service: 'scryfall-mcp',
-        version: process.env.npm_package_version || '1.0.0',
+        version: APP_VERSION,
       }),
     },
     timestamp: pino.stdTimeFunctions.isoTime,

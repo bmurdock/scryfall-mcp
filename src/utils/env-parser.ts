@@ -3,6 +3,7 @@
  */
 
 import { mcpLogger } from "../services/logger.js";
+import { DEFAULT_SCRYFALL_USER_AGENT } from "../version.js";
 
 function logEnvFallback(kind: string, details: Record<string, unknown>, message: string): void {
   mcpLogger.warn(
@@ -187,7 +188,7 @@ export const EnvValidators = {
    */
   userAgent: (value?: string) => parseEnvString(
     value,
-    'ScryfallMCPServer/1.0.2',
+    DEFAULT_SCRYFALL_USER_AGENT,
     undefined,
     5,
     200

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MagicFormat, SET_TYPES } from "./scryfall-api.js";
+import { DEFAULT_SCRYFALL_USER_AGENT } from "../version.js";
 import {
   trimmedString,
   normalizedEnum
@@ -164,7 +165,7 @@ export const CACHE_DURATIONS = {
 
 // HTTP Client Configuration
 export const REQUIRED_HEADERS = {
-  "User-Agent": process.env.SCRYFALL_USER_AGENT || "ScryfallMCPServer/1.0.2",
+  "User-Agent": process.env.SCRYFALL_USER_AGENT || DEFAULT_SCRYFALL_USER_AGENT,
   Accept: "application/json",
   // Note: Accept-Encoding removed to avoid gzip parsing issues in Node.js
 } as const;

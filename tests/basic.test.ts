@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { ScryfallMCPServer } from "../src/server.js";
+import packageJson from "../package.json" with { type: "json" };
+import { MCP_SERVER_INFO, ScryfallMCPServer } from "../src/server.js";
+import { EnvValidators } from "../src/utils/env-parser.js";
 
 describe("Scryfall MCP Server", () => {
   let server: ScryfallMCPServer;
@@ -14,6 +16,12 @@ describe("Scryfall MCP Server", () => {
 
   it("should initialize successfully", () => {
     expect(server).toBeDefined();
+  });
+
+  it("should derive server and default user-agent versions from the package", () => {
+    expect(MCP_SERVER_INFO.version).toBe(packageJson.version);
+    expect(EnvValidators.userAgent()).toBe(`ScryfallMCPServer/${packageJson.version}`);
+    expect(EnvValidators.userAgent("CustomScryfallClient/2.0")).toBe("CustomScryfallClient/2.0");
   });
 
   it("should have correct tools", () => {

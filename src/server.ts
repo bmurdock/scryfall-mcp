@@ -26,6 +26,7 @@ import {
   ToolContract,
 } from "./types/mcp-registry.js";
 import { EnvValidators } from "./utils/env-parser.js";
+import { APP_VERSION } from "./version.js";
 
 // Tools
 import { SearchCardsTool } from "./tools/search-cards.js";
@@ -55,7 +56,7 @@ import { BuildDeckPrompt } from "./prompts/build-deck.js";
 
 export const MCP_SERVER_INFO = {
   name: "scryfall-mcp-server",
-  version: "1.0.0",
+  version: APP_VERSION,
 } as const;
 
 export const MCP_SERVER_CAPABILITIES = {
