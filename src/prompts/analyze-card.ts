@@ -59,6 +59,12 @@ ${formattedCard.power && formattedCard.toughness ? `**Power/Toughness:** ${forma
 **Set:** ${formattedCard.set_name}
 **Rarity:** ${formattedCard.rarity}
 
+## Evidence Boundaries
+- Treat only the card details, legalities, and displayed price supplied by Scryfall as sourced facts.
+- Do not invent current metagame position, historical performance, price movement, reprint plans, tournament results, professional opinions, or future format impact.
+- When current external evidence is unavailable, say so explicitly and frame strategic conclusions as analysis based on the supplied card text.
+- Treat specific comparison or synergy cards as candidates until their Oracle text and legality are verified.
+
 ## Analysis Framework
 
 Please analyze this card across the following dimensions:
@@ -69,11 +75,10 @@ Please analyze this card across the following dimensions:
 - Compare to similar cards in the format
 - Assess mana efficiency and tempo impact
 
-### 2. Format Legality and Meta Positioning
+### 2. Format Legality and Strategic Positioning
 - Current legal formats: ${Object.entries(formattedCard.legalities).map(([fmt, status]) => `${fmt}: ${status}`).join(', ')}
-- Meta positioning in ${format}
-- Historical performance and trends
-- Current tier placement (if applicable)
+- Likely roles and archetypes in ${format}, clearly labeled as analysis
+- Relevant strengths and constraints implied by the card text
 
 ### 3. Synergy Analysis
 - Cards that synergize well with this card
@@ -89,16 +94,14 @@ Please analyze this card across the following dimensions:
 
 ### 5. Price and Accessibility
 - Current market price: ${formattedCard.prices.usd ? `$${formattedCard.prices.usd}` : 'Not available'}
-- Price trend analysis
-- Budget alternatives if expensive
-- Reprint likelihood assessment
+- Budget considerations based only on the displayed price
+- Candidate alternatives, with a reminder that their current price and legality require verification
 
 ${analysisDepth === 'comprehensive' ? `
 ### 6. Advanced Analysis
 - Rules interactions and edge cases
-- Tournament results and statistics
-- Professional player opinions
-- Future format impact predictions
+- Deeper strategic implications derived from the supplied card text
+- Assumptions and uncertainties that could change the analysis
 
 ### 7. Casual and Commander Considerations
 - Commander format viability
@@ -117,7 +120,6 @@ Provide exhaustive analysis with deep technical insights and comprehensive cover
 
 ## Additional Context
 - Focus primarily on ${format} format
-- Consider both current meta and potential future developments
 - Include specific card names and examples where relevant
 - Provide actionable insights for deck builders and players
 

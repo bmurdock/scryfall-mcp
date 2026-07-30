@@ -43,7 +43,7 @@ export class BuildDeckPrompt {
   async generatePrompt(args: Record<string, string>): Promise<string> {
     try {
       const cardIdentifier = args.card_identifier;
-      const format = args.format;
+      const format = args.format?.trim().toLowerCase();
       const budget = args.budget || 'mid-range';
       const playstyle = args.playstyle || 'flexible';
       const competitiveLevel = args.competitive_level || 'fnm';
@@ -87,6 +87,12 @@ ${formattedCard.power && formattedCard.toughness ? `**Power/Toughness:** ${forma
 - **Competitive Level:** ${competitiveLevel}
 - **Format Legality:** ${formatLegality}
 
+## Evidence Boundaries
+- Treat only the focus-card details, legality, and displayed price above as Scryfall-backed facts.
+- Before presenting a final decklist, verify each recommended card's current Oracle text and ${format} legality with Scryfall-backed tools. If verification is unavailable, label that card as an unverified candidate.
+- Do not claim current metagame share, matchup results, tournament tiers, or total deck price without additional current evidence.
+- Clearly label strategic evaluations and matchup discussion as analysis rather than sourced fact.
+
 ## Deck Building Framework
 
 Please create a comprehensive deck building guide covering:
@@ -129,7 +135,7 @@ ${!['commander', 'brawl', 'standardbrawl'].includes(format) ? `
 ` : ''}
 
 ### 7. Budget Considerations
-- Total estimated deck cost
+- Explain how the stated budget changes card-selection priorities
 ${budget === 'budget' ? '- Budget alternatives for expensive cards' : ''}
 ${budget === 'high-end' || budget === 'no-limit' ? '- Premium upgrades and optimizations' : ''}
 - Upgrade path recommendations
@@ -141,9 +147,9 @@ ${budget === 'high-end' || budget === 'no-limit' ? '- Premium upgrades and optim
 - Common play patterns
 
 ### 9. Matchup Analysis
-- Favorable matchups and why
-- Difficult matchups and how to improve them
-- Meta positioning in current ${format}
+- Likely strategic strengths against broad archetypes, labeled as analysis
+- Likely strategic weaknesses and possible adjustments, labeled as analysis
+- Do not present current matchup percentages or metagame position without supporting data
 
 ### 10. Alternative Builds
 - Different approaches to building around this card
@@ -151,17 +157,15 @@ ${budget === 'high-end' || budget === 'no-limit' ? '- Premium upgrades and optim
 - Hybrid strategies
 
 ## Additional Requirements
-- All suggested cards must be legal in ${format}
-- Consider current meta game and popular decks
+- Verify each recommended card is legal in ${format}, or explicitly mark it unverified
 - Provide specific card names, not just categories
 - Include reasoning for each major deck building decision
 - Consider both best-case and realistic scenarios
 
 ${competitiveLevel === 'tournament' ? `
 ## Tournament Considerations
-- Current tier placement expectations
-- Tournament-specific tech choices
-- Meta game adaptation strategies
+- Explain tournament-relevant consistency and resilience considerations
+- Mark any tournament-specific or metagame-specific claim as unverified unless supporting data is available
 ` : ''}
 
 ${format === 'commander' ? `
