@@ -12,9 +12,9 @@ This project is intended to safely expose Scryfall-backed data and MTG helper wo
 
 ## Reporting
 
-Please do not open public issues for suspected vulnerabilities.
+Please do not include vulnerability details, reproduction steps, or proof-of-concept material in a public issue.
 
-Report security concerns by opening a private security advisory on GitHub if available for this repository. If that is not practical, contact the maintainer through a non-public channel before disclosing details publicly.
+Use GitHub private vulnerability reporting when it is enabled for this repository. If that option is unavailable, open a minimal public issue asking the maintainer to establish a private reporting channel, without identifying the suspected component or including technical details.
 
 ## What To Include
 
