@@ -1240,6 +1240,43 @@ describe('MCP Tools', () => {
       expect(result.content[0].text).toContain('lands: 20');
     });
 
+    it('should count multi-type lands as lands and in their primary category', async () => {
+      mockScryfallClient.getCard.mockImplementation(async ({ identifier }: { identifier: string }) => {
+        if (identifier === 'Seat of the Synod') {
+          return {
+            id: 'seat-id',
+            name: identifier,
+            cmc: 0,
+            type_line: 'Artifact Land',
+            rarity: 'common',
+            prices: { usd: '1.00' },
+            color_identity: ['U']
+          };
+        }
+
+        return {
+          id: 'dryad-arbor-id',
+          name: identifier,
+          cmc: 0,
+          type_line: 'Land Creature — Forest Dryad',
+          rarity: 'rare',
+          prices: { usd: '8.00' },
+          color_identity: ['G']
+        };
+      });
+
+      const result = await tool.execute({
+        deck_list: '4 Seat of the Synod\n4 Dryad Arbor',
+        format: 'modern',
+        strategy: 'midrange'
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('lands: 8');
+      expect(result.content[0].text).toContain('artifacts: 4');
+      expect(result.content[0].text).toContain('creatures: 4');
+    });
+
     it('should normalize format and strategy inputs', async () => {
       mockScryfallClient.getCard.mockResolvedValue({
         id: 'bolt-id',

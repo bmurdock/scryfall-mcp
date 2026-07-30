@@ -319,7 +319,11 @@ export class AnalyzeDeckCompositionTool {
         analysis.typeBreakdown.enchantments = (analysis.typeBreakdown.enchantments || 0) + quantity;
       } else if (types.includes('planeswalker')) {
         analysis.typeBreakdown.planeswalkers = (analysis.typeBreakdown.planeswalkers || 0) + quantity;
-      } else if (types.includes('land')) {
+      }
+
+      // Land membership is independent because cards such as Artifact Lands
+      // and Land Creatures still count toward deck land totals.
+      if (types.includes('land')) {
         analysis.typeBreakdown.lands = (analysis.typeBreakdown.lands || 0) + quantity;
       }
       
