@@ -7,12 +7,13 @@ This repository is an MCP server for Scryfall-backed Magic: The Gathering workfl
 ## Development Setup
 
 1. Install dependencies with `npm install`.
-2. Copy `.env.example` to `.env` if you need to override defaults.
+2. Copy `.env.example` to `.env` if you need to override defaults. The documented npm development and start commands preload this file; explicit process environment variables take precedence.
 3. Start local development with `npm run dev`.
 4. Run validation before opening a pull request:
    - `npm run lint`
    - `npm run type-check`
    - `npm test`
+   - `npm run test:coverage`
 
 ## Project Expectations
 

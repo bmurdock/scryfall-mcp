@@ -106,7 +106,7 @@ The current ChatGPT-facing widget is `show_card_search`, which returns concise `
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js `^20.19.0`, `^22.13.0`, or `>=24.0.0`
 - npm
 
 ### Install
@@ -118,12 +118,15 @@ npm install
 cp .env.example .env
 ```
 
+The documented `npm run dev*`, `npm start`, and `npm run inspector` commands preload `.env`. Explicit process environment variables take precedence over values in that file. MCP clients that launch `dist/index.js` directly should provide overrides through their own `env` configuration.
+
 ### Validate
 
 ```bash
 npm run lint
 npm run type-check
 npm test
+npm run test:coverage
 ```
 
 ### Build
@@ -142,7 +145,9 @@ npm run start:http
 npm test
 npm run test:watch
 npm run test:ui
+npm run test:coverage
 npm run lint
+npm run lint:fix
 npm run type-check
 npm run inspector
 ```
@@ -164,6 +169,7 @@ See [.env.example](./.env.example) for the canonical values. The main variables 
 - `HTTP_PORT`
 - `HTTP_MCP_PATH`
 - `HTTP_HEALTH_PATH`
+- `HTTP_MAX_BODY_BYTES`
 - `HTTP_SESSION_IDLE_MS`
 - `HTTP_SESSION_CLEANUP_INTERVAL_MS`
 - `HTTP_ALLOWED_ORIGINS`
@@ -174,6 +180,7 @@ Operational notes:
 - The default pacing is 100 ms for general API endpoints and at least 500 ms for Scryfall's 2/sec card endpoints: `/cards/search`, `/cards/named`, `/cards/random`, and `/cards/collection`.
 - HTTP 429 responses are not retried automatically. The server records Scryfall's throttle window and delays the next request start so callers can decide whether to retry.
 - `CACHE_MAX_MEMORY_MB` controls whether large in-memory snapshots, including `card-database://bulk`, can be retained. Bulk resource rebuilds stream to a temp file first; oversized snapshots remain on disk for warm reads instead of being retained in the cache. Each MCP resource response still materializes the complete serialized bulk payload required by the resource protocol, so callers should allow memory proportional to that response size.
+- Set snapshots are refreshed weekly. A stale snapshot may be retained for up to four weeks, subject to cache capacity, and served when a scheduled refresh fails; failed scheduled refreshes are retried after five minutes.
 - Card detail output includes Scryfall source links and artist attribution when available. Consumers that render Scryfall image URLs should preserve copyright, artist, and source context and should not crop, distort, recolor, watermark, or imply ownership of card images.
 - Deck-list analysis resolves card names exactly first, then falls back to fuzzy lookup for exact misses and reports any fuzzy resolutions in the response.
 - Deck-scale tools may return partial analysis or an explicit retry-after message when Scryfall throttles the underlying card lookups.

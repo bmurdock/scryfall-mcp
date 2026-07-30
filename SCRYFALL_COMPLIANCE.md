@@ -10,7 +10,7 @@ This document describes the compliance-related behavior that exists in the curre
 - Sends a configurable `User-Agent` header on Scryfall requests.
 - Uses HTTPS for Scryfall API traffic.
 
-The default `User-Agent` is controlled by `.env.example` and can be overridden with `SCRYFALL_USER_AGENT`. Scryfall asks API clients to send an accurate user agent for the actual usage context, preferably including an application or script name, version, and contact or repository information.
+The default `User-Agent` is `ScryfallMCPServer/<APP_VERSION>`, derived from `src/version.ts`. Set `SCRYFALL_USER_AGENT` to override it; `.env.example` documents that override. Scryfall asks API clients to send an accurate user agent for the actual usage context, preferably including an application or script name, version, and contact or repository information.
 
 ### Rate Limiting
 
@@ -27,13 +27,15 @@ Current cache durations in code:
 - card search: 30 minutes
 - card details: 24 hours
 - card prices: 6 hours
-- set data: 1 week
+- set-model data and normal refresh cadence: 1 week
+- serialized set snapshot fallback: retained for up to 4 weeks, subject to cache capacity
 - bulk data: 24 hours
 
 Important implementation notes:
 
 - bulk card data is discovered through the bulk endpoint, streamed from the direct download URI, and cached as a serialized snapshot
 - set filtering is derived from one canonical cached `/sets` dataset
+- when a scheduled set refresh fails, the server serves an available stale snapshot and retries the refresh after 5 minutes
 - in-process cache retention is bounded; a complete bulk MCP resource response still occupies memory while it is returned
 - oversized bulk snapshots are streamed through disk and retained on disk for warm reads when the serialized payload is too large for the configured in-memory cache
 
