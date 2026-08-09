@@ -125,14 +125,17 @@ export class QueryRulesTool {
     section?: string;
     context_lines: number;
     exact_match: boolean;
-  }): Array<{
-    lineNumber: number;
-    line: string;
-    context: string[];
-    section: string;
-  }> {
+  }): {
+    results: Array<{
+      lineNumber: number;
+      line: string;
+      context: string[];
+      section: string;
+    }>;
+    totalMatches: number;
+  } {
     if (!this.rulesContent || this.rulesLines.length === 0) {
-      return [];
+      return { results: [], totalMatches: 0 };
     }
 
     const results: Array<{
@@ -141,6 +144,7 @@ export class QueryRulesTool {
       context: string[];
       section: string;
     }> = [];
+    let totalMatches = 0;
 
     // Create search pattern
     let searchPattern: RegExp;
@@ -173,6 +177,11 @@ export class QueryRulesTool {
 
       // Check if line matches search pattern
       if (searchPattern.test(line)) {
+        totalMatches++;
+        if (results.length >= 10) {
+          continue;
+        }
+
         // Get context lines
         const contextStart = Math.max(0, i - params.context_lines);
         const contextEnd = Math.min(this.rulesLines.length - 1, i + params.context_lines);
@@ -197,7 +206,7 @@ export class QueryRulesTool {
       }
     }
 
-    return results;
+    return { results, totalMatches };
   }
 
   async execute(args: unknown) {
@@ -219,7 +228,7 @@ export class QueryRulesTool {
       const params = this.validateParams(args);
 
       // Search for matching rules
-      const results = this.searchRules(params);
+      const { results, totalMatches } = this.searchRules(params);
 
       // Handle no results
       if (results.length === 0) {
@@ -240,19 +249,19 @@ export class QueryRulesTool {
       }
 
       // Format results
-      let responseText = `Found ${results.length} rule${results.length === 1 ? '' : 's'} matching "${params.query}"`;
+      let responseText = `Found ${totalMatches} rule${totalMatches === 1 ? '' : 's'} matching "${params.query}"`;
       if (params.section) {
         responseText += ` in section ${params.section}`;
       }
       responseText += ':\n\n';
 
-      for (const result of results.slice(0, 10)) { // Limit to 10 results
+      for (const result of results) {
         responseText += `**Section ${result.section}, Line ${result.lineNumber}:**\n`;
         responseText += result.context.join('\n') + '\n\n';
       }
 
-      if (results.length > 10) {
-        responseText += `... and ${results.length - 10} more results. Refine your search for more specific results.\n`;
+      if (totalMatches > results.length) {
+        responseText += `... and ${totalMatches - results.length} more results. Refine your search for more specific results.\n`;
       }
 
       return {

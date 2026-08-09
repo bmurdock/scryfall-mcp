@@ -413,6 +413,21 @@ describe('MCP Tools', () => {
         process.chdir(originalCwd);
       }
     });
+
+    it('bounds retained contexts while preserving the total match count', () => {
+      const searchRules = (tool as unknown as {
+        searchRules: (params: {
+          query: string;
+          context_lines: number;
+          exact_match: boolean;
+        }) => { results: unknown[]; totalMatches: number };
+      }).searchRules.bind(tool);
+
+      const result = searchRules({ query: 'the', context_lines: 10, exact_match: false });
+
+      expect(result.totalMatches).toBeGreaterThan(10);
+      expect(result.results).toHaveLength(10);
+    });
   });
 
   describe('SearchFormatStaplesTool', () => {
