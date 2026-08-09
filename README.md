@@ -81,6 +81,8 @@ Current HTTP behavior:
 - serves `POST|GET|DELETE` on `/mcp`
 - serves `GET /health`
 - rejects non-loopback `Origin` headers by default unless `HTTP_ALLOWED_ORIGINS` is set
+- requires `HTTP_AUTH_TOKEN` when `HTTP_HOST` is not loopback; clients send `Authorization: Bearer <token>`
+- limits active and initializing sessions with `HTTP_MAX_SESSIONS` (default `100`)
 
 The HTTP entrypoint is useful today, but it is still documented conservatively. It is not presented here as a public-hosting story.
 
@@ -173,6 +175,8 @@ See [.env.example](./.env.example) for the canonical values. The main variables 
 - `HTTP_SESSION_IDLE_MS`
 - `HTTP_SESSION_CLEANUP_INTERVAL_MS`
 - `HTTP_ALLOWED_ORIGINS`
+- `HTTP_AUTH_TOKEN`
+- `HTTP_MAX_SESSIONS`
 
 Operational notes:
 
@@ -185,6 +189,7 @@ Operational notes:
 - Deck-list analysis resolves card names exactly first, then falls back to fuzzy lookup for exact misses and reports any fuzzy resolutions in the response.
 - Deck-scale tools may return partial analysis or an explicit retry-after message when Scryfall throttles the underlying card lookups.
 - Streamable HTTP sessions expire after `HTTP_SESSION_IDLE_MS` and are checked by `HTTP_SESSION_CLEANUP_INTERVAL_MS`.
+- Non-loopback HTTP bindings require bearer-token authentication. Origin allowlists remain an additional browser policy, not an authentication mechanism.
 
 Example local HTTP startup:
 

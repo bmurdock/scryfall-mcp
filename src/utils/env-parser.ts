@@ -157,6 +157,7 @@ export const EnvValidators = {
    * HTTP transport configuration
    */
   httpMaxBodyBytes: (value?: string) => parseEnvInt(value, 1_048_576, 1024, 10 * 1024 * 1024),
+  httpMaxSessions: (value?: string, defaultValue = 100) => parseEnvInt(value, defaultValue, 1, 10_000),
   httpSessionIdleMs: (value?: string) => parseEnvInt(value, 30 * 60 * 1000, 1, 24 * 60 * 60 * 1000),
   httpSessionCleanupIntervalMs: (value?: string) => parseEnvInt(value, 60_000, 1, 60 * 60 * 1000),
   

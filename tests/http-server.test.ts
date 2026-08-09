@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { createHttpAppServer, type HttpServerConfig } from "../src/http.js";
+import { createHttpAppServer, resolveHttpServerConfig, type HttpServerConfig } from "../src/http.js";
 
 describe("HTTP transport entrypoint", () => {
   let server: Server;
@@ -109,6 +109,85 @@ describe("HTTP transport entrypoint", () => {
         message: "Forbidden: Origin is not allowed for this MCP endpoint",
       },
     });
+  });
+
+  it("requires bearer authentication for explicitly configured HTTP authentication", async () => {
+    await closeRuntime?.();
+
+    const runtime = createHttpAppServer({
+      host: "127.0.0.1",
+      port: 0,
+      authToken: "test-token",
+      maxSessions: 1,
+    });
+    server = runtime.server;
+    closeRuntime = runtime.close;
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+
+    const address = server.address() as AddressInfo;
+    const config = runtime.config as HttpServerConfig;
+    baseUrl = new URL(`http://127.0.0.1:${address.port}${config.mcpPath}`);
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "auth-test-client", version: "1.0.0" },
+      },
+    });
+
+    const unauthorized = await fetch(baseUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body,
+    });
+    expect(unauthorized.status).toBe(401);
+
+    const unauthorizedHealth = await fetch(new URL("/health", baseUrl));
+    expect(unauthorizedHealth.status).toBe(401);
+
+    const authorized = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        authorization: "Bearer test-token",
+      },
+      body,
+    });
+    expect(authorized.status).toBe(200);
+    await authorized.text();
+
+    const authorizedHealth = await fetch(new URL("/health", baseUrl), {
+      headers: { authorization: "Bearer test-token" },
+    });
+    expect(authorizedHealth.status).toBe(200);
+
+    const overLimit = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        authorization: "Bearer test-token",
+      },
+      body,
+    });
+    expect(overLimit.status).toBe(503);
+  });
+
+  it("requires an auth token before allowing a non-loopback HTTP binding", () => {
+    expect(() => resolveHttpServerConfig({ HTTP_HOST: "0.0.0.0" })).toThrow(
+      "HTTP_AUTH_TOKEN is required when HTTP_HOST is not loopback"
+    );
+
+    expect(resolveHttpServerConfig({ HTTP_HOST: "0.0.0.0", HTTP_AUTH_TOKEN: "test-token" }).authToken).toBe(
+      "test-token"
+    );
   });
 
   it("rejects oversized JSON request bodies", async () => {

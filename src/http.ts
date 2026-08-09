@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import {
   createServer as createNodeHttpServer,
   type IncomingMessage,
@@ -23,6 +23,8 @@ export type HttpServerConfig = {
   mcpPath: string;
   healthPath: string;
   allowedOrigins: string[];
+  authToken?: string;
+  maxSessions: number;
   sessionIdleMs: number;
   sessionCleanupIntervalMs: number;
 };
@@ -40,6 +42,7 @@ const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "127.0.0.1";
 const DEFAULT_MCP_PATH = "/mcp";
 const DEFAULT_HEALTH_PATH = "/health";
+const DEFAULT_HTTP_MAX_SESSIONS = 100;
 
 class PayloadTooLargeError extends Error {
   constructor() {
@@ -63,18 +66,32 @@ export function resolveHttpServerConfig(
   env: NodeJS.ProcessEnv = process.env,
   overrides: CreateHttpServerOverrides = {}
 ): HttpServerConfig {
-  return {
+  const config: HttpServerConfig = {
     host: overrides.host ?? parseEnvString(env.HTTP_HOST, DEFAULT_HTTP_HOST, undefined, 1, 255),
     port: overrides.port ?? parseEnvInt(env.HTTP_PORT, DEFAULT_HTTP_PORT, 1, 65535),
     mcpPath: overrides.mcpPath ?? parseEnvString(env.HTTP_MCP_PATH, DEFAULT_MCP_PATH, undefined, 1, 100),
     healthPath:
       overrides.healthPath ?? parseEnvString(env.HTTP_HEALTH_PATH, DEFAULT_HEALTH_PATH, undefined, 1, 100),
     allowedOrigins: overrides.allowedOrigins ?? parseAllowedOrigins(env.HTTP_ALLOWED_ORIGINS),
+    authToken: overrides.authToken ?? (env.HTTP_AUTH_TOKEN?.trim() || undefined),
+    maxSessions:
+      overrides.maxSessions ??
+      EnvValidators.httpMaxSessions(env.HTTP_MAX_SESSIONS, DEFAULT_HTTP_MAX_SESSIONS),
     sessionIdleMs: overrides.sessionIdleMs ?? EnvValidators.httpSessionIdleMs(env.HTTP_SESSION_IDLE_MS),
     sessionCleanupIntervalMs:
       overrides.sessionCleanupIntervalMs ??
       EnvValidators.httpSessionCleanupIntervalMs(env.HTTP_SESSION_CLEANUP_INTERVAL_MS),
   };
+
+  if (!isLoopbackHost(config.host) && !config.authToken) {
+    throw new Error("HTTP_AUTH_TOKEN is required when HTTP_HOST is not loopback");
+  }
+
+  return config;
+}
+
+function isLoopbackHost(host: string): boolean {
+  return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(host.toLowerCase());
 }
 
 function isLoopbackOrigin(origin: string): boolean {
@@ -96,6 +113,21 @@ function isOriginAllowed(origin: string | undefined, allowedOrigins: string[]): 
   }
 
   return isLoopbackOrigin(origin);
+}
+
+function isAuthorized(req: IncomingMessage, authToken?: string): boolean {
+  if (!authToken) {
+    return true;
+  }
+
+  const authorization = req.headers.authorization;
+  if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
+    return false;
+  }
+
+  const provided = Buffer.from(authorization.slice("Bearer ".length));
+  const expected = Buffer.from(authToken);
+  return provided.length === expected.length && timingSafeEqual(provided, expected);
 }
 
 async function readJsonBody(
@@ -206,10 +238,16 @@ async function handleMcpRequest(
   res: ServerResponse,
   appServer: ScryfallMCPServer,
   config: HttpServerConfig,
-  sessionTransports: Map<string, SessionTransportRecord>
+  sessionTransports: Map<string, SessionTransportRecord>,
+  pendingSessions: { value: number }
 ): Promise<void> {
   if (!isOriginAllowed(req.headers.origin, config.allowedOrigins)) {
     sendJsonRpcError(res, 403, "Forbidden: Origin is not allowed for this MCP endpoint");
+    return;
+  }
+
+  if (!isAuthorized(req, config.authToken)) {
+    sendJsonRpcError(res, 401, "Unauthorized", { "WWW-Authenticate": "Bearer" });
     return;
   }
 
@@ -244,8 +282,18 @@ async function handleMcpRequest(
       return;
     }
 
-    const transport = await createSessionTransport(appServer, sessionTransports);
-    await transport.handleRequest(req, res, parsedBody);
+    if (sessionTransports.size + pendingSessions.value >= config.maxSessions) {
+      sendJsonRpcError(res, 503, "Too many active MCP sessions", { "Retry-After": "60" });
+      return;
+    }
+
+    pendingSessions.value++;
+    try {
+      const transport = await createSessionTransport(appServer, sessionTransports);
+      await transport.handleRequest(req, res, parsedBody);
+    } finally {
+      pendingSessions.value--;
+    }
     return;
   }
 
@@ -272,21 +320,27 @@ export function createHttpAppServer(overrides: CreateHttpServerOverrides = {}): 
   const config = resolveHttpServerConfig(process.env, overrides);
   const appServer = new ScryfallMCPServer();
   const sessionTransports = new Map<string, SessionTransportRecord>();
+  const pendingSessions = { value: 0 };
   const sessionCleanupInterval = createIdleSessionCleanup(sessionTransports, config);
 
   const server = createNodeHttpServer(async (req, res) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `${config.host}:${config.port}`}`);
+      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `${config.host}:${config.port}`}`);
 
-    try {
-      if (url.pathname === config.healthPath) {
-        const health = await appServer.healthCheck();
+      try {
+        if (url.pathname === config.healthPath) {
+          if (!isAuthorized(req, config.authToken)) {
+            sendJsonRpcError(res, 401, "Unauthorized", { "WWW-Authenticate": "Bearer" });
+            return;
+          }
+
+          const health = await appServer.healthCheck();
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(health));
         return;
       }
 
       if (url.pathname === config.mcpPath) {
-        await handleMcpRequest(req, res, appServer, config, sessionTransports);
+        await handleMcpRequest(req, res, appServer, config, sessionTransports, pendingSessions);
         return;
       }
 
