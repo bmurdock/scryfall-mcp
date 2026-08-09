@@ -5,6 +5,7 @@ import {
   validateScryfallQueryAsync,
 } from "../../src/utils/query-validator.js";
 import { validateScryfallQuery as validateScryfallQueryFromValidators } from "../../src/utils/validators.js";
+import { sanitizeQuery } from "../../src/utils/query-sanitizer.js";
 
 describe("Simple Query Validator", () => {
   describe("Basic Validation", () => {
@@ -31,6 +32,13 @@ describe("Simple Query Validator", () => {
       const result = validateScryfallQuery('o:"enters the battlefield"');
       expect(result.isValid).toBe(true);
       expect(result.errors).toHaveLength(0);
+    });
+
+    it("should ignore parentheses inside quoted string queries", () => {
+      const query = 'o:"enters (the) battlefield"';
+
+      expect(validateScryfallQuery(query).isValid).toBe(true);
+      expect(sanitizeQuery(query)).toBe(query);
     });
 
     it("should validate comparison operators", () => {

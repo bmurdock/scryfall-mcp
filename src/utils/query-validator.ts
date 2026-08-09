@@ -1,3 +1,5 @@
+import { getUnquotedParenthesisStats } from './query-structure.js';
+
 /**
  * @fileoverview Simple Scryfall Query Validator
  * 
@@ -80,14 +82,13 @@ export function validateScryfallQuery(query: string): ValidationResult {
   const trimmedQuery = query.trim();
 
   // Check for balanced parentheses
-  const openParens = (trimmedQuery.match(/\(/g) || []).length;
-  const closeParens = (trimmedQuery.match(/\)/g) || []).length;
-  if (openParens !== closeParens) {
+  const { currentNesting } = getUnquotedParenthesisStats(trimmedQuery);
+  if (currentNesting !== 0) {
     errors.push({
       message: 'Mismatched parentheses in query',
       severity: 'error'
     });
-    if (openParens > closeParens) {
+    if (currentNesting > 0) {
       suggestions.push('Add closing parenthesis ")"');
     } else {
       suggestions.push('Add opening parenthesis "("');

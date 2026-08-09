@@ -1,4 +1,5 @@
 import { ValidationError } from '../types/mcp-types.js';
+import { getUnquotedParenthesisStats } from './query-structure.js';
 
 /**
  * Maximum allowed query length to prevent excessively long queries
@@ -60,16 +61,7 @@ function validateQueryStructure(query: string): void {
   }
 
   // Check for excessively nested parentheses
-  let maxNesting = 0;
-  let currentNesting = 0;
-  for (const char of query) {
-    if (char === '(') {
-      currentNesting++;
-      maxNesting = Math.max(maxNesting, currentNesting);
-    } else if (char === ')') {
-      currentNesting--;
-    }
-  }
+  const { currentNesting, maxNesting } = getUnquotedParenthesisStats(query);
   
   if (maxNesting > 10) {
     throw new ValidationError('Query has too many nested parentheses (max 10 levels)');
