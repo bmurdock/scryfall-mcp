@@ -51,4 +51,46 @@ describe("BuildScryfallQueryTool", () => {
     expect(result.isError).toBeUndefined();
     expect(result.content[0].text).toContain("usd<=7");
   });
+
+  it("escapes generated queries in the JSON usage example", async () => {
+    const parser = {
+      parse: vi.fn().mockReturnValue({
+        colors: [],
+        types: [],
+        archetypes: [],
+        priceConstraints: [],
+        formats: [],
+        ambiguities: [],
+        confidence: 1,
+      }),
+    };
+    const queryBuilder = {
+      build: vi.fn().mockResolvedValue({
+        query: 'o:"draw a card"',
+        explanation: "test explanation",
+        confidence: 1,
+        alternatives: [],
+        optimizations: [],
+      }),
+    };
+    const tool = new BuildScryfallQueryTool(
+      {} as never,
+      parser as never,
+      undefined as never,
+      queryBuilder as never
+    );
+
+    const result = await tool.execute({ natural_query: "draw cards" });
+    const text = result.content[0].text;
+    const jsonBlock = text.match(/```json\n([\s\S]*?)```/)?.[1];
+
+    expect(jsonBlock).toBeDefined();
+    expect(JSON.parse(jsonBlock!)).toEqual({
+      tool: "search_cards",
+      arguments: {
+        query: 'o:"draw a card"',
+        limit: 20,
+      },
+    });
+  });
 });

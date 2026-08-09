@@ -228,7 +228,7 @@ export class BuildScryfallQueryTool {
     response += `{\n`;
     response += `  "tool": "search_cards",\n`;
     response += `  "arguments": {\n`;
-    response += `    "query": "${buildResult.query}",\n`;
+    response += `    "query": ${JSON.stringify(buildResult.query)},\n`;
     response += `    "limit": ${params.max_results}\n`;
     response += `  }\n`;
     response += `}\n`;
