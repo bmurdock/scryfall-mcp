@@ -19,8 +19,8 @@ The project currently supports:
 - `search_sets`: Search and filter Magic sets.
 - `query_rules`: Search the local comprehensive rules file with context.
 - `build_scryfall_query`: Convert natural language into an explainable Scryfall query.
-- `search_format_staples`: Find staples and role players for a format.
-- `search_alternatives`: Find cheaper, upgraded, or similar cards.
+- `search_format_staples`: Search format-legal candidates using disclosed price and ordering heuristics, not tournament metagame data.
+- `search_alternatives`: Find candidates using disclosed price, type, and mana-value heuristics; results are not verified functional replacements or upgrades.
 - `find_synergistic_cards`: Find synergy pieces for a card, theme, or archetype.
 - `batch_card_analysis`: Analyze multiple cards for legality, prices, synergy, or composition.
 - `validate_brawl_commander`: Check Brawl and Standard Brawl commander legality.
@@ -81,7 +81,7 @@ Current HTTP behavior:
 - serves `POST|GET|DELETE` on `/mcp`
 - serves `GET /health`
 - rejects non-loopback `Origin` headers by default unless `HTTP_ALLOWED_ORIGINS` is set
-- requires `HTTP_AUTH_TOKEN` when `HTTP_HOST` is not loopback; clients send `Authorization: Bearer <token>`
+- requires both `HTTP_AUTH_TOKEN` and `HTTP_TRUST_PROXY_TLS=true` when `HTTP_HOST` is not loopback; the latter is an operator assertion that a trusted HTTPS proxy or tunnel protects the plaintext listener
 - limits active and initializing sessions with `HTTP_MAX_SESSIONS` (default `100`)
 
 The HTTP entrypoint is useful today, but it is still documented conservatively. It is not presented here as a public-hosting story.
@@ -176,6 +176,7 @@ See [.env.example](./.env.example) for the canonical values. The main variables 
 - `HTTP_SESSION_CLEANUP_INTERVAL_MS`
 - `HTTP_ALLOWED_ORIGINS`
 - `HTTP_AUTH_TOKEN`
+- `HTTP_TRUST_PROXY_TLS`
 - `HTTP_MAX_SESSIONS`
 
 Operational notes:
@@ -186,10 +187,11 @@ Operational notes:
 - `CACHE_MAX_MEMORY_MB` controls whether large in-memory snapshots, including `card-database://bulk`, can be retained. Bulk resource rebuilds stream to a temp file first; oversized snapshots remain on disk for warm reads instead of being retained in the cache. Each MCP resource response still materializes the complete serialized bulk payload required by the resource protocol, so callers should allow memory proportional to that response size.
 - Set snapshots are refreshed weekly. A stale snapshot may be retained for up to four weeks, subject to cache capacity, and served when a scheduled refresh fails; failed scheduled refreshes are retried after five minutes.
 - Card detail output includes Scryfall source links and artist attribution when available. Consumers that render Scryfall image URLs should preserve copyright, artist, and source context and should not crop, distort, recolor, watermark, or imply ownership of card images.
-- Deck-list analysis resolves card names exactly first, then falls back to fuzzy lookup for exact misses and reports any fuzzy resolutions in the response.
+- Deck-list analysis resolves card names exactly first, then falls back to fuzzy lookup for exact misses and reports any fuzzy resolutions in the response. Input is bounded to 64 KiB, 100 unique names, 10,000 total cards, and 1,000 copies per entry.
 - Deck-scale tools may return partial analysis or an explicit retry-after message when Scryfall throttles the underlying card lookups.
 - Streamable HTTP sessions expire after `HTTP_SESSION_IDLE_MS` and are checked by `HTTP_SESSION_CLEANUP_INTERVAL_MS`.
-- Non-loopback HTTP bindings require bearer-token authentication. Origin allowlists remain an additional browser policy, not an authentication mechanism.
+- Non-loopback HTTP bindings require bearer-token authentication and `HTTP_TRUST_PROXY_TLS=true`, which asserts that a trusted HTTPS proxy or tunnel protects the plaintext listener. Origin allowlists remain an additional browser policy, not an authentication mechanism.
+- `GET /health` is a readiness check: it returns HTTP 503 when a required service is degraded, including while the Scryfall circuit breaker is open.
 
 Example local HTTP startup:
 
