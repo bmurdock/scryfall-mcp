@@ -204,3 +204,47 @@ describe('AnalyzeDeckCompositionTool Brawl land recommendations', () => {
     expect(result.content[0].text).toContain('7+ CMC: 2');
   });
 });
+
+describe('AnalyzeDeckCompositionTool input bounds', () => {
+  it('rejects extreme quantities before fetching card data', async () => {
+    const getCard = vi.fn();
+    const tool = new AnalyzeDeckCompositionTool({ getCard } as never);
+
+    const result = await tool.execute({ deck_list: '1001 Island' });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('quantity cannot exceed 1000');
+    expect(getCard).not.toHaveBeenCalled();
+  });
+
+  it('rejects more than 100 unique card names before fetching card data', async () => {
+    const getCard = vi.fn();
+    const tool = new AnalyzeDeckCompositionTool({ getCard } as never);
+    const deckList = Array.from({ length: 101 }, (_, index) => `Card ${index}`).join('\n');
+
+    const result = await tool.execute({ deck_list: deckList });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('cannot contain more than 100 unique card names');
+    expect(getCard).not.toHaveBeenCalled();
+  });
+
+  it('caps mana-curve bars independently of card quantity', async () => {
+    const tool = new AnalyzeDeckCompositionTool({
+      getCard: vi.fn().mockResolvedValue({
+        name: 'Opt',
+        cmc: 1,
+        type_line: 'Instant',
+        rarity: 'common',
+        prices: {},
+        color_identity: ['U'],
+      }),
+    } as never);
+
+    const result = await tool.execute({ deck_list: '1000 Opt' });
+    const bar = result.content[0].text.match(/1 CMC: 1000 (█+)/)?.[1];
+
+    expect(result.isError).toBeUndefined();
+    expect(bar).toHaveLength(40);
+  });
+});

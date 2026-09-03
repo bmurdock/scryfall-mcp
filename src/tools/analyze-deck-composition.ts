@@ -51,6 +51,12 @@ interface DeckFetchWarnings {
   recommendationsOmitted: boolean;
 }
 
+const MAX_DECK_LIST_BYTES = 64 * 1024;
+const MAX_UNIQUE_CARD_NAMES = 100;
+const MAX_TOTAL_CARDS = 10_000;
+const MAX_CARD_QUANTITY = 1_000;
+const MAX_MANA_CURVE_BAR_WIDTH = 40;
+
 function getExpectedLandCount(format: string | undefined, totalCards: number): number {
   if (format === 'commander') {
     return 37;
@@ -101,6 +107,7 @@ export class AnalyzeDeckCompositionTool {
     properties: {
       deck_list: {
         type: 'string',
+        maxLength: MAX_DECK_LIST_BYTES,
         description: 'Deck list with one card per line, optionally prefixed by a quantity (Arena headers and set suffixes are accepted)'
       },
       format: {
@@ -134,6 +141,10 @@ export class AnalyzeDeckCompositionTool {
 
     if (!params.deck_list || typeof params.deck_list !== 'string') {
       throw new ValidationError('Deck list is required and must be a string');
+    }
+
+    if (Buffer.byteLength(params.deck_list, 'utf-8') > MAX_DECK_LIST_BYTES) {
+      throw new ValidationError(`Deck list cannot exceed ${MAX_DECK_LIST_BYTES} UTF-8 bytes`);
     }
 
     if (normalizedFormat) {
@@ -172,6 +183,8 @@ export class AnalyzeDeckCompositionTool {
           isError: true
         };
       }
+
+      this.validateDeckEntries(deckEntries);
 
       // Fetch card data
       const fetchResult = await this.fetchCardData(deckEntries);
@@ -253,6 +266,31 @@ export class AnalyzeDeckCompositionTool {
    */
   private parseDeckList(deckList: string): DeckCardEntry[] {
     return parseDeckListEntries(deckList);
+  }
+
+  private validateDeckEntries(deckEntries: DeckCardEntry[]): void {
+    if (deckEntries.length > MAX_UNIQUE_CARD_NAMES) {
+      throw new ValidationError(
+        `Deck list cannot contain more than ${MAX_UNIQUE_CARD_NAMES} unique card names`
+      );
+    }
+
+    let totalCards = 0;
+    for (const entry of deckEntries) {
+      if (!Number.isSafeInteger(entry.quantity) || entry.quantity < 1) {
+        throw new ValidationError(`Quantity for "${entry.name}" must be a positive safe integer`);
+      }
+      if (entry.quantity > MAX_CARD_QUANTITY) {
+        throw new ValidationError(
+          `Card quantity cannot exceed ${MAX_CARD_QUANTITY} copies per entry (received ${entry.quantity} for "${entry.name}")`
+        );
+      }
+
+      totalCards += entry.quantity;
+      if (!Number.isSafeInteger(totalCards) || totalCards > MAX_TOTAL_CARDS) {
+        throw new ValidationError(`Deck list cannot contain more than ${MAX_TOTAL_CARDS} total cards`);
+      }
+    }
   }
 
   /**
@@ -466,7 +504,7 @@ export class AnalyzeDeckCompositionTool {
       .reduce((sum, [, quantity]) => sum + quantity, 0);
     for (const [manaValue, count] of [...displayedManaValues, ['7+', highManaCount] as const]) {
       if (count > 0) {
-        const bar = '█'.repeat(Math.max(1, Math.floor(count / 2)));
+        const bar = '█'.repeat(Math.min(MAX_MANA_CURVE_BAR_WIDTH, Math.max(1, Math.floor(count / 2))));
         response += `• ${manaValue} CMC: ${count} ${bar}\n`;
       }
     }
