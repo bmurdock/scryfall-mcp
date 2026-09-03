@@ -85,6 +85,9 @@ function createMockCard(overrides: Partial<ScryfallCard> = {}): ScryfallCard {
     related_uris: {
       edhrec: "https://edhrec.com/route/?cc=Lightning+Bolt",
     },
+    purchase_uris: {
+      tcgplayer: "https://www.tcgplayer.com/search/magic/product?q=Lightning+Bolt",
+    },
     ...overrides,
   };
 }
@@ -223,9 +226,11 @@ describe("CardDatabaseResource", () => {
     const payload = await resource.getData();
     const parsed = JSON.parse(payload);
 
+    expect(resource.description).toContain("curated field projection");
     expect(parsed.updated_at).toBe(mockBulkInfo.updated_at);
     expect(parsed.total_cards).toBe(mockCards.length);
     expect(parsed.data[0].name).toBe("Lightning Bolt");
+    expect(parsed.data[0].purchase_uris).toBeUndefined();
   });
 
   it("reports builder diagnostics after rebuilding and caching the serialized snapshot", async () => {
@@ -334,6 +339,46 @@ describe("CardDatabaseResource", () => {
     await resource.destroy();
 
     await expect(access(snapshot!.path)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("keeps oversized disk snapshots isolated between resource instances", async () => {
+    const cacheA = new CacheService(60_000, 100, 0.0001);
+    const cacheB = new CacheService(60_000, 100, 0.0001);
+    const streamA = vi.fn().mockImplementation(async function* () {
+      yield* mockCards;
+    });
+    const streamB = vi.fn().mockImplementation(async function* () {
+      yield* mockCards;
+    });
+    const resourceA = new CardDatabaseResource(
+      { getBulkDataInfo: vi.fn().mockResolvedValue([mockBulkInfo]), streamBulkData: streamA } as never,
+      cacheA
+    );
+    const resourceB = new CardDatabaseResource(
+      { getBulkDataInfo: vi.fn().mockResolvedValue([mockBulkInfo]), streamBulkData: streamB } as never,
+      cacheB
+    );
+
+    try {
+      await resourceA.getData();
+      await resourceB.getData();
+      const snapshotA = (resourceA as unknown as { diskSnapshot?: { path: string } }).diskSnapshot;
+      const snapshotB = (resourceB as unknown as { diskSnapshot?: { path: string } }).diskSnapshot;
+
+      expect(snapshotA?.path).toBeTruthy();
+      expect(snapshotB?.path).toBeTruthy();
+      expect(snapshotA?.path).not.toBe(snapshotB?.path);
+
+      await resourceA.destroy();
+      await expect(access(snapshotB!.path)).resolves.toBeUndefined();
+      await resourceB.getData();
+      expect(streamB).toHaveBeenCalledTimes(1);
+    } finally {
+      await resourceA.destroy();
+      await resourceB.destroy();
+      cacheA.destroy();
+      cacheB.destroy();
+    }
   });
 
   it("exposes bulk cache retention diagnostics in resource metadata", async () => {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,13 +37,16 @@ type SerializedSnapshotFile = {
   payloadBytes: number;
 };
 
+export type BulkCardProjection = Pick<ScryfallCard, 'object' | 'id' | 'name'> &
+  Partial<Omit<ScryfallCard, 'object' | 'id' | 'name'>>;
+
 /**
  * MCP Resource for accessing bulk card database
  */
 export class CardDatabaseResource {
   readonly uri = 'card-database://bulk';
   readonly name = 'Card Database';
-  readonly description = 'Complete Scryfall bulk card database with daily updates';
+  readonly description = 'Daily Scryfall Oracle card snapshot with a curated field projection';
   readonly mimeType = 'application/json';
 
   private lastUpdateCheck = 0;
@@ -50,6 +54,7 @@ export class CardDatabaseResource {
   private rebuildInFlight?: Promise<string>;
   private diskSnapshot?: DiskBulkSnapshot;
   private readonly diskCacheDir = join(tmpdir(), 'scryfall-mcp');
+  private readonly diskSnapshotOwner = `${process.pid}-${randomUUID()}`;
   private lastBuildDiagnostics: BulkBuildDiagnostics = {
     totalCards: 0,
     retainedChunks: 0,
@@ -214,10 +219,13 @@ export class CardDatabaseResource {
   private async writeSerializedSnapshotFile(oracleCards: BulkDataInfo): Promise<SerializedSnapshotFile> {
     await mkdir(this.diskCacheDir, { recursive: true });
     const safeUpdatedAt = oracleCards.updated_at.replace(/[^a-zA-Z0-9.-]/g, '-');
-    const finalPath = join(this.diskCacheDir, `oracle-cards-${safeUpdatedAt}.json`);
+    const finalPath = join(
+      this.diskCacheDir,
+      `oracle-cards-${safeUpdatedAt}-${this.diskSnapshotOwner}.json`
+    );
     const tempPath = join(
       this.diskCacheDir,
-      `oracle-cards-${safeUpdatedAt}-${process.pid}-${Date.now()}.tmp`
+      `oracle-cards-${safeUpdatedAt}-${this.diskSnapshotOwner}-${Date.now()}.tmp`
     );
     const handle = await open(tempPath, 'w');
     let totalCards = 0;
@@ -315,9 +323,9 @@ export class CardDatabaseResource {
   /**
    * Filters card fields to reduce memory usage
    */
-  private filterCardFields(card: ScryfallCard): ScryfallCard {
+  private filterCardFields(card: ScryfallCard): BulkCardProjection {
     // Keep only essential fields for most use cases
-    const filtered: Partial<ScryfallCard> = {
+    const filtered: BulkCardProjection = {
       object: card.object,
       id: card.id,
       oracle_id: card.oracle_id,
@@ -374,7 +382,7 @@ export class CardDatabaseResource {
       card_faces: card.card_faces
     };
 
-    return filtered as ScryfallCard;
+    return filtered;
   }
 
   /**
