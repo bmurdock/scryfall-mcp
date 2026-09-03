@@ -215,6 +215,13 @@ export class CacheService {
   }
 
   /**
+   * Invalidates set views derived from the canonical set snapshot.
+   */
+  invalidateSetFilters(): number {
+    return this.invalidatePattern(/^set-filter:/);
+  }
+
+  /**
    * Gets the remaining TTL for a key in milliseconds
    */
   getTTL(key: string): number | null {
@@ -355,7 +362,7 @@ export class CacheService {
     serialized?: boolean;
   }): string {
     return [
-      'sets',
+      'set-filter',
       filters.serialized ? 'serialized' : 'data',
       filters.query || 'all',
       filters.type || 'all',

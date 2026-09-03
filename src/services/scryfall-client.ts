@@ -599,6 +599,7 @@ export class ScryfallClient {
     ).data;
 
     if (!cachedRaw || Array.isArray(cachedRaw)) {
+      this.cache.invalidateSetFilters();
       this.cache.setWithType(rawSetsKey, { data: allSets }, "set_data");
     }
 

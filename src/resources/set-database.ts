@@ -158,6 +158,7 @@ export class SetDatabaseResource {
     const updatedAt = new Date().toISOString();
     const payload = this.serializeSetPayload(sets, updatedAt);
 
+    this.cache.invalidateSetFilters();
     this.cache.set(SET_PAYLOAD_KEY, payload, SET_STALE_RETENTION_MS, { sizeBytes: payload.length * 2 });
     this.cache.set(SET_METADATA_KEY, {
       updatedAt,

@@ -155,6 +155,28 @@ describe("SetDatabaseResource", () => {
     expect(serializeCount).toBe(1);
   });
 
+  it("invalidates serialized filtered views when the set snapshot refreshes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const getSets = vi.fn()
+      .mockResolvedValueOnce([createSet({ code: "old", name: "Old Set" })])
+      .mockResolvedValueOnce([createSet({ id: "fresh-id", code: "new", name: "New Set" })]);
+    const resource = new SetDatabaseResource({ getSets } as never, cache);
+
+    try {
+      await resource.getData();
+      vi.setSystemTime(new Date("2026-01-07T00:00:00.000Z"));
+      expect(JSON.parse(await resource.getFilteredSets({ query: "set" })).data[0].code).toBe("old");
+
+      vi.setSystemTime(new Date("2026-01-09T00:00:00.000Z"));
+      await resource.getData();
+      expect(JSON.parse(await resource.getFilteredSets({ query: "set" })).data[0].code).toBe("new");
+      expect(getSets).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("collects set types from cached set models without parsing the serialized payload", async () => {
     const resource = new SetDatabaseResource(
       {

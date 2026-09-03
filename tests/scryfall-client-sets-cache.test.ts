@@ -46,6 +46,7 @@ describe("ScryfallClient.getSets", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cache.destroy();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -87,5 +88,31 @@ describe("ScryfallClient.getSets", () => {
     expect(first).toBe(second);
     expect(second.map((set) => set.code)).toEqual(["new"]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reuse a filtered view after the canonical set snapshot refreshes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+
+    const oldSets = [createSet({ code: "old", name: "Old Set" })];
+    const freshSets = [createSet({ id: "fresh-id", code: "new", name: "New Set" })];
+    fetchMock
+      .mockResolvedValueOnce({
+        status: 200,
+        json: vi.fn().mockResolvedValue(createSetListResponse(oldSets)),
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        json: vi.fn().mockResolvedValue(createSetListResponse(freshSets)),
+      });
+
+    await client.getSets();
+    vi.setSystemTime(new Date("2026-01-07T00:00:00.000Z"));
+    expect((await client.getSets({ query: "set" })).map((set) => set.code)).toEqual(["old"]);
+
+    vi.setSystemTime(new Date("2026-01-09T00:00:00.000Z"));
+    expect((await client.getSets({ query: "set" })).map((set) => set.code)).toEqual(["new"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
   });
 });
