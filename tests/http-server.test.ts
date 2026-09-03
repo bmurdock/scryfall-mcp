@@ -180,14 +180,23 @@ describe("HTTP transport entrypoint", () => {
     expect(overLimit.status).toBe(503);
   });
 
-  it("requires an auth token before allowing a non-loopback HTTP binding", () => {
+  it("requires authentication and an explicit trusted TLS proxy for non-loopback bindings", () => {
     expect(() => resolveHttpServerConfig({ HTTP_HOST: "0.0.0.0" })).toThrow(
       "HTTP_AUTH_TOKEN is required when HTTP_HOST is not loopback"
     );
 
-    expect(resolveHttpServerConfig({ HTTP_HOST: "0.0.0.0", HTTP_AUTH_TOKEN: "test-token" }).authToken).toBe(
-      "test-token"
-    );
+    expect(() => resolveHttpServerConfig({
+      HTTP_HOST: "0.0.0.0",
+      HTTP_AUTH_TOKEN: "test-token",
+    })).toThrow("HTTP_TRUST_PROXY_TLS=true is required when HTTP_HOST is not loopback");
+
+    const config = resolveHttpServerConfig({
+      HTTP_HOST: "0.0.0.0",
+      HTTP_AUTH_TOKEN: "test-token",
+      HTTP_TRUST_PROXY_TLS: "true",
+    });
+    expect(config.authToken).toBe("test-token");
+    expect(config.trustProxyTls).toBe(true);
   });
 
   it("rejects oversized JSON request bodies", async () => {
@@ -205,6 +214,32 @@ describe("HTTP transport entrypoint", () => {
       error: {
         message: "Payload Too Large",
       },
+    });
+  });
+
+  it("returns unavailable readiness while the Scryfall circuit breaker is open", async () => {
+    await closeRuntime?.();
+
+    const runtime = createHttpAppServer({ host: "127.0.0.1", port: 0 });
+    server = runtime.server;
+    closeRuntime = runtime.close;
+    const rateLimiter = (
+      runtime.appServer as unknown as { rateLimiter: { recordError: (status?: number) => void } }
+    ).rateLimiter;
+    rateLimiter.recordError(500);
+    rateLimiter.recordError(500);
+    rateLimiter.recordError(500);
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/health`);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "degraded",
+      services: { rateLimiter: "unhealthy" },
     });
   });
 

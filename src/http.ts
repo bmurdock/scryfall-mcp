@@ -9,7 +9,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createSdkServer, MCP_SERVER_INFO, ScryfallMCPServer } from "./server.js";
 import { mcpLogger } from "./services/logger.js";
-import { EnvValidators, parseEnvInt, parseEnvString } from "./utils/env-parser.js";
+import { EnvValidators, parseEnvBoolean, parseEnvInt, parseEnvString } from "./utils/env-parser.js";
 
 type SessionTransportRecord = {
   sdkServer: ReturnType<typeof createSdkServer>;
@@ -24,6 +24,7 @@ export type HttpServerConfig = {
   healthPath: string;
   allowedOrigins: string[];
   authToken?: string;
+  trustProxyTls: boolean;
   maxSessions: number;
   sessionIdleMs: number;
   sessionCleanupIntervalMs: number;
@@ -74,6 +75,7 @@ export function resolveHttpServerConfig(
       overrides.healthPath ?? parseEnvString(env.HTTP_HEALTH_PATH, DEFAULT_HEALTH_PATH, undefined, 1, 100),
     allowedOrigins: overrides.allowedOrigins ?? parseAllowedOrigins(env.HTTP_ALLOWED_ORIGINS),
     authToken: overrides.authToken ?? (env.HTTP_AUTH_TOKEN?.trim() || undefined),
+    trustProxyTls: overrides.trustProxyTls ?? parseEnvBoolean(env.HTTP_TRUST_PROXY_TLS, false),
     maxSessions:
       overrides.maxSessions ??
       EnvValidators.httpMaxSessions(env.HTTP_MAX_SESSIONS, DEFAULT_HTTP_MAX_SESSIONS),
@@ -85,6 +87,10 @@ export function resolveHttpServerConfig(
 
   if (!isLoopbackHost(config.host) && !config.authToken) {
     throw new Error("HTTP_AUTH_TOKEN is required when HTTP_HOST is not loopback");
+  }
+
+  if (!isLoopbackHost(config.host) && !config.trustProxyTls) {
+    throw new Error("HTTP_TRUST_PROXY_TLS=true is required when HTTP_HOST is not loopback");
   }
 
   return config;
@@ -324,17 +330,17 @@ export function createHttpAppServer(overrides: CreateHttpServerOverrides = {}): 
   const sessionCleanupInterval = createIdleSessionCleanup(sessionTransports, config);
 
   const server = createNodeHttpServer(async (req, res) => {
-      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `${config.host}:${config.port}`}`);
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `${config.host}:${config.port}`}`);
 
-      try {
-        if (url.pathname === config.healthPath) {
-          if (!isAuthorized(req, config.authToken)) {
-            sendJsonRpcError(res, 401, "Unauthorized", { "WWW-Authenticate": "Bearer" });
-            return;
-          }
+    try {
+      if (url.pathname === config.healthPath) {
+        if (!isAuthorized(req, config.authToken)) {
+          sendJsonRpcError(res, 401, "Unauthorized", { "WWW-Authenticate": "Bearer" });
+          return;
+        }
 
-          const health = await appServer.healthCheck();
-        res.writeHead(200, { "Content-Type": "application/json" });
+        const health = await appServer.healthCheck();
+        res.writeHead(health.status === "healthy" ? 200 : 503, { "Content-Type": "application/json" });
         res.end(JSON.stringify(health));
         return;
       }

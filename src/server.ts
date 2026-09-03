@@ -401,7 +401,7 @@ export class ScryfallMCPServer {
     // Test rate limiter service
     try {
       const rateLimiterStatus = this.rateLimiter.getStatus();
-      if (rateLimiterStatus.consecutiveErrors > 5) {
+      if (rateLimiterStatus.circuitOpen) {
         status.services.rateLimiter = "unhealthy";
         status.status = "degraded";
         mcpLogger.warn(
@@ -409,6 +409,7 @@ export class ScryfallMCPServer {
             requestId,
             service: "rateLimiter",
             consecutiveErrors: rateLimiterStatus.consecutiveErrors,
+            circuitOpen: rateLimiterStatus.circuitOpen,
           },
           "Rate limiter health check failed"
         );
@@ -418,6 +419,7 @@ export class ScryfallMCPServer {
             requestId,
             service: "rateLimiter",
             consecutiveErrors: rateLimiterStatus.consecutiveErrors,
+            circuitOpen: rateLimiterStatus.circuitOpen,
           },
           "Rate limiter health check passed"
         );

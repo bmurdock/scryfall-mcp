@@ -188,6 +188,7 @@ export class RateLimiter {
     queueLength: number;
     processing: boolean;
     consecutiveErrors: number;
+    circuitOpen: boolean;
     currentBackoffDelay: number;
     lastRequestTime: number;
     nextAllowedRequestTime: number;
@@ -196,6 +197,7 @@ export class RateLimiter {
       queueLength: this.queue.length,
       processing: this.processing,
       consecutiveErrors: this.consecutiveErrors,
+      circuitOpen: this.isCircuitOpen(),
       currentBackoffDelay: this.getCurrentBackoffDelay(),
       lastRequestTime: this.lastRequestTime,
       nextAllowedRequestTime: this.nextAllowedRequestTime
