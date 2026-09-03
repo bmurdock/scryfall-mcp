@@ -61,7 +61,7 @@ export class RandomCardTool {
       },
       similar_to: {
         type: 'string',
-        description: 'Find cards similar to this card'
+        description: 'Legacy name-text match filter, not semantic similarity'
       },
       rarity_preference: {
         type: 'string',
@@ -116,9 +116,8 @@ export class RandomCardTool {
       queryParts.push('is:firstprint');
     }
 
-    // Add similarity filter
+    // Preserve the legacy parameter as a quoted name-text search.
     if (params.similar_to) {
-      // This is a simplified similarity - in practice, you'd want to analyze the target card
       queryParts.push(`"${params.similar_to}"`);
     }
 
@@ -181,7 +180,7 @@ export class RandomCardTool {
         filters.push(priceDesc);
       }
       if (params.exclude_reprints) filters.push('first printing only');
-      if (params.similar_to) filters.push(`similar to "${params.similar_to}"`);
+      if (params.similar_to) filters.push(`name text matching "${params.similar_to}"`);
       if (params.query) filters.push(`matching "${params.query}"`);
 
       if (filters.length > 0) {

@@ -439,7 +439,8 @@ describe('MCP Tools', () => {
 
     it('should have correct name and description', () => {
       expect(tool.name).toBe('search_format_staples');
-      expect(tool.description).toContain('Find format staples');
+      expect(tool.description).toContain('heuristics');
+      expect(tool.description).toContain('not tournament metagame data');
     });
 
     it('should validate required format parameter', async () => {
@@ -476,6 +477,8 @@ describe('MCP Tools', () => {
       const result = await tool.execute({ format: 'modern', role: 'removal' });
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Lightning Bolt');
+      expect(result.content[0].text).toContain('Heuristic candidate search');
+      expect(result.content[0].text).toContain('not tournament metagame data');
     });
 
     it('should build threats queries with valid loyalty syntax and color identity filtering', async () => {
@@ -545,7 +548,8 @@ describe('MCP Tools', () => {
 
     it('should have correct name and description', () => {
       expect(tool.name).toBe('search_alternatives');
-      expect(tool.description).toContain('Find budget alternatives');
+      expect(tool.description).toContain('heuristic candidates');
+      expect(tool.description).toContain('not verified functional upgrades');
     });
 
     it('should validate required parameters', async () => {
@@ -601,6 +605,7 @@ describe('MCP Tools', () => {
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain('Alternatives for Lightning Bolt');
       expect(result.content[0].text).toContain('Shock');
+      expect(result.content[0].text).toContain('not verified functional replacements or upgrades');
     });
 
     it('should exclude other printings of the target card from alternatives', async () => {

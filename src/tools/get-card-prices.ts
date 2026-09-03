@@ -45,7 +45,7 @@ export class GetCardPricesTool {
       },
       include_alternatives: {
         type: 'boolean',
-        description: 'Include budget alternatives and upgrades',
+        description: 'Include lower- and higher-priced same-type, same-mana-value candidates; not verified upgrades',
         default: false
       },
       include_history: {
@@ -60,22 +60,22 @@ export class GetCardPricesTool {
   constructor(private readonly scryfallClient: ScryfallClient) {}
 
   /**
-   * Get budget alternatives and upgrades for a card
+   * Get heuristic price comparison candidates for a card
    */
   private async getAlternatives(card: ScryfallCard, currency: string, format?: MagicFormat): Promise<string> {
     try {
       const currentPrice = parseFloat(getPriceForCurrency(card.prices, currency) || '0');
       if (currentPrice === 0) {
-        return '\n\n**Alternatives:** Price data not available for comparison.';
+        return '\n\n**Heuristic price comparisons:** Price data not available for comparison.';
       }
 
-      // Search for similar cards with different price ranges
+      // Search for cards with the same primary type and mana value at different prices.
       const primaryType = extractPrimaryCardType(card.type_line || '');
       const typeClause = primaryType ? `t:${primaryType}` : '';
       const cheaperQuery = `${typeClause} cmc:${card.cmc} ${currency}<${currentPrice}`.trim();
       const expensiveQuery = `${typeClause} cmc:${card.cmc} ${currency}>${currentPrice}`.trim();
 
-      let alternatives = '\n\n**Alternatives:**';
+      let alternatives = '\n\n**Heuristic price comparisons:** Same primary type and mana value; not verified functional alternatives or upgrades.';
 
       // Get cheaper alternatives
       try {
@@ -90,7 +90,7 @@ export class GetCardPricesTool {
 
         const cheaperAlternatives = cheaperResults.data.filter(alt => !isSameLogicalCard(alt, card)).slice(0, 3);
         if (cheaperAlternatives.length > 0) {
-          alternatives += '\n\n*Budget Options:*';
+          alternatives += '\n\n*Lower-Priced Candidates:*';
           for (const alt of cheaperAlternatives) {
             const price = getPriceForCurrency(alt.prices, currency) || 'N/A';
             alternatives += `\n- ${alt.name}: ${currency.toUpperCase()} ${price}`;
@@ -100,7 +100,7 @@ export class GetCardPricesTool {
         // Ignore search errors for alternatives
       }
 
-      // Get more expensive alternatives (upgrades)
+      // Get more expensive comparison candidates.
       try {
         const expensiveResults = await this.scryfallClient.searchCards({
           query: excludeLogicalCardFromQuery(
@@ -113,7 +113,7 @@ export class GetCardPricesTool {
 
         const upgradeAlternatives = expensiveResults.data.filter(alt => !isSameLogicalCard(alt, card)).slice(0, 3);
         if (upgradeAlternatives.length > 0) {
-          alternatives += '\n\n*Upgrade Options:*';
+          alternatives += '\n\n*Higher-Priced Candidates:*';
           for (const alt of upgradeAlternatives) {
             const price = getPriceForCurrency(alt.prices, currency) || 'N/A';
             alternatives += `\n- ${alt.name}: ${currency.toUpperCase()} ${price}`;
@@ -125,7 +125,7 @@ export class GetCardPricesTool {
 
       return alternatives;
     } catch (error) {
-      return '\n\n**Alternatives:** Unable to find alternatives at this time.';
+      return '\n\n**Heuristic price comparisons:** Unable to find comparison candidates at this time.';
     }
   }
 

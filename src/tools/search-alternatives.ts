@@ -16,11 +16,11 @@ interface SearchAlternativesInput {
 }
 
 /**
- * MCP Tool for finding budget alternatives, upgrades, or functionally similar cards
+ * MCP Tool for finding candidates with transparent price, type, and mana-value heuristics
  */
 export class SearchAlternativesTool {
   readonly name = 'search_alternatives';
-  readonly description = 'Find budget alternatives, upgrades, or functionally similar cards';
+  readonly description = 'Find price, type, and mana-value heuristic candidates; not verified functional upgrades';
 
   readonly inputSchema = {
     type: 'object' as const,
@@ -32,7 +32,7 @@ export class SearchAlternativesTool {
       direction: {
         type: 'string',
         enum: ['cheaper', 'upgrade', 'similar'],
-        description: 'Type of alternative to find'
+        description: 'Price and ordering heuristic to apply; labels do not establish functional quality'
       },
       format: {
         type: 'string',
@@ -52,7 +52,7 @@ export class SearchAlternativesTool {
       preserve_function: {
         type: 'boolean',
         default: true,
-        description: 'Maintain similar functionality'
+        description: 'Constrain primary card type and nearby mana value; does not establish functional equivalence'
       },
       limit: {
         type: 'number',
@@ -193,7 +193,8 @@ export class SearchAlternativesTool {
       };
 
       // Format results
-      let responseText = `**Alternatives for ${targetCard.name}** (${params.direction}):\n\n`;
+      let responseText = `**Alternatives for ${targetCard.name}** (${params.direction}):\n`;
+      responseText += '*Candidates use primary type, nearby mana value, price, and sort-order heuristics; they are not verified functional replacements or upgrades.*\n\n';
       
       if (filteredResults.data.length === 0) {
         responseText += `No ${params.direction} alternatives found for "${targetCard.name}"`;
@@ -258,7 +259,7 @@ export class SearchAlternativesTool {
       query += `f:${params.format} `;
     }
 
-    // Add functional similarity constraints if requested
+    // Add coarse type and mana-value constraints if requested.
     if (params.preserve_function) {
       // Match primary type
       const primaryType = this.extractPrimaryCardType(targetCard.type_line);
@@ -301,11 +302,11 @@ export class SearchAlternativesTool {
   private getOrderForDirection(direction: string): string {
     switch (direction) {
       case 'cheaper':
-        return 'usd'; // Sort by price ascending (cheapest first)
+        return 'usd';
       case 'upgrade':
-        return 'edhrec'; // Sort by popularity for upgrades
+        return 'edhrec';
       case 'similar':
-        return 'name'; // Alphabetical for similar cards
+        return 'name';
       default:
         return 'name';
     }

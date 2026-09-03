@@ -60,37 +60,6 @@ export class FormatPatternEngine {
     ['for brawl', { name: 'brawl', confidence: 0.85 }],
     ['for pauper', { name: 'pauper', confidence: 0.85 }],
     
-    // Casual format references
-    ['casual', { name: 'casual', confidence: 0.75 }],
-    ['kitchen table', { name: 'casual', confidence: 0.80 }],
-    ['multiplayer', { name: 'commander', confidence: 0.70 }], // Often implies Commander
-    
-    // Arena-specific formats
-    ['arena', { name: 'standard', confidence: 0.70 }], // Arena often implies Standard
-    ['mtg arena', { name: 'standard', confidence: 0.72 }],
-    ['mtga', { name: 'standard', confidence: 0.72 }],
-    
-    // MTGO-specific references
-    ['mtgo', { name: 'legacy', confidence: 0.60 }], // MTGO supports many formats
-    ['magic online', { name: 'legacy', confidence: 0.60 }],
-    
-    // Competitive context
-    ['competitive', { name: 'modern', confidence: 0.60 }], // Often Modern in competitive
-    ['tournament', { name: 'standard', confidence: 0.65 }], // Tournaments often Standard
-    ['fnm', { name: 'standard', confidence: 0.70 }], // Friday Night Magic often Standard
-    ['friday night magic', { name: 'standard', confidence: 0.70 }],
-    
-    // Deck size hints
-    ['100 card', { name: 'commander', confidence: 0.85 }],
-    ['100-card', { name: 'commander', confidence: 0.85 }],
-    ['singleton', { name: 'commander', confidence: 0.75 }], // Often Commander
-    ['highlander', { name: 'commander', confidence: 0.80 }], // Canadian Highlander or Commander
-    
-    // Power level hints
-    ['high power', { name: 'vintage', confidence: 0.60 }],
-    ['powered', { name: 'vintage', confidence: 0.70 }], // Power 9 reference
-    ['unpowered', { name: 'legacy', confidence: 0.65 }],
-    ['budget', { name: 'pauper', confidence: 0.60 }], // Budget often implies Pauper
   ]);
   
   /**

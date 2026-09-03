@@ -221,6 +221,18 @@ describe('Natural Language Query Builder', () => {
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('standard');
     });
+
+    it('does not infer hard legality formats from generic platform or play context', () => {
+      for (const query of [
+        'cards on arena',
+        'competitive red creatures',
+        'budget blue creatures',
+        'cards for friday night magic',
+        'a high power singleton deck',
+      ]) {
+        expect(formatEngine.extract(query), query).toEqual([]);
+      }
+    });
   });
 
   describe('ConceptExtractor', () => {

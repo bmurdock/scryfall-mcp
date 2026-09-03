@@ -13,11 +13,11 @@ interface SearchFormatStaplesInput {
 }
 
 /**
- * MCP Tool for finding format staples and meta-relevant cards
+ * MCP Tool for finding format-legal candidates with transparent heuristics
  */
 export class SearchFormatStaplesTool {
   readonly name = 'search_format_staples';
-  readonly description = 'Find format staples, meta cards, and role-specific cards for competitive play';
+  readonly description = 'Search format-legal candidates using price and ordering heuristics; not tournament metagame data';
 
   readonly inputSchema = {
     type: 'object' as const,
@@ -31,7 +31,7 @@ export class SearchFormatStaplesTool {
         type: 'string',
         enum: ['top', 'competitive', 'budget', 'fringe'],
         default: 'competitive',
-        description: 'Meta tier level'
+        description: 'Heuristic profile controlling price filters and sort order; not a tournament tier rating'
       },
       role: {
         type: 'string',
@@ -168,7 +168,11 @@ export class SearchFormatStaplesTool {
       });
 
       // Format results
-      const responseText = formatSearchResultsAsText(results);
+      const responseText = [
+        `**Heuristic candidate search:** ${this.describeTierHeuristic(params.tier)}; this is not tournament metagame data.`,
+        '',
+        formatSearchResultsAsText(results),
+      ].join('\n');
 
       return {
         content: [
@@ -275,13 +279,13 @@ export class SearchFormatStaplesTool {
   private getTierFilter(tier: string): string {
     switch (tier) {
       case 'top':
-        return 'usd>=5'; // Higher price typically indicates meta relevance
+        return 'usd>=5';
       case 'competitive':
-        return 'usd>=1'; // Moderate price floor
+        return 'usd>=1';
       case 'budget':
-        return 'usd<=5'; // Budget constraint
+        return 'usd<=5';
       case 'fringe':
-        return ''; // No specific filter for fringe cards
+        return '';
       default:
         return '';
     }
@@ -293,15 +297,30 @@ export class SearchFormatStaplesTool {
   private getOrderForTier(tier: string): string {
     switch (tier) {
       case 'top':
-        return 'edhrec'; // EDHREC ranking for popularity
+        return 'edhrec';
       case 'competitive':
         return 'edhrec';
       case 'budget':
-        return 'usd'; // Sort by price for budget
+        return 'usd';
       case 'fringe':
-        return 'name'; // Alphabetical for fringe
+        return 'name';
       default:
         return 'edhrec';
+    }
+  }
+
+  private describeTierHeuristic(tier: string): string {
+    switch (tier) {
+      case 'top':
+        return 'cards priced at least $5, ordered by EDHREC rank';
+      case 'competitive':
+        return 'cards priced at least $1, ordered by EDHREC rank';
+      case 'budget':
+        return 'cards priced at most $5, ordered by USD price';
+      case 'fringe':
+        return 'no price profile, ordered by name';
+      default:
+        return 'format-legal cards';
     }
   }
 }

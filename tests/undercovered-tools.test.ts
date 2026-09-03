@@ -60,10 +60,11 @@ describe('Under-Covered User-Facing Tools', () => {
         limit: 3,
         unique: 'cards'
       });
-      expect(text).toContain('**Alternatives:**');
-      expect(text).toContain('*Budget Options:*');
+      expect(text).toContain('**Heuristic price comparisons:**');
+      expect(text).toContain('*Lower-Priced Candidates:*');
       expect(text).toContain('Jodah, the Unifier: USD 4.00');
-      expect(text).toContain('*Upgrade Options:*');
+      expect(text).toContain('*Higher-Priced Candidates:*');
+      expect(text).not.toContain('*Upgrade Options:*');
       expect(text).toContain('Omnath, Locus of All: USD 14.00');
     });
 
@@ -263,7 +264,9 @@ describe('Under-Covered User-Facing Tools', () => {
         't:creature legal:modern (t:creature pow>=2) OR (o:"haste" OR o:"first strike") usd>=5 usd<=15 r:mythic is:firstprint "Questing Beast"'
       );
       expect(text).toContain('# Questing Beast');
-      expect(text).toContain('with filters: legal in modern, aggro archetype, mythic rarity, USD price between 5-15, first printing only, similar to "Questing Beast", matching "t:creature"');
+      expect(text).toContain('name text matching "Questing Beast"');
+      expect(text).not.toContain('similar to "Questing Beast"');
+      expect(tool.inputSchema.properties.similar_to.description).toContain('not semantic similarity');
     });
 
     it('returns a caller-friendly no-results message when filtered random search fails', async () => {
