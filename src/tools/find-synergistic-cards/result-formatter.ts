@@ -124,7 +124,7 @@ export function formatResultsWithSynergyExplanations(
 
   if (resultsByLayer.semantic.length > 0) {
     output += '**🎯 Strategic Synergies:**\n';
-    for (const card of resultsByLayer.semantic.slice(0, 8)) {
+    for (const card of resultsByLayer.semantic) {
       output += formatCardWithSynergyExplanation(card, focusCard, focusCardName);
     }
     output += '\n';
@@ -132,7 +132,7 @@ export function formatResultsWithSynergyExplanations(
 
   if (resultsByLayer.exact.length > 0) {
     output += '**⚡ Mechanical Synergies:**\n';
-    for (const card of resultsByLayer.exact.slice(0, 5)) {
+    for (const card of resultsByLayer.exact) {
       output += formatCardWithSynergyExplanation(card, focusCard, focusCardName);
     }
     output += '\n';
@@ -140,7 +140,7 @@ export function formatResultsWithSynergyExplanations(
 
   if (resultsByLayer.thematic.length > 0) {
     output += '**🌟 Thematic Support:**\n';
-    for (const card of resultsByLayer.thematic.slice(0, 5)) {
+    for (const card of resultsByLayer.thematic) {
       output += formatCardWithSynergyExplanation(card, focusCard, focusCardName);
     }
   }

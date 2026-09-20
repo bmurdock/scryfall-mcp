@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { BuildScryfallQueryTool } from '../src/tools/build-scryfall-query.js';
 import { SuggestManaBaseTool } from '../src/tools/suggest-mana-base.js';
+import { formatResultsWithSynergyExplanations } from '../src/tools/find-synergistic-cards/result-formatter.js';
+import type { SynergyCard } from '../src/tools/find-synergistic-cards/types.js';
 
 describe('reviewed tool contracts', () => {
   it.each([
@@ -43,4 +45,12 @@ describe('reviewed tool contracts', () => {
       expect(tool.inputSchema.properties).not.toHaveProperty('special_requirements');
     }
   );
+
+  it.each(['semantic', 'exact', 'thematic'] as const)('renders all selected %s synergies', layer => {
+    const cards = Array.from({ length: 50 }, (_, i) => ({
+      name: `Candidate ${i}`, _synergy_layer: layer, prices: {},
+    } as SynergyCard));
+    const text = formatResultsWithSynergyExplanations({ object: 'list', total_cards: 50, has_more: false, data: cards }, null, 'theme');
+    expect([...text.matchAll(/• \*\*Candidate /g)]).toHaveLength(50);
+  });
 });
