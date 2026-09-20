@@ -50,6 +50,7 @@ export interface ParsedQuery {
 
 // Color concept with detailed matching information
 export interface ColorConcept {
+  anyOf?: boolean;           // explicit alternatives, such as "red or blue"
   colors: string[];           // ['r', 'u'] for red/blue
   exact: boolean;            // true for "exactly red and blue"
   inclusive: boolean;        // true for "red or blue cards"
@@ -217,6 +218,7 @@ export interface QueryContext {
 
 // Concept mapping for query building
 export interface ConceptMapping {
+  alternatives?: string[];
   operator: string;
   value: string;
   comparison?: '=' | '>' | '<' | '>=' | '<=' | '!=';

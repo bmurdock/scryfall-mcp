@@ -87,7 +87,7 @@ export class NaturalLanguageParser {
   private preprocessText(text: string): string {
     return text
       .toLowerCase()
-      .replace(/[^\w\s$.-]/g, ' ') // Remove special chars except $, ., -
+      .replace(/[^\w\s$./-]/g, ' ') // Preserve power/toughness shorthand.
       .replace(/\s+/g, ' ')        // Normalize whitespace
       .trim();
   }
@@ -206,6 +206,11 @@ export class NaturalLanguageParser {
             exact: parseInt(match[1]),
             confidence: 0.85
           });
+        } else {
+          constraints.push(
+            { stat: 'power', exact: parseInt(match[1], 10), confidence: 0.85 },
+            { stat: 'toughness', exact: parseInt(match[2], 10), confidence: 0.85 }
+          );
         }
       }
     }
@@ -258,7 +263,7 @@ export class NaturalLanguageParser {
     const hasInclusive = colors.some(c => c.inclusive);
     
     if (hasExact && hasInclusive) {
-      return colors.filter(c => c.exact);
+      return colors.filter(c => c.exact || c.anyOf);
     }
     
     return colors;

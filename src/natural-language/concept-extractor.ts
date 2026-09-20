@@ -71,7 +71,10 @@ export class ConceptExtractor {
     const mappings: ConceptMapping[] = [];
     
     for (const colorConcept of colors) {
-      if (colorConcept.colorless) {
+      if (colorConcept.anyOf) {
+        mappings.push({ operator: 'c', value: colorConcept.colors.join(''),
+          alternatives: colorConcept.colors, confidence: colorConcept.confidence, priority: 10 });
+      } else if (colorConcept.colorless) {
         mappings.push({
           operator: 'c',
           value: 'c',
@@ -441,6 +444,11 @@ export class ConceptExtractor {
    * Resolve color conflicts
    */
   private resolveColorConflicts(mappings: ConceptMapping[]): ConceptMapping[] {
+    const alternatives = mappings.filter(mapping => mapping.alternatives);
+    if (alternatives.length > 0) {
+      const remaining = mappings.filter(mapping => !mapping.alternatives);
+      return [...alternatives, ...(remaining.length ? this.resolveColorConflicts(remaining) : [])];
+    }
     const hasExact = mappings.some(m => m.comparison === '=');
     const hasInclusive = mappings.some(m => m.comparison === '>=');
     

@@ -72,7 +72,18 @@ export class ColorPatternEngine {
    */
   extract(text: string): ColorConcept[] {
     const concepts: ColorConcept[] = [];
-    const lowerText = text.toLowerCase();
+    const alternatives: ColorConcept[] = [];
+    const lowerText = text.toLowerCase().replace(
+      /\b(?:red|blue|white|black|green)(?:\s+or\s+(?:red|blue|white|black|green))+\b/g,
+      phrase => {
+        alternatives.push({
+          colors: [...new Set(phrase.split(/\s+or\s+/).map(color => this.patterns.get(color)!.colors[0]))],
+          anyOf: true, exact: false, inclusive: false, exclusive: false,
+          multicolor: false, colorless: false, confidence: 0.95,
+        });
+        return ' ';
+      }
+    );
     
     // Check for exact phrases first (higher confidence)
     for (const [pattern, concept] of this.patterns) {
@@ -89,7 +100,7 @@ export class ColorPatternEngine {
       }
     }
     
-    return this.deduplicateAndMerge(concepts);
+    return [...this.deduplicateAndMerge(concepts), ...alternatives];
   }
   
   /**

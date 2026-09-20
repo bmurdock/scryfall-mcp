@@ -39,13 +39,20 @@ export function formatQueryToken(
   const prefix = negation ? '-' : '';
   const normalizedComparison = comparison === '=' ? '' : (comparison || '');
   if (NUMERIC_OPERATORS.has(operator)) {
-    return `${prefix}${operator}${normalizedComparison}${value}`;
+    return `${prefix}${operator}${comparison || '='}${value}`;
   }
   return `${prefix}${operator}:${normalizedComparison}${value}`;
 }
 
 function buildOperatorQuery(operator: string, mappings: ConceptMapping[]): string {
   if (mappings.length === 0) return '';
+
+  if (operator === 'c' && mappings.some(mapping => mapping.alternatives)) {
+    return mappings.map(mapping => mapping.alternatives
+      ? `(${mapping.alternatives.map(value => formatQueryToken(operator, value)).join(' OR ')})`
+      : formatQueryToken(operator, mapping.value, mapping.comparison, mapping.negation)
+    ).join(' ');
+  }
 
   if (mappings.length === 1) {
     const mapping = mappings[0];
