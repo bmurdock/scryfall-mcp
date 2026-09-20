@@ -330,9 +330,16 @@ export function createHttpAppServer(overrides: CreateHttpServerOverrides = {}): 
   const sessionCleanupInterval = createIdleSessionCleanup(sessionTransports, config);
 
   const server = createNodeHttpServer(async (req, res) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `${config.host}:${config.port}`}`);
-
     try {
+      let url: URL;
+      try {
+        // Validate the supplied authority, but never use it as the routing base.
+        if (req.headers.host) new URL(`http://${req.headers.host}`);
+        url = new URL(req.url ?? "/", "http://localhost");
+      } catch {
+        sendJsonRpcError(res, 400, "Bad Request: Invalid URL or Host");
+        return;
+      }
       if (url.pathname === config.healthPath) {
         if (!isAuthorized(req, config.authToken)) {
           sendJsonRpcError(res, 401, "Unauthorized", { "WWW-Authenticate": "Bearer" });

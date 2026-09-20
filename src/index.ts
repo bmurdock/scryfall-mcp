@@ -11,9 +11,13 @@ async function main() {
   mcpLogger.info({ operation: 'startup' }, 'scryfall-mcp server started');
 
   // Graceful shutdown
+  let shuttingDown = false;
   const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     try {
       mcpLogger.info({ operation: 'shutdown', signal }, 'Shutting down server');
+      await sdkServer.close();
       await appServer.destroy();
     } finally {
       process.exit(0);
@@ -21,6 +25,9 @@ async function main() {
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.stdin.once('end', () => void shutdown('stdin_end'));
+  sdkServer.onclose = () => void shutdown('transport_close');
+  if (process.stdin.readableEnded) await shutdown('stdin_end');
 }
 
 main().catch((err) => {

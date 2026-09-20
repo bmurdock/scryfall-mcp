@@ -6,6 +6,8 @@ import {
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  McpError,
+  ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
 import { ScryfallClient } from "./services/scryfall-client.js";
 import { RateLimiter } from "./services/rate-limiter.js";
@@ -28,6 +30,7 @@ import {
 import { EnvValidators } from "./utils/env-parser.js";
 import { APP_VERSION } from "./version.js";
 import { withRequestSignal } from "./services/request-context.js";
+import { ValidationError, ScryfallAPIError, RateLimitError } from "./types/mcp-types.js";
 
 // Tools
 import { SearchCardsTool } from "./tools/search-cards.js";
@@ -303,7 +306,16 @@ export class ScryfallMCPServer {
           { requestId, promptName: name, error: promptError },
           "Prompt generation failed"
         );
-        throw promptError;
+        if (error instanceof ValidationError) {
+          throw new McpError(ErrorCode.InvalidParams, error.message);
+        }
+        if (error instanceof ScryfallAPIError || error instanceof RateLimitError) {
+          throw new McpError(ErrorCode.InternalError, error.message, {
+            code: error.code,
+            ...(error instanceof RateLimitError ? { retryAfter: error.retryAfter } : { status: error.status }),
+          });
+        }
+        throw new McpError(ErrorCode.InternalError, promptError.message);
       }
     });
   }

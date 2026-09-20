@@ -1,7 +1,7 @@
 import { ScryfallClient } from '../services/scryfall-client.js';
 import { validateCardIdentifier } from '../utils/validators.js';
 import { formatCard } from '../utils/formatters.js';
-import { ScryfallAPIError, ValidationError } from '../types/mcp-types.js';
+import { ScryfallAPIError, ValidationError, RateLimitError } from '../types/mcp-types.js';
 
 /**
  * MCP Prompt for deck building around a specific card
@@ -192,14 +192,11 @@ Please structure the guide with clear sections and provide actionable advice for
 
     } catch (error) {
       if (error instanceof ValidationError) {
-        throw new Error(`Validation error: ${error.message}`);
+        throw error;
       }
 
-      if (error instanceof ScryfallAPIError) {
-        if (error.status === 404) {
-          throw new Error(`Card not found: "${args.card_identifier}". Please check the card name or identifier.`);
-        }
-        throw new Error(`Scryfall API error: ${error.message}`);
+      if (error instanceof ScryfallAPIError || error instanceof RateLimitError) {
+        throw error;
       }
 
       throw new Error(`Failed to generate deck building prompt: ${error instanceof Error ? error.message : 'Unknown error'}`);
