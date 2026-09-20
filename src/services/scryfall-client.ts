@@ -16,6 +16,7 @@ import { EnvValidators } from "../utils/env-parser.js";
 import { filterSets } from "../utils/set-filters.js";
 import { iterateArrayStream } from "./bulk-json-stream.js";
 import { createSearchWindowCollector } from "./search-window.js";
+import { currentRequestSignal, shareRequest, withRequestSignal, type SharedRequest } from "./request-context.js";
 
 export interface CardLookupParams {
   identifier: string;
@@ -73,8 +74,8 @@ export function canonicalCardCacheKey(params: CardLookupParams): string {
 export class ScryfallClient {
   private readonly baseUrl = "https://api.scryfall.com";
   private readonly searchApiPageSize = 175;
-  private readonly inFlightCardLookups = new Map<string, Promise<ScryfallCard>>();
-  private readonly inFlightSearches = new Map<string, Promise<ScryfallSearchResponse>>();
+  private readonly inFlightCardLookups = new Map<string, SharedRequest<ScryfallCard>>();
+  private readonly inFlightSearches = new Map<string, SharedRequest<ScryfallSearchResponse>>();
   private rateLimiter: RateLimiter;
   private cache: CacheService;
   private readonly ownsRateLimiter: boolean;
@@ -97,6 +98,8 @@ export class ScryfallClient {
    * Makes a rate-limited HTTP request to Scryfall API with structured logging
    */
   private async makeRequest<T = unknown>(url: string, requestId?: string): Promise<T> {
+    const signal = currentRequestSignal();
+    signal?.throwIfAborted();
     const reqId = requestId || generateRequestId();
     const startTime = Date.now();
 
@@ -104,7 +107,7 @@ export class ScryfallClient {
       { requestId: reqId, url, operation: "scryfall_request" },
       "Scryfall API request started"
     );
-    return this.rateLimiter.execute(async () => {
+    return this.rateLimiter.execute(() => withRequestSignal(signal, async () => {
       // Check circuit breaker immediately before the request starts.
       this.assertCircuitClosed(url, reqId);
 
@@ -120,14 +123,16 @@ export class ScryfallClient {
 
         return data;
       } catch (error) {
+        signal?.throwIfAborted();
         if (error instanceof ScryfallAPIError || error instanceof RateLimitError) {
           throw error;
         }
 
         throw this.buildNetworkError(error, url, reqId);
       }
-    }, {
+    }), {
       minIntervalMs: this.getMinimumRequestIntervalMs(url),
+      signal,
     });
   }
 
@@ -187,11 +192,12 @@ export class ScryfallClient {
   ): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const callerSignal = currentRequestSignal();
 
     try {
       const response = await fetch(url, {
         headers,
-        signal: controller.signal,
+        signal: callerSignal ? AbortSignal.any([controller.signal, callerSignal]) : controller.signal,
       });
       return await consume(response);
     } finally {
@@ -320,6 +326,7 @@ export class ScryfallClient {
     params: SearchCardsParams,
     requestId?: string
   ): Promise<ScryfallSearchResponse> {
+    currentRequestSignal()?.throwIfAborted();
     const reqId = requestId || generateRequestId();
     const searchRequest = this.normalizeSearchRequest(params);
     const cacheKey = CacheService.createSearchKey({
@@ -355,18 +362,8 @@ export class ScryfallClient {
       return cached;
     }
 
-    const inFlight = this.inFlightSearches.get(cacheKey);
-    if (inFlight) {
-      return inFlight;
-    }
-
-    const searchPromise = this.fetchSearchResult(searchRequest, cacheKey, reqId)
-      .finally(() => {
-        this.inFlightSearches.delete(cacheKey);
-      });
-    this.inFlightSearches.set(cacheKey, searchPromise);
-
-    return searchPromise;
+    return shareRequest(this.inFlightSearches, cacheKey,
+      () => this.fetchSearchResult(searchRequest, cacheKey, reqId));
   }
 
   private async fetchSearchResult(
@@ -497,6 +494,7 @@ export class ScryfallClient {
    * Gets a card by name, set code+number, or Scryfall ID
    */
   async getCard(params: CardLookupParams): Promise<ScryfallCard> {
+    currentRequestSignal()?.throwIfAborted();
     const normalizedParams = this.normalizeCardLookupParams(params);
     const cacheKey = canonicalCardCacheKey(normalizedParams);
 
@@ -506,24 +504,12 @@ export class ScryfallClient {
       return cached;
     }
 
-    const inFlight = this.inFlightCardLookups.get(cacheKey);
-    if (inFlight) {
-      return inFlight;
-    }
-
-    const lookupPromise = this.fetchCard(normalizedParams)
+    return shareRequest(this.inFlightCardLookups, cacheKey, () => this.fetchCard(normalizedParams)
       .then((data) => {
         // Cache the result
         this.cache.setWithType(cacheKey, data, "card_details");
         return data;
-      })
-      .finally(() => {
-        this.inFlightCardLookups.delete(cacheKey);
-      });
-
-    this.inFlightCardLookups.set(cacheKey, lookupPromise);
-
-    return lookupPromise;
+      }));
   }
 
   private normalizeCardLookupParams(params: CardLookupParams): CardLookupParams {
@@ -588,6 +574,7 @@ export class ScryfallClient {
     released_before?: string;
     digital?: boolean;
   }): Promise<ScryfallSet[]> {
+    currentRequestSignal()?.throwIfAborted();
     const rawSetsKey = CacheService.createSetKey();
 
     const cachedRaw = this.cache.getWithStats<{ data: ScryfallSet[] } | ScryfallSet[]>(rawSetsKey);
@@ -623,6 +610,7 @@ export class ScryfallClient {
    * Gets bulk card data information
    */
   async getBulkDataInfo(): Promise<BulkDataInfo[]> {
+    currentRequestSignal()?.throwIfAborted();
     const cacheKey = CacheService.createBulkKey("info");
 
     // Check cache first

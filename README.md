@@ -188,6 +188,7 @@ Operational notes:
 - Set snapshots are refreshed weekly. A stale snapshot may be retained for up to four weeks, subject to cache capacity, and served when a scheduled refresh fails; failed scheduled refreshes are retried after five minutes.
 - Card detail output includes Scryfall source links and artist attribution when available. Consumers that render Scryfall image URLs should preserve copyright, artist, and source context and should not crop, distort, recolor, watermark, or imply ownership of card images.
 - Deck-list analysis resolves card names exactly first, then falls back to fuzzy lookup for exact misses and reports any fuzzy resolutions in the response. Input is bounded to 64 KiB, 100 unique names, 10,000 total cards, and 1,000 copies per entry.
+- Cancelling an MCP tool or prompt stops its queued Scryfall work. A lookup shared with another active caller continues until that caller completes or cancels.
 - Deck-scale tools may return partial analysis or an explicit retry-after message when Scryfall throttles the underlying card lookups.
 - Streamable HTTP sessions expire after `HTTP_SESSION_IDLE_MS` and are checked by `HTTP_SESSION_CLEANUP_INTERVAL_MS`.
 - Non-loopback HTTP bindings require bearer-token authentication and `HTTP_TRUST_PROXY_TLS=true`, which asserts that a trusted HTTPS proxy or tunnel protects the plaintext listener. Origin allowlists remain an additional browser policy, not an authentication mechanism.

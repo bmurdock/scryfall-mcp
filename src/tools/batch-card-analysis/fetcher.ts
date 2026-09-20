@@ -1,6 +1,7 @@
 import { ScryfallClient } from '../../services/scryfall-client.js';
 import { RateLimitError, ScryfallAPIError, ValidationError } from '../../types/mcp-types.js';
 import { ScryfallCard } from '../../types/scryfall-api.js';
+import { currentRequestSignal } from '../../services/request-context.js';
 
 // This bounds helper-level scheduling for injected clients. The production
 // ScryfallClient still serializes upstream Scryfall request completion through
@@ -51,6 +52,7 @@ export async function fetchCardMapWithDiagnostics(
   const workerCount = Math.min(Math.max(1, concurrency), cardList.length);
   const workers = Array.from({ length: workerCount }, async () => {
     while (!stopped && nextIndex < cardList.length) {
+      currentRequestSignal()?.throwIfAborted();
       const currentIndex = nextIndex;
       nextIndex += 1;
       attempted += 1;
@@ -63,6 +65,7 @@ export async function fetchCardMapWithDiagnostics(
         const card = await scryfallClient.getCard(lookupParams);
         cards.set(cardName, card);
       } catch (error) {
+        currentRequestSignal()?.throwIfAborted();
         if (error instanceof ScryfallAPIError && error.status === 404) {
           if (match === 'exact' && options.fallbackToFuzzy) {
             try {
@@ -74,6 +77,7 @@ export async function fetchCardMapWithDiagnostics(
               });
               continue;
             } catch (fallbackError) {
+              currentRequestSignal()?.throwIfAborted();
               if (fallbackError instanceof ScryfallAPIError && fallbackError.status === 404) {
                 notFound.push(cardName);
                 continue;

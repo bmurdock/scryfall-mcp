@@ -27,6 +27,7 @@ import {
 } from "./types/mcp-registry.js";
 import { EnvValidators } from "./utils/env-parser.js";
 import { APP_VERSION } from "./version.js";
+import { withRequestSignal } from "./services/request-context.js";
 
 // Tools
 import { SearchCardsTool } from "./tools/search-cards.js";
@@ -148,7 +149,7 @@ export class ScryfallMCPServer {
     });
 
     // Execute tools
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const { name, arguments: args } = request.params;
       const requestId = generateRequestId();
       const tool = this.tools.get(name);
@@ -167,7 +168,7 @@ export class ScryfallMCPServer {
       }
 
       try {
-        const result = await tool.execute(args);
+        const result = await withRequestSignal(extra?.signal, () => tool.execute(args));
         mcpLogger.toolComplete(requestId, name);
         return result;
       } catch (error) {
@@ -255,7 +256,7 @@ export class ScryfallMCPServer {
     });
 
     // Get prompts
-    server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
       const { name, arguments: args } = request.params;
       const requestId = generateRequestId();
       const prompt = this.prompts.get(name);
@@ -275,7 +276,7 @@ export class ScryfallMCPServer {
       }
 
       try {
-        const promptText = await prompt.generatePrompt(args || {});
+        const promptText = await withRequestSignal(extra?.signal, () => prompt.generatePrompt(args || {}));
         mcpLogger.info({ requestId, promptName: name }, "Prompt generation completed");
         return {
           description: `${prompt.description} - ${Object.entries(args || {})

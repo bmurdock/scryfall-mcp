@@ -8,10 +8,13 @@ interface QueuedRequest {
   timestamp: number;
   settled: boolean;
   minIntervalMs?: number;
+  signal?: AbortSignal;
+  cleanup?: () => void;
 }
 
 export interface RateLimiterExecuteOptions {
   minIntervalMs?: number;
+  signal?: AbortSignal;
 }
 
 /**
@@ -44,18 +47,29 @@ export class RateLimiter {
    * Queues an operation so rate limiting and request completion stay serialized
    */
   async execute<T>(operation: () => Promise<T>, options: RateLimiterExecuteOptions = {}): Promise<T> {
+    options.signal?.throwIfAborted();
     return new Promise<T>((resolve, reject) => {
       if (this.queue.length >= this.maxQueueSize) {
         return reject(new RateLimitError('Queue capacity exceeded'));
       }
-      this.queue.push({
+      const request: QueuedRequest = {
         run: operation as () => Promise<unknown>,
         resolve: (value) => resolve(value as T),
         reject,
         timestamp: Date.now(),
         settled: false,
         minIntervalMs: options.minIntervalMs,
-      });
+        signal: options.signal,
+      };
+      const abort = () => {
+        const index = this.queue.indexOf(request);
+        if (index < 0) return; // Active work observes the signal in sleep/fetch.
+        this.queue.splice(index, 1);
+        this.rejectRequest(request, options.signal!.reason);
+      };
+      options.signal?.addEventListener('abort', abort, { once: true });
+      request.cleanup = () => options.signal?.removeEventListener('abort', abort);
+      this.queue.push(request);
 
       if (!this.processing) {
         void this.processQueue();
@@ -81,8 +95,11 @@ export class RateLimiter {
         this.activeRequest = request;
 
         try {
-          await this.enforceRateLimit(request.minIntervalMs);
+          request.signal?.throwIfAborted();
+          await this.enforceRateLimit(request.minIntervalMs, request.signal);
+          request.signal?.throwIfAborted();
           const result = await request.run();
+          request.signal?.throwIfAborted();
           this.resolveRequest(request, result);
         } catch (error) {
           this.rejectRequest(
@@ -114,7 +131,7 @@ export class RateLimiter {
   /**
    * Enforces the minimum interval between requests
    */
-  private async enforceRateLimit(requestMinInterval?: number): Promise<void> {
+  private async enforceRateLimit(requestMinInterval?: number, signal?: AbortSignal): Promise<void> {
     const now = Date.now();
     const timeSinceLastRequest = now - this.lastRequestTime;
     const effectiveMinInterval = Math.max(this.minInterval, requestMinInterval ?? 0);
@@ -132,7 +149,7 @@ export class RateLimiter {
     }
 
     if (delay > 0) {
-      await this.sleep(delay);
+      await this.sleep(delay, signal);
     }
 
     this.lastRequestTime = Date.now();
@@ -242,9 +259,11 @@ export class RateLimiter {
   /**
    * Utility method for sleeping with timeout tracking
    */
-  private sleep(ms: number): Promise<void> {
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
+        signal?.removeEventListener('abort', abort);
         this.activeTimeouts.delete(timeout);
         if (this.activeSleepReject === activeReject) {
           this.activeSleepReject = null;
@@ -256,8 +275,13 @@ export class RateLimiter {
       const activeReject = (error: Error) => {
         clearTimeout(timeout);
         this.activeTimeouts.delete(timeout);
+        signal?.removeEventListener('abort', abort);
+        if (this.activeSleepReject === activeReject) this.activeSleepReject = null;
         reject(error);
       };
+
+      const abort = () => activeReject(signal!.reason);
+      signal?.addEventListener('abort', abort, { once: true });
 
       this.activeSleepReject = activeReject;
     });
@@ -268,6 +292,7 @@ export class RateLimiter {
       return;
     }
     request.settled = true;
+    request.cleanup?.();
     request.resolve(value);
   }
 
@@ -276,6 +301,7 @@ export class RateLimiter {
       return;
     }
     request.settled = true;
+    request.cleanup?.();
     request.reject(error);
   }
 
