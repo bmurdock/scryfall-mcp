@@ -69,14 +69,6 @@ export class SuggestManaBaseTool {
           G: { type: 'number', minimum: 0, maximum: 10 }
         },
         description: 'Color intensity requirements (1-10 scale)'
-      },
-      special_requirements: {
-        type: 'array',
-        items: {
-          type: 'string',
-          enum: ['enters_untapped', 'basic_types', 'nonbasic_hate_protection', 'utility_lands', 'combo_lands']
-        },
-        description: 'Special mana base requirements'
       }
     },
     required: ['color_requirements']
@@ -150,26 +142,9 @@ export class SuggestManaBaseTool {
       throw new ValidationError(`Budget must be one of: ${validBudgets.join(', ')}`);
     }
 
-    const validSpecialRequirements = [
-      'enters_untapped',
-      'basic_types',
-      'nonbasic_hate_protection',
-      'utility_lands',
-      'combo_lands'
-    ];
-
-    const specialRequirements = Array.isArray(normalizedSpecialRequirements)
-      ? normalizedSpecialRequirements.map(requirement =>
-        typeof requirement === 'string' ? requirement.trim().toLowerCase() : requirement
-      )
-      : [];
-
-    if (!specialRequirements.every(
-      requirement => typeof requirement === 'string' && validSpecialRequirements.includes(requirement)
-    )) {
-      throw new ValidationError(
-        `Special requirements must be drawn from: ${validSpecialRequirements.join(', ')}`
-      );
+    if (normalizedSpecialRequirements !== undefined &&
+        (!Array.isArray(normalizedSpecialRequirements) || normalizedSpecialRequirements.length > 0)) {
+      throw new ValidationError('Special mana base requirements are not supported. Omit special_requirements for an unconstrained estimate.');
     }
 
     return {
@@ -180,7 +155,7 @@ export class SuggestManaBaseTool {
       average_cmc: params.average_cmc,
       budget,
       color_intensity: params.color_intensity,
-      special_requirements: specialRequirements
+      special_requirements: []
     };
   }
 

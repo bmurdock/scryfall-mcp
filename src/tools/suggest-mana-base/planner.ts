@@ -18,7 +18,7 @@ function distributeCycleCounts(
   cycles: DualCyclePlan[],
   maxPerCycle: number
 ): LandRecommendation[] {
-  if (total <= 0 || cycles.length === 0) {
+  if (total <= 0) {
     return [];
   }
 
@@ -41,6 +41,13 @@ function distributeCycleCounts(
     }
   }
 
+  if (remaining > 0) {
+    recommendations.push({
+      name: 'Additional dual/fixing lands',
+      count: remaining,
+      reason: 'Choose lands legal in your format that produce the required colors; verify individual cards with search_cards.',
+    });
+  }
   return recommendations;
 }
 

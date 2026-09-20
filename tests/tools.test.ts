@@ -1477,14 +1477,13 @@ describe('MCP Tools', () => {
       expect(totalRecommended).toBe(24);
     });
 
-    it('should normalize strategy, budget, and special requirements inputs', async () => {
+    it('should normalize strategy and budget inputs', async () => {
       const result = await tool.execute({
         color_requirements: ' wu ',
         deck_size: 60,
         format: 'MODERN',
         strategy: 'MIDRANGE',
-        budget: 'MODERATE',
-        special_requirements: ['UTILITY_LANDS', ' enters_untapped ']
+        budget: 'MODERATE'
       });
 
       expect(result.isError).toBeUndefined();
@@ -1500,8 +1499,7 @@ describe('MCP Tools', () => {
         format: 'modern',
         strategy: 'control',
         budget: 'expensive',
-        average_cmc: 4.5,
-        special_requirements: ['utility_lands']
+        average_cmc: 4.5
       });
 
       const text = result.content[0].text;

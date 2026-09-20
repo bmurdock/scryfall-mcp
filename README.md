@@ -191,6 +191,7 @@ Operational notes:
 - Cancelling an MCP tool or prompt stops its queued Scryfall work. A lookup shared with another active caller continues until that caller completes or cancels.
 - The stdio server shuts down when its client closes input. Malformed HTTP URLs or Host headers return HTTP 400 without terminating the server.
 - Prompt validation errors retain their actionable message and use the MCP invalid-parameters error code. Upstream prompt errors include safe status or retry information.
+- `suggest_mana_base` returns heuristic land counts and cycle categories; individual card legality and color compatibility still require verification. All allocated slots are included, with a generic fixing category when no specific cycle is available. Special land requirements are currently unsupported and nonempty `special_requirements` inputs return a validation error.
 - Deck-scale tools may return partial analysis or an explicit retry-after message when Scryfall throttles the underlying card lookups.
 - Streamable HTTP sessions expire after `HTTP_SESSION_IDLE_MS` and are checked by `HTTP_SESSION_CLEANUP_INTERVAL_MS`.
 - Non-loopback HTTP bindings require bearer-token authentication and `HTTP_TRUST_PROXY_TLS=true`, which asserts that a trusted HTTPS proxy or tunnel protects the plaintext listener. Origin allowlists remain an additional browser policy, not an authentication mechanism.
