@@ -52,6 +52,17 @@ describe("ScryfallClient.getSets", () => {
     vi.restoreAllMocks();
   });
 
+  it.each([false, true])("keeps a literal all query distinct from no query (reverse=%s)", async (reverse) => {
+    const sets = [createSet({ code: 'all', name: 'Alliances' }), createSet({ code: 'mrd', name: 'Mirrodin' })];
+    fetchMock.mockResolvedValue({ status: 200, json: vi.fn().mockResolvedValue(createSetListResponse(sets)) });
+    const queries = reverse ? ['all', undefined] : [undefined, 'all'];
+    for (const query of queries) {
+      const result = await client.getSets({ query, type: 'expansion' });
+      expect(result.map(set => set.code)).toEqual(query ? ['all'] : ['all', 'mrd']);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("does not reuse a cached date-filtered result for a different date window", async () => {
     const sets = [
       createSet({ code: "old", name: "Old Set", released_at: "2020-01-01" }),

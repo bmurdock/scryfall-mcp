@@ -361,15 +361,14 @@ export class CacheService {
     digital?: boolean;
     serialized?: boolean;
   }): string {
-    return [
-      'set-filter',
+    return `set-filter:${JSON.stringify([
       filters.serialized ? 'serialized' : 'data',
-      filters.query || 'all',
-      filters.type || 'all',
-      filters.released_after || 'any',
-      filters.released_before || 'any',
-      filters.digital === undefined ? 'both' : filters.digital ? 'digital' : 'paper',
-    ].join(':');
+      filters.query ?? null,
+      filters.type ?? null,
+      filters.released_after ?? null,
+      filters.released_before ?? null,
+      filters.digital ?? null,
+    ])}`;
   }
 
   /**
