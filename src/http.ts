@@ -277,6 +277,11 @@ async function handleMcpRequest(
     const existingTransport =
       typeof sessionId === "string" ? sessionTransports.get(sessionId) : undefined;
 
+    if (typeof sessionId === "string" && !existingTransport) {
+      sendJsonRpcError(res, 404, "Not Found: Session not found");
+      return;
+    }
+
     if (!existingTransport && !isInitializeRequest(parsedBody)) {
       sendJsonRpcError(res, 400, "Bad Request: No valid session ID provided");
       return;
@@ -307,8 +312,13 @@ async function handleMcpRequest(
     const sessionId = req.headers["mcp-session-id"];
     const record = typeof sessionId === "string" ? sessionTransports.get(sessionId) : undefined;
 
-    if (!record) {
+    if (typeof sessionId !== "string") {
       sendJsonRpcError(res, 400, "Bad Request: No valid session ID provided");
+      return;
+    }
+
+    if (!record) {
+      sendJsonRpcError(res, 404, "Not Found: Session not found");
       return;
     }
 

@@ -194,6 +194,7 @@ Operational notes:
 - `suggest_mana_base` returns heuristic land counts and cycle categories; individual card legality and color compatibility still require verification. All allocated slots are included, with a generic fixing category when no specific cycle is available. Special land requirements are currently unsupported and nonempty `special_requirements` inputs return a validation error.
 - Deck-scale tools may return partial analysis or an explicit retry-after message when Scryfall throttles the underlying card lookups.
 - Streamable HTTP sessions expire after `HTTP_SESSION_IDLE_MS` and are checked by `HTTP_SESSION_CLEANUP_INTERVAL_MS`.
+- Requests with expired or unknown HTTP session IDs return 404; clients recover by initializing a new session without the old ID. Requests missing a required session ID return 400.
 - Non-loopback HTTP bindings require bearer-token authentication and `HTTP_TRUST_PROXY_TLS=true`, which asserts that a trusted HTTPS proxy or tunnel protects the plaintext listener. Origin allowlists remain an additional browser policy, not an authentication mechanism.
 - `GET /health` is a readiness check: it returns HTTP 503 when a required service is degraded, including while the Scryfall circuit breaker is open.
 

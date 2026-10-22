@@ -302,11 +302,80 @@ describe("HTTP transport entrypoint", () => {
       }),
     });
 
-    expect(afterIdle.status).toBe(400);
+    expect(afterIdle.status).toBe(404);
     await expect(afterIdle.json()).resolves.toMatchObject({
       error: {
-        message: "Bad Request: No valid session ID provided",
+        message: "Not Found: Session not found",
       },
     });
+
+    const replacementWithExpiredSession = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-session-id": sessionId!,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: {
+            name: "expired-session-replacement-test",
+            version: "1.0.0",
+          },
+        },
+      }),
+    });
+
+    expect(replacementWithExpiredSession.status).toBe(404);
+    await replacementWithExpiredSession.text();
+
+    const replacement = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: {
+            name: "replacement-session-test",
+            version: "1.0.0",
+          },
+        },
+      }),
+    });
+
+    expect(replacement.status).toBe(200);
+    expect(replacement.headers.get("mcp-session-id")).toBeTruthy();
+    await replacement.text();
+  });
+
+  it("distinguishes missing and unknown session IDs for session methods", async () => {
+    for (const method of ["GET", "DELETE"] as const) {
+      const missing = await fetch(baseUrl, { method });
+      expect(missing.status).toBe(400);
+      await expect(missing.json()).resolves.toMatchObject({
+        error: { message: "Bad Request: No valid session ID provided" },
+      });
+
+      const unknown = await fetch(baseUrl, {
+        method,
+        headers: { "mcp-session-id": "unknown-session-id" },
+      });
+      expect(unknown.status).toBe(404);
+      await expect(unknown.json()).resolves.toMatchObject({
+        error: { message: "Not Found: Session not found" },
+      });
+    }
   });
 });
