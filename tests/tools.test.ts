@@ -218,7 +218,7 @@ describe('MCP Tools', () => {
       expect(result.content[0].text.trim().startsWith('{')).toBe(true);
     });
 
-    it('does not append duplicate game:arena when arena_only is true', async () => {
+    it('applies arena_only to the whole query when game:arena is already present', async () => {
       mockScryfallClient.searchCards.mockResolvedValue({
         object: 'list',
         total_cards: 1,
@@ -246,7 +246,7 @@ describe('MCP Tools', () => {
 
       expect(result.isError).toBeUndefined();
       expect(mockScryfallClient.searchCards).toHaveBeenCalledWith(expect.objectContaining({
-        query: 'game:arena legal:brawl t:goblin'
+        query: '(game:arena legal:brawl t:goblin) game:arena'
       }));
     });
 

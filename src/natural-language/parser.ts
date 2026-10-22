@@ -278,7 +278,13 @@ export class NaturalLanguageParser {
       ...parsed.types.map(t => t.confidence),
       ...parsed.archetypes.map(a => a.confidence),
       ...parsed.priceConstraints.map(p => p.confidence),
-      ...parsed.formats.map(f => f.confidence)
+      ...parsed.formats.map(f => f.confidence),
+      ...parsed.subtypes.map(s => s.confidence),
+      ...parsed.keywords.map(k => k.confidence),
+      ...parsed.abilities.map(a => a.confidence),
+      ...parsed.mechanics.map(m => m.confidence),
+      ...parsed.manaCost.map(m => m.confidence),
+      ...parsed.powerToughness.map(s => s.confidence)
     ];
     
     if (conceptConfidences.length === 0) return 0;

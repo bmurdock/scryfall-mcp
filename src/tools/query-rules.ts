@@ -159,7 +159,8 @@ export class QueryRulesTool {
     }
 
     // Track current section for context
-    let currentSection = '';
+    let currentChapter = '';
+    let currentRuleSection = '';
 
     for (let i = 0; i < this.rulesLines.length; i++) {
       const line = this.rulesLines[i];
@@ -167,11 +168,19 @@ export class QueryRulesTool {
       // Update current section if we hit a section header
       const sectionMatch = line.match(/^(\d+)\.\s/);
       if (sectionMatch) {
-        currentSection = sectionMatch[1];
+        const numericSection = sectionMatch[1];
+        if (!numericSection.includes('.') && numericSection.length < 3) {
+          currentChapter = numericSection;
+        }
+        currentRuleSection = numericSection;
       }
 
       // Skip if section filter is specified and doesn't match
-      if (params.section && currentSection !== params.section) {
+      const sectionMatches = params.section && (
+        params.section === currentChapter ||
+        params.section === currentRuleSection.split('.')[0]
+      );
+      if (params.section && !sectionMatches) {
         continue;
       }
 
@@ -201,7 +210,7 @@ export class QueryRulesTool {
           lineNumber: i + 1,
           line: line,
           context: context,
-          section: currentSection || 'Unknown'
+          section: currentRuleSection || currentChapter || 'Unknown'
         });
       }
     }

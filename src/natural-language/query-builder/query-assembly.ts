@@ -41,7 +41,8 @@ export function formatQueryToken(
   if (NUMERIC_OPERATORS.has(operator)) {
     return `${prefix}${operator}${comparison || '='}${value}`;
   }
-  return `${prefix}${operator}:${normalizedComparison}${value}`;
+  const tokenValue = operator === 'o' && /\s/.test(value) ? JSON.stringify(value) : value;
+  return `${prefix}${operator}:${normalizedComparison}${tokenValue}`;
 }
 
 function buildOperatorQuery(operator: string, mappings: ConceptMapping[]): string {

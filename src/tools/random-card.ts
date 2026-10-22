@@ -121,7 +121,11 @@ export class RandomCardTool {
       queryParts.push(`"${params.similar_to}"`);
     }
 
-    return queryParts.join(' ');
+    if (queryParts.length <= 1) {
+      return queryParts.join(' ');
+    }
+
+    return `(${queryParts.map(part => `(${part})`).join(' AND ')})`;
   }
 
   /**

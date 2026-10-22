@@ -261,7 +261,7 @@ describe('Under-Covered User-Facing Tools', () => {
 
       expect(result.isError).toBeUndefined();
       expect(mockClient.getRandomCard).toHaveBeenCalledWith(
-        't:creature legal:modern (t:creature pow>=2) OR (o:"haste" OR o:"first strike") usd>=5 usd<=15 r:mythic is:firstprint "Questing Beast"'
+        '((t:creature) AND (legal:modern) AND ((t:creature pow>=2) OR (o:"haste" OR o:"first strike")) AND (usd>=5) AND (usd<=15) AND (r:mythic) AND (is:firstprint) AND ("Questing Beast"))'
       );
       expect(text).toContain('# Questing Beast');
       expect(text).toContain('name text matching "Questing Beast"');
