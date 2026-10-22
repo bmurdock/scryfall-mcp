@@ -663,6 +663,9 @@ export class ScryfallClient {
    */
   async *streamBulkData(downloadUri: string): AsyncGenerator<ScryfallCard> {
     const controller = new AbortController();
+    const callerSignal = currentRequestSignal();
+    callerSignal?.throwIfAborted();
+    const signal = callerSignal ? AbortSignal.any([controller.signal, callerSignal]) : controller.signal;
     let timeout: NodeJS.Timeout | undefined;
     const armIdleTimeout = () => {
       if (timeout) {
@@ -675,7 +678,7 @@ export class ScryfallClient {
       armIdleTimeout();
       const response = await fetch(downloadUri, {
         headers: { "User-Agent": this.userAgent },
-        signal: controller.signal,
+        signal,
       });
 
       if (response.status >= 400 || !response.body) {
@@ -686,6 +689,7 @@ export class ScryfallClient {
       }
 
       for await (const card of iterateArrayStream<ScryfallCard>(response.body)) {
+        signal.throwIfAborted();
         if (timeout) {
           clearTimeout(timeout);
           timeout = undefined;
@@ -694,6 +698,7 @@ export class ScryfallClient {
         armIdleTimeout();
       }
     } catch (error) {
+      callerSignal?.throwIfAborted();
       if (error instanceof ScryfallAPIError) {
         throw error;
       }

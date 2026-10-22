@@ -7,6 +7,7 @@ import { CacheService } from '../services/cache-service.js';
 import { BulkDataInfo, ScryfallCard } from '../types/scryfall-api.js';
 import { ScryfallAPIError } from '../types/mcp-types.js';
 import { mcpLogger } from '../services/logger.js';
+import { currentRequestSignal, withRequestSignal } from '../services/request-context.js';
 
 type BulkSnapshotMetadata = {
   updatedAt: string;
@@ -52,6 +53,8 @@ export class CardDatabaseResource {
   private lastUpdateCheck = 0;
   private readonly updateCheckInterval = 24 * 60 * 60 * 1000; // 24 hours
   private rebuildInFlight?: Promise<string>;
+  private rebuildSignal?: AbortSignal;
+  private readonly lifecycle = new AbortController();
   private diskSnapshot?: DiskBulkSnapshot;
   private readonly diskCacheDir = join(tmpdir(), 'scryfall-mcp');
   private readonly diskSnapshotOwner = `${process.pid}-${randomUUID()}`;
@@ -71,11 +74,20 @@ export class CardDatabaseResource {
    * Gets the bulk card data, checking for updates if needed
    */
   async getData(): Promise<string> {
+    const callerSignal = currentRequestSignal();
+    const signal = callerSignal
+      ? AbortSignal.any([callerSignal, this.lifecycle.signal])
+      : this.lifecycle.signal;
+    return withRequestSignal(signal, () => this.readSnapshot());
+  }
+
+  private async readSnapshot(): Promise<string> {
     try {
       const bulkInfo = await this.getBulkInfoIfUpdateCheckDue();
       const cachedPayload = this.cache.getWithStats<string>(BULK_PAYLOAD_KEY);
       const cachedMetadata = this.cache.get<BulkSnapshotMetadata>(BULK_METADATA_KEY);
       const diskPayload = await this.getDiskSnapshotIfCurrent(bulkInfo);
+      currentRequestSignal()?.throwIfAborted();
       const cachedIsCurrent = Boolean(
         cachedPayload &&
         cachedMetadata &&
@@ -93,6 +105,7 @@ export class CardDatabaseResource {
       try {
         return await this.rebuildSerializedSnapshotOnce(bulkInfo);
       } catch (error) {
+        currentRequestSignal()?.throwIfAborted();
         if (cachedPayload) {
           mcpLogger.warn(
             { operation: 'bulk_snapshot_refresh', error },
@@ -113,6 +126,7 @@ export class CardDatabaseResource {
         throw error;
       }
     } catch (error) {
+      currentRequestSignal()?.throwIfAborted();
       throw new ScryfallAPIError(
         `Failed to retrieve card database: ${error instanceof Error ? error.message : 'Unknown error'}`,
         500,
@@ -135,6 +149,10 @@ export class CardDatabaseResource {
     try {
       return await this.getOracleCardsBulkInfo();
     } catch (error) {
+      if (currentRequestSignal()?.aborted) {
+        this.lastUpdateCheck = 0;
+        currentRequestSignal()!.throwIfAborted();
+      }
       mcpLogger.warn({ operation: 'bulk_update_check', error }, 'Failed to check for bulk data updates');
       return undefined;
     }
@@ -154,11 +172,18 @@ export class CardDatabaseResource {
     return oracleCards;
   }
 
-  private rebuildSerializedSnapshotOnce(knownBulkInfo?: BulkDataInfo): Promise<string> {
+  private async rebuildSerializedSnapshotOnce(knownBulkInfo?: BulkDataInfo): Promise<string> {
+    // A new reader must not join a cancelled rebuild or race its file cleanup.
+    if (this.rebuildSignal?.aborted) {
+      await this.rebuildInFlight?.catch(() => undefined);
+    }
+    currentRequestSignal()?.throwIfAborted();
     if (!this.rebuildInFlight) {
+      this.rebuildSignal = currentRequestSignal();
       this.rebuildInFlight = this.rebuildSerializedSnapshot(knownBulkInfo)
         .finally(() => {
           this.rebuildInFlight = undefined;
+          this.rebuildSignal = undefined;
         });
     }
 
@@ -170,50 +195,57 @@ export class CardDatabaseResource {
    */
   private async rebuildSerializedSnapshot(knownBulkInfo?: BulkDataInfo): Promise<string> {
     const oracleCards = knownBulkInfo ?? await this.getOracleCardsBulkInfo();
+    currentRequestSignal()?.throwIfAborted();
     const snapshotFile = await this.writeSerializedSnapshotFile(oracleCards);
-    const payload = await readFile(snapshotFile.path, 'utf-8');
-    const { totalCards, payloadBytes } = snapshotFile;
-    const maxMemoryBytes = this.cache.getStats().maxMemoryBytes;
+    try {
+      const payload = await readFile(snapshotFile.path, { encoding: 'utf-8', signal: currentRequestSignal() });
+      currentRequestSignal()?.throwIfAborted();
+      const { totalCards, payloadBytes } = snapshotFile;
+      const maxMemoryBytes = this.cache.getStats().maxMemoryBytes;
 
-    this.lastBuildDiagnostics = {
-      totalCards,
-      retainedChunks: 0,
-      payloadBytes,
-      cached: false,
-    };
+      this.lastBuildDiagnostics = {
+        totalCards,
+        retainedChunks: 0,
+        payloadBytes,
+        cached: false,
+      };
 
-    if (payloadBytes > maxMemoryBytes) {
-      const oversizeReason = `Payload size ${payloadBytes} bytes exceeds cache memory limit ${maxMemoryBytes} bytes`;
-      this.lastBuildDiagnostics = {
-        ...this.lastBuildDiagnostics,
-        oversizeReason,
-      };
-      mcpLogger.warn(
-        {
-          operation: 'bulk_snapshot_cache',
-          payloadBytes,
-          maxMemoryBytes,
-          totalCards,
-        },
-        'Bulk snapshot exceeds in-memory cache limit'
-      );
-      await this.retainDiskSnapshot(snapshotFile.path, oracleCards.updated_at, totalCards, payloadBytes);
-    } else {
-      this.cache.setWithType(BULK_PAYLOAD_KEY, payload, 'bulk_data', { sizeBytes: payloadBytes });
-      await this.clearDiskSnapshot();
-      await this.deleteFile(snapshotFile.path);
-      this.lastBuildDiagnostics = {
-        ...this.lastBuildDiagnostics,
-        cached: this.cache.get<string>(BULK_PAYLOAD_KEY) === payload,
-      };
+      if (payloadBytes > maxMemoryBytes) {
+        const oversizeReason = `Payload size ${payloadBytes} bytes exceeds cache memory limit ${maxMemoryBytes} bytes`;
+        this.lastBuildDiagnostics = {
+          ...this.lastBuildDiagnostics,
+          oversizeReason,
+        };
+        mcpLogger.warn(
+          {
+            operation: 'bulk_snapshot_cache',
+            payloadBytes,
+            maxMemoryBytes,
+            totalCards,
+          },
+          'Bulk snapshot exceeds in-memory cache limit'
+        );
+        await this.retainDiskSnapshot(snapshotFile.path, oracleCards.updated_at, totalCards, payloadBytes);
+      } else {
+        this.cache.setWithType(BULK_PAYLOAD_KEY, payload, 'bulk_data', { sizeBytes: payloadBytes });
+        await this.clearDiskSnapshot();
+        this.lastBuildDiagnostics = {
+          ...this.lastBuildDiagnostics,
+          cached: this.cache.get<string>(BULK_PAYLOAD_KEY) === payload,
+        };
+      }
+
+      this.cache.setWithType(BULK_METADATA_KEY, {
+        updatedAt: oracleCards.updated_at,
+        totalCards,
+      }, 'bulk_data');
+
+      return payload;
+    } finally {
+      if (this.diskSnapshot?.path !== snapshotFile.path) {
+        await this.deleteFile(snapshotFile.path);
+      }
     }
-
-    this.cache.setWithType(BULK_METADATA_KEY, {
-      updatedAt: oracleCards.updated_at,
-      totalCards,
-    }, 'bulk_data');
-
-    return payload;
   }
 
   private async writeSerializedSnapshotFile(oracleCards: BulkDataInfo): Promise<SerializedSnapshotFile> {
@@ -233,6 +265,7 @@ export class CardDatabaseResource {
     let hasItems = false;
 
     const writePart = async (part: string): Promise<void> => {
+      currentRequestSignal()?.throwIfAborted();
       await handle.write(part, null, 'utf-8');
       payloadChars += part.length;
     };
@@ -250,14 +283,14 @@ export class CardDatabaseResource {
       }
 
       await writePart(`],"total_cards":${totalCards}}`);
+      await handle.close();
+      currentRequestSignal()?.throwIfAborted();
+      await rename(tempPath, finalPath);
     } catch (error) {
       await handle.close().catch(() => undefined);
       await this.deleteFile(tempPath);
       throw error;
     }
-
-    await handle.close();
-    await rename(tempPath, finalPath);
 
     return {
       path: finalPath,
@@ -276,8 +309,9 @@ export class CardDatabaseResource {
     }
 
     try {
-      return await readFile(this.diskSnapshot.path, 'utf-8');
+      return await readFile(this.diskSnapshot.path, { encoding: 'utf-8', signal: currentRequestSignal() });
     } catch (error) {
+      currentRequestSignal()?.throwIfAborted();
       mcpLogger.warn(
         { operation: 'bulk_snapshot_disk_cache', error },
         'Failed to read disk bulk snapshot'
@@ -417,6 +451,8 @@ export class CardDatabaseResource {
   }
 
   async destroy(): Promise<void> {
+    this.lifecycle.abort();
+    await this.rebuildInFlight?.catch(() => undefined);
     await this.clearDiskSnapshot();
   }
 

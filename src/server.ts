@@ -29,7 +29,7 @@ import {
 } from "./types/mcp-registry.js";
 import { EnvValidators } from "./utils/env-parser.js";
 import { APP_VERSION } from "./version.js";
-import { withRequestSignal } from "./services/request-context.js";
+import { shareRequest, withRequestSignal, type SharedRequest } from "./services/request-context.js";
 import { ValidationError, ScryfallAPIError, RateLimitError } from "./types/mcp-types.js";
 
 // Tools
@@ -99,6 +99,8 @@ export class ScryfallMCPServer {
   private readonly tools: Map<string, ToolContract>;
   private readonly resources: Map<string, ResourceContract>;
   private readonly prompts: Map<string, PromptContract>;
+  private readonly resourceReads = new Map<string, SharedRequest<string>>();
+  private readonly lifecycle = new AbortController();
 
   constructor() {
     // Initialize core services
@@ -200,7 +202,7 @@ export class ScryfallMCPServer {
     });
 
     // Read resources
-    server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
       const { uri } = request.params;
       const requestId = generateRequestId();
       const resource = this.resources.get(uri);
@@ -220,7 +222,12 @@ export class ScryfallMCPServer {
       }
 
       try {
-        const data = await resource.getData();
+        const signal = extra?.signal
+          ? AbortSignal.any([extra.signal, this.lifecycle.signal])
+          : this.lifecycle.signal;
+        const data = await withRequestSignal(signal, () =>
+          shareRequest(this.resourceReads, uri, () => resource.getData())
+        );
         mcpLogger.info({ requestId, resourceUri: uri }, "Resource read completed");
         return {
           contents: [
@@ -352,6 +359,7 @@ export class ScryfallMCPServer {
    * Cleanup resources
    */
   async destroy(): Promise<void> {
+    this.lifecycle.abort();
     await Promise.all(
       Array.from(this.resources.values()).map(async (resource) => {
         await resource.destroy?.();
