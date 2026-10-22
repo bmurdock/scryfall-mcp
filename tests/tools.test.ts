@@ -1074,7 +1074,7 @@ describe('MCP Tools', () => {
       });
 
       expect(result.isError).toBeUndefined();
-      expect(mockScryfallClient.getCard).toHaveBeenCalledWith({ identifier: 'Lightning Bolt' });
+      expect(mockScryfallClient.getCard).toHaveBeenCalledWith({ identifier: 'Lightning Bolt' }, 'card_prices');
       expect(result.content[0].text).toContain('Paper');
       expect(result.content[0].text).toContain('MODERN Legality');
     });

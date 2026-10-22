@@ -137,7 +137,7 @@ export class GetCardPricesTool {
       // First, resolve the card identifier to get the card
       let card;
       try {
-        card = await this.scryfallClient.getCard({ identifier: params.card_identifier });
+        card = await this.scryfallClient.getCard({ identifier: params.card_identifier }, 'card_prices');
       } catch (error) {
         if (error instanceof ScryfallAPIError && error.status === 404) {
           return {

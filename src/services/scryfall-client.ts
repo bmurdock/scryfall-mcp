@@ -493,10 +493,11 @@ export class ScryfallClient {
   /**
    * Gets a card by name, set code+number, or Scryfall ID
    */
-  async getCard(params: CardLookupParams): Promise<ScryfallCard> {
+  async getCard(params: CardLookupParams, cacheType: 'card_details' | 'card_prices' = 'card_details'): Promise<ScryfallCard> {
     currentRequestSignal()?.throwIfAborted();
     const normalizedParams = this.normalizeCardLookupParams(params);
-    const cacheKey = canonicalCardCacheKey(normalizedParams);
+    const cardKey = canonicalCardCacheKey(normalizedParams);
+    const cacheKey = cacheType === 'card_prices' ? CacheService.createPriceKey(cardKey) : cardKey;
 
     // Check cache first
     const cached = this.cache.getWithStats<ScryfallCard>(cacheKey);
@@ -507,7 +508,7 @@ export class ScryfallClient {
     return shareRequest(this.inFlightCardLookups, cacheKey, () => this.fetchCard(normalizedParams)
       .then((data) => {
         // Cache the result
-        this.cache.setWithType(cacheKey, data, "card_details");
+        this.cache.setWithType(cacheKey, data, cacheType);
         return data;
       }));
   }
@@ -533,7 +534,9 @@ export class ScryfallClient {
     // Check if identifier is set code + collector number
     else if (/^[a-z0-9]{3,8}\/[^\s/]+$/i.test(params.identifier)) {
       const [setCode, collectorNumber] = params.identifier.split("/");
-      url = new URL(`${this.baseUrl}/cards/${setCode}/${collectorNumber}`);
+      const languagePath = params.lang && params.lang !== 'en' ? `/${encodeURIComponent(params.lang)}` : '';
+      url = new URL(`${this.baseUrl}/cards/${setCode}/${encodeURIComponent(collectorNumber)}${languagePath}`);
+      return this.makeRequest<ScryfallCard>(url.toString());
     }
     // Otherwise treat as card name
     else {
@@ -544,11 +547,13 @@ export class ScryfallClient {
       }
     }
 
-    if (params.lang && params.lang !== "en") {
-      url.searchParams.set("lang", params.lang);
+    const card = await this.makeRequest<ScryfallCard>(url.toString());
+    if (params.lang && params.lang !== 'en' && card.lang !== params.lang) {
+      const localizedUrl = `${this.baseUrl}/cards/${encodeURIComponent(card.set)}/${encodeURIComponent(card.collector_number)}/${encodeURIComponent(params.lang)}`;
+      return this.makeRequest<ScryfallCard>(localizedUrl);
     }
 
-    return this.makeRequest<ScryfallCard>(url.toString());
+    return card;
   }
 
   /**
