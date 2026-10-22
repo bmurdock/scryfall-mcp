@@ -85,7 +85,7 @@ export class SearchFormatStaplesTool {
       return `id:${normalized}`;
     }
 
-    return '';
+    throw new ValidationError('Color identity must be a supported color or color combination');
   }
 
   /**
@@ -135,6 +135,13 @@ export class SearchFormatStaplesTool {
       if (typeof params.max_price !== 'number' || params.max_price < 0) {
         throw new ValidationError('Max price must be a non-negative number');
       }
+    }
+
+    if (params.color_identity !== undefined) {
+      if (typeof normalizedColorIdentity !== 'string' || !normalizedColorIdentity) {
+        throw new ValidationError('Color identity must be a supported color or color combination');
+      }
+      this.normalizeColorIdentityQuery(normalizedColorIdentity);
     }
 
     const limit = params.limit || 20;

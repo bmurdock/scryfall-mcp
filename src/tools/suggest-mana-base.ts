@@ -101,6 +101,7 @@ export class SuggestManaBaseTool {
         throw new ValidationError(`Invalid color: ${color}. Use W, U, B, R, G`);
       }
     }
+    const normalizedColors = [...new Set(colors)].join('');
 
     const deckSize = params.deck_size ?? 60;
     if (typeof deckSize !== 'number' || deckSize < 40 || deckSize > 250) {
@@ -128,6 +129,10 @@ export class SuggestManaBaseTool {
           throw new ValidationError(`Color intensity for ${color} must be between 0 and 10`);
         }
       }
+
+      if (normalizedColors.split('').every((color) => (params.color_intensity?.[color] ?? 5) === 0)) {
+        throw new ValidationError('At least one required color intensity must be greater than 0');
+      }
     }
 
     const strategy = (typeof normalizedStrategy === 'string' ? normalizedStrategy : undefined) || 'midrange';
@@ -148,7 +153,7 @@ export class SuggestManaBaseTool {
     }
 
     return {
-      color_requirements: colors,
+      color_requirements: normalizedColors,
       deck_size: deckSize,
       format: typeof normalizedFormat === 'string' ? normalizedFormat : undefined,
       strategy,

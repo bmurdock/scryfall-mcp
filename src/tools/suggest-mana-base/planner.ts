@@ -86,7 +86,7 @@ export function calculateColorDistribution(
   landCount: number
 ): Record<string, number> {
   const { color_requirements, color_intensity } = params;
-  const colors = color_requirements.split('');
+  const colors = [...new Set(color_requirements.split(''))];
 
   if (colors.length === 1) {
     return { [colors[0]]: landCount, colorless: 0 };
@@ -96,7 +96,7 @@ export function calculateColorDistribution(
   let totalIntensity = 0;
 
   for (const color of colors) {
-    const intensity = color_intensity?.[color] || 5;
+    const intensity = color_intensity?.[color] ?? 5;
     distribution[color] = intensity;
     totalIntensity += intensity;
   }
@@ -142,7 +142,7 @@ export async function generateLandRecommendations(
   colorDistribution: Record<string, number>
 ): Promise<ManaBaseRecommendations> {
   const { format, budget, color_requirements, special_requirements } = params;
-  const colors = color_requirements.split('');
+  const colors = [...new Set(color_requirements.split(''))];
 
   const recommendations: ManaBaseRecommendations = {
     basics: [],
