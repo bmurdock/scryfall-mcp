@@ -75,6 +75,13 @@ npm run smoke:http
 The smoke test checks `/health`, performs MCP `initialize`, sends `notifications/initialized`, and verifies `tools/list`.
 It also makes representative `validate_brawl_commander` and `search_cards` tool calls so the local HTTP endpoint is checked beyond discovery.
 
+HTTP requests retain a default 1 MiB body limit (`HTTP_MAX_BODY_BYTES`). Before SDK
+or tool validation, the HTTP entrypoint also rejects request JSON containing more
+than 10,000 array elements and object keys in total. This applies across the whole
+request, including batches; SDK 1.32.2 additionally caps batches at 100 messages.
+The structural guard is iterative and applies to this project's low-level `Server`
+handlers; it does not rely on the opt-in `McpServer.maxToolInputElements` option.
+
 Current HTTP behavior:
 
 - binds to `127.0.0.1` by default

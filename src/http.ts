@@ -9,6 +9,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createSdkServer, MCP_SERVER_INFO, ScryfallMCPServer } from "./server.js";
 import { mcpLogger } from "./services/logger.js";
+import { isJsonStructureWithinLimit } from "./utils/request-limits.js";
 import { EnvValidators, parseEnvBoolean, parseEnvInt, parseEnvString } from "./utils/env-parser.js";
 
 type SessionTransportRecord = {
@@ -270,6 +271,11 @@ async function handleMcpRequest(
 
       mcpLogger.warn({ operation: "http_transport", error }, "Invalid JSON body for HTTP MCP request");
       sendJsonRpcError(res, 400, "Bad Request: Invalid JSON body");
+      return;
+    }
+
+    if (!isJsonStructureWithinLimit(parsedBody)) {
+      sendJsonRpcError(res, 400, "Too many JSON array elements or object keys");
       return;
     }
 

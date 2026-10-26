@@ -199,6 +199,55 @@ describe("HTTP transport entrypoint", () => {
     expect(config.trustProxyTls).toBe(true);
   });
 
+  it.each([[100, 202], [101, 400]])(
+    "enforces the SDK batch boundary for %i notifications",
+    async (size, expectedStatus) => {
+      const client = new Client({ name: "batch-limit-client", version: "1.0.0" });
+      const transport = new StreamableHTTPClientTransport(baseUrl);
+      try {
+        await client.connect(transport);
+        const response = await fetch(baseUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+            "mcp-session-id": transport.sessionId!,
+          },
+          body: JSON.stringify(Array.from({ length: size }, () => ({
+            jsonrpc: "2.0",
+            method: "notifications/initialized",
+          }))),
+        });
+        expect(response.status).toBe(expectedStatus);
+        if (expectedStatus === 400) {
+          await expect(response.json()).resolves.toMatchObject({
+            error: { code: -32600, message: "Invalid Request: Batch must not exceed 100 messages" },
+          });
+        } else {
+          await response.text();
+        }
+      } finally {
+        await transport.close();
+      }
+    }
+  );
+
+  it("rejects excessive JSON structure before SDK request validation", async () => {
+    const response = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ params: { arguments: { items: Array(10_000).fill(0) } } }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { message: "Too many JSON array elements or object keys" },
+    });
+  });
+
   it("rejects oversized JSON request bodies", async () => {
     const response = await fetch(baseUrl, {
       method: "POST",
