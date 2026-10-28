@@ -14,7 +14,7 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "lint": "eslint src",
+    "lint": "eslint src --max-warnings=0",
     "lint:fix": "eslint src --fix",
     "type-check": "tsc --noEmit",
     "inspector": "npx @modelcontextprotocol/inspector tsx --import dotenv/config src/index.ts"

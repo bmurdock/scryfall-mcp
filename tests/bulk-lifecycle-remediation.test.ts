@@ -1,3 +1,4 @@
+import { expectLog } from "./helpers/expected-logs.js";
 import { readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -54,6 +55,7 @@ async function mcpFixture() {
 
 describe('bulk resource lifetime', () => {
   it('aborts a cancelled MCP bulk read and permits a subsequent rebuild', async () => {
+    expectLog("error", "Resource access failed", { resourceUri: "card-database://bulk" });
     const source = upstream();
     const runtime = await mcpFixture();
     try {
@@ -71,6 +73,7 @@ describe('bulk resource lifetime', () => {
   });
 
   it('keeps a shared bulk read alive until its remaining MCP reader finishes', async () => {
+    expectLog("error", "Resource access failed", { resourceUri: "card-database://bulk" });
     const source = upstream();
     const runtime = await mcpFixture();
     try {

@@ -1,3 +1,4 @@
+import { expectLog } from "./helpers/expected-logs.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -52,6 +53,7 @@ describe("HTTP transport entrypoint", () => {
   });
 
   it("rejects an ordinary compressed JSON body without mounting decompression middleware", async () => {
+    expectLog("warn", "Invalid JSON body for HTTP MCP request", { operation: "http_transport" });
     const response = await fetch(baseUrl, {
       method: "POST",
       headers: {
@@ -229,6 +231,7 @@ describe("HTTP transport entrypoint", () => {
   it.each([[100, 202], [101, 400]])(
     "enforces the SDK batch boundary for %i notifications",
     async (size, expectedStatus) => {
+      if (size > 100) expectLog("error", "HTTP transport error", { operation: "http_transport" });
       const client = new Client({ name: "batch-limit-client", version: "1.0.0" });
       const transport = new StreamableHTTPClientTransport(baseUrl);
       try {
@@ -294,6 +297,7 @@ describe("HTTP transport entrypoint", () => {
   });
 
   it("returns unavailable readiness while the Scryfall circuit breaker is open", async () => {
+    expectLog("warn", "Rate limiter health check failed", { service: "rateLimiter" });
     await closeRuntime?.();
 
     const runtime = createHttpAppServer({ host: "127.0.0.1", port: 0 });

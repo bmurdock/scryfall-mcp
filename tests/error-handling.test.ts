@@ -1,3 +1,4 @@
+import { expectLog } from "./helpers/expected-logs.js";
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { 
   MCPError, 
@@ -329,6 +330,7 @@ describe('Error Handling System', () => {
     });
 
     it('should measure time with monitoring for failed operations', async () => {
+      expectLog("error", "Operation failed", { operation: "test_operation" });
       const requestId = generateRequestId();
       const operation = 'test_operation';
       

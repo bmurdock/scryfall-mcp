@@ -1,3 +1,4 @@
+import { expectLog } from "./helpers/expected-logs.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CacheService } from "../src/services/cache-service.js";
 import { RateLimiter } from "../src/services/rate-limiter.js";
@@ -267,6 +268,7 @@ describe("ScryfallClient JSON parsing", () => {
   });
 
   it("keeps the timeout active while the response body is being consumed", async () => {
+    expectLog("error", "Network error during Scryfall request", { operation: "scryfall_request" });
     vi.useFakeTimers();
     const previousTimeout = process.env.SCRYFALL_TIMEOUT_MS;
     process.env.SCRYFALL_TIMEOUT_MS = "1000";
@@ -363,6 +365,7 @@ describe("ScryfallClient JSON parsing", () => {
     [404, "not_found"],
     [422, "invalid_query"],
   ])("resets transient failure state after expected HTTP %s responses", async (status, code) => {
+    expectLog("error", "Scryfall API error", { operation: "scryfall_request" });
     fetchMock.mockResolvedValue({
       status,
       ok: false,
@@ -385,6 +388,7 @@ describe("ScryfallClient JSON parsing", () => {
   });
 
   it("clears accumulated circuit backoff after a reachable 4xx recovery probe", async () => {
+    expectLog("error", "Scryfall API error", { operation: "scryfall_request" });
     vi.useFakeTimers();
     const realRateLimiter = new RateLimiter(1, 3, 2, 5);
     realRateLimiter.recordError(500);
@@ -424,6 +428,7 @@ describe("ScryfallClient JSON parsing", () => {
     [429, "rate_limited"],
     [500, "server_error"],
   ])("counts transient HTTP %s responses as service failures", async (status, code) => {
+    expectLog(status === 429 ? "warn" : "error", status === 429 ? "Rate limit exceeded" : "Scryfall API error", { operation: "scryfall_request" });
     fetchMock.mockResolvedValue({
       status,
       ok: false,
@@ -445,6 +450,7 @@ describe("ScryfallClient JSON parsing", () => {
   });
 
   it("counts network failures as transient failures", async () => {
+    expectLog("error", "Network error during Scryfall request", { operation: "scryfall_request" });
     fetchMock.mockRejectedValue(new Error("socket closed"));
 
     const client = createClient();

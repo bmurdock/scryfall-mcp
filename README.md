@@ -138,6 +138,10 @@ npm test
 npm run test:coverage
 ```
 
+Lint rejects warnings. Tests capture application warning, error, and fatal logs;
+failure-path tests declare expected diagnostics with `expectLog` from
+`tests/helpers/expected-logs.ts`. Missing or unexpected diagnostics fail the test.
+
 ### Build
 
 ```bash

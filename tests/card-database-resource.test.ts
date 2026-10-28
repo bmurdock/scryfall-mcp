@@ -1,8 +1,8 @@
+import { expectLog } from "./helpers/expected-logs.js";
 import { access } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CardDatabaseResource } from "../src/resources/card-database.js";
 import { CacheService } from "../src/services/cache-service.js";
-import { mcpLogger } from "../src/services/logger.js";
 import { BulkDataInfo, ScryfallCard } from "../src/types/scryfall-api.js";
 
 function createMockCard(overrides: Partial<ScryfallCard> = {}): ScryfallCard {
@@ -186,6 +186,7 @@ describe("CardDatabaseResource", () => {
   });
 
   it("serves stale cache when refresh fails after newer metadata is detected", async () => {
+    expectLog("warn", "Serving stale bulk snapshot after refresh failure", { operation: "bulk_snapshot_refresh" });
     const originalPayload = await resource.getData();
 
     getBulkDataInfo.mockResolvedValue([createBulkInfo("2026-04-20T00:00:00Z")]);
@@ -265,8 +266,6 @@ describe("CardDatabaseResource", () => {
       } as never,
       cache
     );
-    const warnSpy = vi.spyOn(mcpLogger, "warn").mockImplementation(() => undefined);
-
     const payload = await resource.getData();
 
     expect(JSON.parse(payload).total_cards).toBe(mockCards.length);
@@ -289,18 +288,14 @@ describe("CardDatabaseResource", () => {
     expect(diagnostics.payloadBytes).toBeGreaterThan(cache.getStats().maxMemoryBytes);
     expect(diagnostics.cached).toBe(false);
     expect(diagnostics.oversizeReason).toContain("exceeds cache memory limit");
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operation: "bulk_snapshot_cache",
-        payloadBytes: diagnostics.payloadBytes,
-      }),
-      "Bulk snapshot exceeds in-memory cache limit"
-    );
-
-    warnSpy.mockRestore();
+    expectLog("warn", "Bulk snapshot exceeds in-memory cache limit", {
+      operation: "bulk_snapshot_cache",
+      payloadBytes: diagnostics.payloadBytes,
+    });
   });
 
   it("serves oversized snapshots from disk on warm reads without rebuilding", async () => {
+    expectLog("warn", "Bulk snapshot exceeds in-memory cache limit", { operation: "bulk_snapshot_cache" });
     cache.destroy();
     cache = new CacheService(60_000, 100, 0.0001);
     resource = new CardDatabaseResource(
@@ -320,6 +315,7 @@ describe("CardDatabaseResource", () => {
   });
 
   it("removes oversized disk snapshots when destroyed", async () => {
+    expectLog("warn", "Bulk snapshot exceeds in-memory cache limit", { operation: "bulk_snapshot_cache" });
     cache.destroy();
     cache = new CacheService(60_000, 100, 0.0001);
     resource = new CardDatabaseResource(
@@ -342,6 +338,8 @@ describe("CardDatabaseResource", () => {
   });
 
   it("keeps oversized disk snapshots isolated between resource instances", async () => {
+    expectLog("warn", "Bulk snapshot exceeds in-memory cache limit", { operation: "bulk_snapshot_cache" });
+    expectLog("warn", "Bulk snapshot exceeds in-memory cache limit", { operation: "bulk_snapshot_cache" });
     const cacheA = new CacheService(60_000, 100, 0.0001);
     const cacheB = new CacheService(60_000, 100, 0.0001);
     const streamA = vi.fn().mockImplementation(async function* () {

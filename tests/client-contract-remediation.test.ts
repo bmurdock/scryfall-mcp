@@ -1,3 +1,4 @@
+import { expectLog } from "./helpers/expected-logs.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ScryfallClient } from '../src/services/scryfall-client.js';
 import { CacheService } from '../src/services/cache-service.js';
@@ -55,6 +56,7 @@ describe('card freshness and localization contracts', () => {
   });
 
   it('reports an unavailable localized printing instead of falling back to English', async () => {
+    expectLog("error", "Scryfall API error", { operation: "scryfall_request" });
     fetchMock.mockImplementation(async (url: string) => new Response(JSON.stringify(
       new URL(url).pathname.endsWith('/ja') ? { object: 'error', code: 'not_found', details: 'No Japanese printing' } : card
     ), { status: new URL(url).pathname.endsWith('/ja') ? 404 : 200 }));

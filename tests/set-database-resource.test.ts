@@ -1,3 +1,4 @@
+import { expectLog } from "./helpers/expected-logs.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SetDatabaseResource } from "../src/resources/set-database.js";
 import { CacheService } from "../src/services/cache-service.js";
@@ -218,6 +219,7 @@ describe("SetDatabaseResource", () => {
   });
 
   it("serves a stale snapshot when a scheduled refresh fails", async () => {
+    expectLog("warn", "Serving stale set snapshot after refresh failure", { operation: "set_snapshot_refresh" });
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
     const staleSets = [createSet({ id: "stale-id", code: "old", name: "Stale Set" })];
@@ -259,6 +261,7 @@ describe("SetDatabaseResource", () => {
   });
 
   it("serves stale set models to filtered reads after refresh failure", async () => {
+    expectLog("warn", "Serving stale set model after refresh failure", { operation: "set_model_refresh" });
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
     const sets = [createSet({ id: "stale-id", code: "old", name: "Stale Set" })];

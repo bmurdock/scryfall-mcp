@@ -1,3 +1,4 @@
+import { expectLog } from "./helpers/expected-logs.js";
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { once } from 'node:events';
@@ -59,6 +60,8 @@ describe('server lifecycle and protocol boundaries', () => {
   });
 
   it('preserves actionable prompt validation errors over the MCP wire', async () => {
+    expectLog("error", "Prompt generation failed", { promptName: "build_deck" });
+    expectLog("error", "Prompt generation failed", { promptName: "analyze_card" });
     const { sdkServer, appServer } = await createConfiguredServer();
     const client = new Client({ name: 'error-test', version: '1' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -94,6 +97,7 @@ describe('server lifecycle and protocol boundaries', () => {
       await sdkServer.connect(b);
       await client.connect(a);
       for (const name of ['analyze_card', 'build_deck']) {
+        expectLog("error", "Prompt generation failed", { promptName: name });
         const error = await client.getPrompt({ name, arguments: { card_identifier: 'test', format: 'modern' } }).catch(error => error);
         expect(error.code).toBe(-32603);
         expect(error.message).toContain(upstreamError.message);

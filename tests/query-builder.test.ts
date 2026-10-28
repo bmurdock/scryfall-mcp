@@ -1,3 +1,4 @@
+import { expectLog } from "./helpers/expected-logs.js";
 import { describe, expect, it, vi } from 'vitest';
 import { NaturalLanguageParser } from '../src/natural-language/parser.js';
 import { ConceptExtractor } from '../src/natural-language/concept-extractor.js';
@@ -113,6 +114,7 @@ describe('Natural-Language Query Builder', () => {
     });
 
     it('keeps an adjustment when only the adjusted-query recount fails', async () => {
+      expectLog("warn", "Adjusted query testing failed", { operation: "adjusted_query_test" });
       const mockClient = {
         searchCards: vi
           .fn()
