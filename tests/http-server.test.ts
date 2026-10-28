@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { gzipSync } from "node:zlib";
 import { createHttpAppServer, resolveHttpServerConfig, type HttpServerConfig } from "../src/http.js";
 
 describe("HTTP transport entrypoint", () => {
@@ -48,6 +49,32 @@ describe("HTTP transport entrypoint", () => {
     expect(tools.tools.map((tool) => tool.name)).toContain("suggest_mana_base");
 
     await transport.close();
+  });
+
+  it("rejects an ordinary compressed JSON body without mounting decompression middleware", async () => {
+    const response = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Encoding": "gzip",
+        Accept: "application/json, text/event-stream",
+      },
+      body: gzipSync(Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }))),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { message: "Bad Request: Invalid JSON body" },
+    });
+
+    const client = new Client({ name: "after-compressed-body", version: "1.0.0" });
+    const transport = new StreamableHTTPClientTransport(baseUrl);
+    try {
+      await client.connect(transport);
+      await expect(client.ping()).resolves.toEqual({});
+    } finally {
+      await transport.close();
+    }
   });
 
   it("executes a representative tool over Streamable HTTP", async () => {
