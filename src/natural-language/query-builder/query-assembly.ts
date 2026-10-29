@@ -41,6 +41,9 @@ export function formatQueryToken(
   if (NUMERIC_OPERATORS.has(operator)) {
     return `${prefix}${operator}${comparison || '='}${value}`;
   }
+  if (operator === 'c' && comparison) {
+    return `${prefix}${operator}${comparison}${value}`;
+  }
   const tokenValue = operator === 'o' && /\s/.test(value) ? JSON.stringify(value) : value;
   return `${prefix}${operator}:${normalizedComparison}${tokenValue}`;
 }
@@ -48,9 +51,9 @@ export function formatQueryToken(
 function buildOperatorQuery(operator: string, mappings: ConceptMapping[]): string {
   if (mappings.length === 0) return '';
 
-  if (operator === 'c' && mappings.some(mapping => mapping.alternatives)) {
+  if (operator === 'c') {
     return mappings.map(mapping => mapping.alternatives
-      ? `(${mapping.alternatives.map(value => formatQueryToken(operator, value)).join(' OR ')})`
+      ? `(${mapping.alternatives.map(value => formatQueryToken(operator, value, undefined, mapping.negation)).join(mapping.negation ? ' ' : ' OR ')})`
       : formatQueryToken(operator, mapping.value, mapping.comparison, mapping.negation)
     ).join(' ');
   }

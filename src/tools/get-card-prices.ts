@@ -8,6 +8,13 @@ import {
 } from '../types/mcp-types.js';
 import { MagicFormat, Prices, ScryfallCard } from '../types/scryfall-api.js';
 import { excludeLogicalCardFromQuery, isSameLogicalCard } from '../utils/card-identity.js';
+import { currentRequestSignal } from '../services/request-context.js';
+
+function unavailableComparison(category: 'Lower' | 'Higher', error: unknown): string {
+  const retry = error instanceof RateLimitError && error.retryAfter !== undefined
+    ? ` Retry after ${error.retryAfter}s.` : '';
+  return `\n\n${category}-priced comparisons unavailable.${retry}`;
+}
 
 const getPriceForCurrency = (prices: Prices, currency: string): string | undefined =>
   prices[currency as keyof Prices];
@@ -97,7 +104,15 @@ export class GetCardPricesTool {
           }
         }
       } catch (error) {
-        // Ignore search errors for alternatives
+        currentRequestSignal()?.throwIfAborted();
+        if (!(error instanceof ScryfallAPIError && error.status === 404)) {
+          alternatives += unavailableComparison('Lower', error);
+          // Preserve the base price promptly instead of waiting through the
+          // shared throttle window for the second comparison category.
+          if (error instanceof RateLimitError) {
+            return alternatives + unavailableComparison('Higher', error);
+          }
+        }
       }
 
       // Get more expensive comparison candidates.
@@ -120,11 +135,15 @@ export class GetCardPricesTool {
           }
         }
       } catch (error) {
-        // Ignore search errors for alternatives
+        currentRequestSignal()?.throwIfAborted();
+        if (!(error instanceof ScryfallAPIError && error.status === 404)) {
+          alternatives += unavailableComparison('Higher', error);
+        }
       }
 
       return alternatives;
     } catch (error) {
+      currentRequestSignal()?.throwIfAborted();
       return '\n\n**Heuristic price comparisons:** Unable to find comparison candidates at this time.';
     }
   }
@@ -190,6 +209,7 @@ export class GetCardPricesTool {
 
     } catch (error) {
       // Handle different error types
+      currentRequestSignal()?.throwIfAborted();
       if (error instanceof ValidationError) {
         return {
           content: [

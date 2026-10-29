@@ -5,6 +5,7 @@ import {
   ParsedQuery,
 } from '../types.js';
 import { applyOptimization } from './query-optimization.js';
+import { formatPriceAmount } from '../../utils/formatters.js';
 
 export function generateExplanation(mappings: ConceptMapping[], options: BuildOptions): string {
   const explanations: string[] = [];
@@ -43,7 +44,13 @@ export function generateExplanation(mappings: ConceptMapping[], options: BuildOp
 }
 
 function explainColorConstraints(mappings: ConceptMapping[]): string {
-  const colorNames = mappings.map(m => getColorName(m.value)).join(' and ');
+  const colorNames = mappings.map(m => {
+    const names = m.alternatives
+      ? m.alternatives.map(getColorName).join(' or ')
+      : m.value.split('').map(getColorName).join(' and ');
+    const qualifier = m.negation ? 'not ' : m.comparison === '=' ? 'exactly ' : '';
+    return `${qualifier}${m.negation && m.alternatives ? `(${names})` : names}`;
+  }).join(' and ');
   return `Cards that are ${colorNames}`;
 }
 
@@ -58,7 +65,7 @@ function explainFunctionConstraints(mappings: ConceptMapping[]): string {
 }
 
 function explainPriceConstraints(mappings: ConceptMapping[]): string {
-  const prices = mappings.map(m => `${m.comparison}$${m.value}`).join(' and ');
+  const prices = mappings.map(m => `${m.comparison}${formatPriceAmount(m.value, m.operator)}`).join(' and ');
   return `priced ${prices}`;
 }
 

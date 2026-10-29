@@ -2,6 +2,7 @@ import { ScryfallClient } from '../../services/scryfall-client.js';
 import { mcpLogger } from '../../services/logger.js';
 import { BuildOptions, QueryOptimization, QueryTestSummary } from '../types.js';
 import { formatQueryToken } from './query-assembly.js';
+import { ScryfallAPIError } from '../../types/mcp-types.js';
 
 export interface TestedQuery {
   query: string;
@@ -93,26 +94,20 @@ export async function testAndAdjustQuery(
   options: BuildOptions
 ): Promise<TestedQuery> {
   try {
-    const testResult = await scryfallClient.searchCards({
-      query,
-      limit: 1
-    });
-
     const optimizations: QueryOptimization[] = [];
     let adjustedQuery = query;
-    const totalCards = testResult.total_cards ?? 0;
-    let testSummary: QueryTestSummary = {
-      total_cards: totalCards,
-      has_more: testResult.has_more ?? false,
-    };
+    let testSummary = await testQuery(scryfallClient, query);
+    const totalCards = testSummary.total_cards;
 
     if (totalCards === 0) {
-      adjustedQuery = broadenQuery(query);
-      optimizations.push({
-        type: 'broadening',
-        reason: 'Original query returned no results',
-        change: `${query} → ${adjustedQuery}`
-      });
+      adjustedQuery = broadenQuery(query, options.price_budget);
+      if (adjustedQuery !== query) {
+        optimizations.push({
+          type: 'broadening',
+          reason: 'Original query returned no results',
+          change: `${query} → ${adjustedQuery}`
+        });
+      }
     } else if (totalCards > (options.max_results || 20) * 10) {
       adjustedQuery = narrowQuery(query);
       optimizations.push({
@@ -124,14 +119,7 @@ export async function testAndAdjustQuery(
 
     if (adjustedQuery !== query) {
       try {
-        const adjustedResult = await scryfallClient.searchCards({
-          query: adjustedQuery,
-          limit: 1,
-        });
-        testSummary = {
-          total_cards: adjustedResult.total_cards ?? 0,
-          has_more: adjustedResult.has_more ?? false,
-        };
+        testSummary = await testQuery(scryfallClient, adjustedQuery);
       } catch (error) {
         mcpLogger.warn(
           { operation: 'adjusted_query_test', error: error instanceof Error ? error.message : String(error) },
@@ -151,7 +139,20 @@ export async function testAndAdjustQuery(
   }
 }
 
-function broadenQuery(query: string): string {
+async function testQuery(client: ScryfallClient, query: string): Promise<QueryTestSummary> {
+  try {
+    const result = await client.searchCards({ query, limit: 1 });
+    return { total_cards: result.total_cards ?? 0, has_more: result.has_more ?? false };
+  } catch (error) {
+    // Scryfall represents a valid search with no matches as HTTP 404.
+    if (error instanceof ScryfallAPIError && error.status === 404 && error.apiCode === 'not_found') {
+      return { total_cards: 0, has_more: false };
+    }
+    throw error;
+  }
+}
+
+function broadenQuery(query: string, priceBudget?: BuildOptions['price_budget']): string {
   let broadened = query;
 
   broadened = broadened.replace(/\bcmc(?::)?=?(\d+)/, (_match, value) => {
@@ -161,10 +162,12 @@ function broadenQuery(query: string): string {
     const newValue = Math.max(1, parseInt(value, 10) - 1);
     return formatQueryToken('pow', String(newValue), '>=');
   });
-  broadened = broadened.replace(/\busd(?::)?<=(\d+)/, (match, value) => {
-    const newValue = parseInt(value, 10) * 2;
-    return formatQueryToken('usd', String(newValue), '<=');
-  });
+  if (priceBudget?.currency !== 'usd') {
+    broadened = broadened.replace(/\busd(?::)?<=(\d+)/, (match, value) => {
+      const newValue = parseInt(value, 10) * 2;
+      return formatQueryToken('usd', String(newValue), '<=');
+    });
+  }
 
   return broadened;
 }

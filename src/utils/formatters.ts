@@ -1,6 +1,13 @@
 import { ScryfallCard, ScryfallSet, ScryfallSearchResponse, Legalities } from '../types/scryfall-api.js';
 import { FormattedCard, FormattedSearchResult, FormattedSet } from '../types/mcp-types.js';
 
+export function formatPriceAmount(amount: string, currency: string): string {
+  if (currency === 'usd') return `$${amount}`;
+  if (currency === 'eur') return `€${amount}`;
+  if (currency === 'tix') return `${amount} tix`;
+  return `${amount} ${currency.toUpperCase()}`;
+}
+
 /**
  * Formats a Scryfall card for MCP response
  */
@@ -247,7 +254,7 @@ export function formatCardDetails(card: ScryfallCard, includeImage = true, face?
   // Prices
   const prices = Object.entries(formatted.prices)
     .filter(([, price]) => price)
-    .map(([currency, price]) => `${currency.toUpperCase()}: $${price}`)
+    .map(([currency, price]) => `${currency.toUpperCase()}: ${formatPriceAmount(price!, currency)}`)
     .join(', ');
   
   if (prices) {

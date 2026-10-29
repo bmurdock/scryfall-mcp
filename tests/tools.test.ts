@@ -414,16 +414,16 @@ describe('MCP Tools', () => {
       }
     });
 
-    it('bounds retained contexts while preserving the total match count', () => {
+    it('bounds retained contexts while preserving the total match count', async () => {
       const searchRules = (tool as unknown as {
         searchRules: (params: {
           query: string;
           context_lines: number;
           exact_match: boolean;
-        }) => { results: unknown[]; totalMatches: number };
+        }) => Promise<{ results: unknown[]; totalMatches: number }>;
       }).searchRules.bind(tool);
 
-      const result = searchRules({ query: 'the', context_lines: 10, exact_match: false });
+      const result = await searchRules({ query: 'the', context_lines: 10, exact_match: false });
 
       expect(result.totalMatches).toBeGreaterThan(10);
       expect(result.results).toHaveLength(10);
@@ -1442,7 +1442,7 @@ describe('MCP Tools', () => {
       const text = result.content[0].text;
 
       expect(result.isError).toBeUndefined();
-      expect(text).toContain('Average CMC: 4.09');
+      expect(text).toContain('Average Nonland CMC: 5.00');
       expect(text).toContain('⚡ Mana curve too high for aggro');
       expect(text).toContain('🌍 Consider adding 20 more lands');
       expect(text).toContain('💰 Deck contains 6 expensive cards (total: $232.50)');

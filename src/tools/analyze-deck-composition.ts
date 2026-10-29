@@ -326,6 +326,7 @@ export class AnalyzeDeckCompositionTool {
     };
 
     let totalCMC = 0;
+    let nonlandCount = 0;
     
     // Analyze each card
     for (const entry of deckEntries) {
@@ -342,7 +343,13 @@ export class AnalyzeDeckCompositionTool {
       
       // Mana curve
       analysis.manaCurve[cmc] = (analysis.manaCurve[cmc] || 0) + quantity;
-      totalCMC += cmc * quantity;
+      // The curve lists all cards, but spell-curve advice must exclude lands.
+      // A spell with a land back face still contributes its front-face value.
+      const frontType = (card.card_faces?.[0]?.type_line ?? card.type_line ?? '').split(' // ')[0].toLowerCase();
+      if (!frontType.includes('land')) {
+        totalCMC += cmc * quantity;
+        nonlandCount += quantity;
+      }
       
       // Type breakdown
       if (types.includes('creature')) {
@@ -384,7 +391,7 @@ export class AnalyzeDeckCompositionTool {
       }
     }
     
-    analysis.averageCMC = analysis.totalCards > 0 ? totalCMC / analysis.totalCards : 0;
+    analysis.averageCMC = nonlandCount > 0 ? totalCMC / nonlandCount : 0;
     
     // Sort expensive cards by price
     analysis.expensiveCards.sort((a, b) => b.price - a.price);
@@ -485,7 +492,7 @@ export class AnalyzeDeckCompositionTool {
     if (analysis.totalCards !== analysis.requestedCards) {
       response += `• Analyzed Cards: ${analysis.totalCards} of ${analysis.requestedCards}\n`;
     }
-    response += `• Average CMC: ${analysis.averageCMC.toFixed(2)}\n`;
+    response += `• Average Nonland CMC: ${analysis.averageCMC.toFixed(2)}\n`;
     if (params.strategy !== 'unknown') {
       response += `• Strategy: ${params.strategy}\n`;
     }

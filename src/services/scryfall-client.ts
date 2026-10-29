@@ -76,6 +76,7 @@ export class ScryfallClient {
   private readonly searchApiPageSize = 175;
   private readonly inFlightCardLookups = new Map<string, SharedRequest<ScryfallCard>>();
   private readonly inFlightSearches = new Map<string, SharedRequest<ScryfallSearchResponse>>();
+  private readonly inFlightSets = new Map<string, SharedRequest<ScryfallSet[]>>();
   private rateLimiter: RateLimiter;
   private cache: CacheService;
   private readonly ownsRateLimiter: boolean;
@@ -178,10 +179,25 @@ export class ScryfallClient {
     return this.fetchWithTimeout(url, {
       ...REQUIRED_HEADERS,
       "User-Agent": this.userAgent,
-    }, async (response) => ({
-      response,
-      data: await this.parseJsonResponse<T>(response),
-    }));
+    }, async (response) => {
+      // Throttling is defined by status/headers, even for an empty or HTML body.
+      if (response.status === 429) {
+        try {
+          await response.body?.cancel();
+        } catch {
+          // Body cleanup must not discard the upstream throttle instructions.
+        }
+        return { response, data: undefined as T };
+      }
+      try {
+        return { response, data: await this.parseJsonResponse<T>(response) };
+      } catch (error) {
+        if (response.status < 400 || (error instanceof Error && error.name === 'AbortError')) {
+          throw error;
+        }
+        return { response, data: undefined as T };
+      }
+    });
   }
 
   private async fetchWithTimeout<T>(
@@ -237,10 +253,10 @@ export class ScryfallClient {
 
     if (response.status === 429) {
       const retryAfter = response.headers.get("retry-after");
-      this.rateLimiter.handleRateLimitResponse(retryAfter || undefined);
+      const retryAfterSeconds = this.rateLimiter.handleRateLimitResponse(retryAfter || undefined);
       const rateLimitError = new RateLimitError(
         "Rate limit exceeded",
-        retryAfter ? parseInt(retryAfter, 10) : undefined
+        retryAfterSeconds
       );
       mcpLogger.warn(
         {
@@ -255,7 +271,7 @@ export class ScryfallClient {
       return rateLimitError;
     }
 
-    const error = data as ScryfallError;
+    const error = (data && typeof data === 'object' ? data : {}) as Partial<ScryfallError>;
     const apiError = new ScryfallAPIError(
       error.details || `HTTP ${response.status}`,
       response.status,
@@ -425,7 +441,7 @@ export class ScryfallClient {
   }
 
   private normalizeSearchRequest(params: SearchCardsParams): NormalizedSearchRequest {
-    const queryParts = [params.query];
+    const queryParts: string[] = [];
     if (params.price_range) {
       const currency = params.price_range.currency || "usd";
       if (params.price_range.min !== undefined) {
@@ -437,7 +453,7 @@ export class ScryfallClient {
     }
 
     return {
-      query: queryParts.join(" "),
+      query: queryParts.length > 0 ? `(${params.query}) ${queryParts.join(" ")}` : params.query,
       requestedPage: params.page || 1,
       requestedLimit: params.limit || 20,
       include_extras: params.include_extras,
@@ -578,19 +594,24 @@ export class ScryfallClient {
     released_after?: string;
     released_before?: string;
     digital?: boolean;
-  }): Promise<ScryfallSet[]> {
+  }, options: { forceRefresh?: boolean } = {}): Promise<ScryfallSet[]> {
     currentRequestSignal()?.throwIfAborted();
     const rawSetsKey = CacheService.createSetKey();
 
-    const cachedRaw = this.cache.getWithStats<{ data: ScryfallSet[] } | ScryfallSet[]>(rawSetsKey);
+    const cachedRaw = options.forceRefresh
+      ? null
+      : this.cache.getWithStats<{ data: ScryfallSet[] } | ScryfallSet[]>(rawSetsKey);
     const cachedSets = cachedRaw
       ? Array.isArray(cachedRaw) ? cachedRaw : cachedRaw.data
       : undefined;
-    const allSets = cachedSets ?? (
-      await this.makeRequest<ScryfallListResponse<ScryfallSet>>(`${this.baseUrl}/sets`)
-    ).data;
+    const allSets = cachedSets ?? await shareRequest(this.inFlightSets, rawSetsKey, async () => {
+      const response = await this.makeRequest<ScryfallListResponse<ScryfallSet>>(`${this.baseUrl}/sets`);
+      this.cache.invalidateSetFilters();
+      this.cache.setWithType(rawSetsKey, { data: response.data }, "set_data");
+      return response.data;
+    });
 
-    if (!cachedRaw || Array.isArray(cachedRaw)) {
+    if (Array.isArray(cachedRaw)) {
       this.cache.invalidateSetFilters();
       this.cache.setWithType(rawSetsKey, { data: allSets }, "set_data");
     }
@@ -741,6 +762,7 @@ export class ScryfallClient {
   destroy(): void {
     this.inFlightCardLookups.clear();
     this.inFlightSearches.clear();
+    this.inFlightSets.clear();
 
     if (this.ownsCache) {
       this.cache.destroy();

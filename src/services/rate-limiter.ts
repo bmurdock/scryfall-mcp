@@ -1,6 +1,18 @@
 import { RATE_LIMIT_CONFIG, RateLimitError } from '../types/mcp-types.js';
 import { EnvValidators } from '../utils/env-parser.js';
 
+export function parseRetryAfterSeconds(value?: string, now = Date.now()): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return Number.isSafeInteger(seconds) ? seconds : undefined;
+  }
+  if (!/^[A-Za-z]+[, ]/.test(trimmed)) return undefined;
+  const timestamp = Date.parse(trimmed);
+  return Number.isFinite(timestamp) ? Math.max(0, Math.ceil((timestamp - now) / 1000)) : undefined;
+}
+
 interface QueuedRequest {
   run: () => Promise<unknown>;
   resolve: (value?: unknown) => void;
@@ -308,21 +320,20 @@ export class RateLimiter {
   /**
    * Handles 429 responses with Retry-After header
    */
-  handleRateLimitResponse(retryAfter?: string): void {
+  handleRateLimitResponse(retryAfter?: string): number | undefined {
     if (this.consecutiveErrors === 0) {
       this.recordError(429);
     }
 
     let delay = this.getCurrentBackoffDelay();
 
-    if (retryAfter) {
-      const retryAfterMs = parseInt(retryAfter, 10) * 1000;
-      if (!Number.isNaN(retryAfterMs)) {
-        delay = Math.max(delay, retryAfterMs);
-      }
+    const retryAfterSeconds = parseRetryAfterSeconds(retryAfter);
+    if (retryAfterSeconds !== undefined) {
+      delay = Math.max(delay, retryAfterSeconds * 1000);
     }
 
     this.nextAllowedRequestTime = Math.max(this.nextAllowedRequestTime, Date.now() + delay);
+    return retryAfterSeconds;
   }
 
   /**

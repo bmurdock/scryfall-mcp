@@ -7,9 +7,9 @@ import { getUnquotedParenthesisStats } from './query-structure.js';
 const MAX_QUERY_LENGTH = 2000;
 
 /**
- * Allowed characters in search queries (basic ASCII + common symbols used in Scryfall)
+ * Unicode names and common Scryfall syntax, including mana symbols and split names.
  */
-const ALLOWED_QUERY_CHARS = /^[\w\s\-:;,.()[\]"'>=<!+*&|]+$/;
+const ALLOWED_QUERY_CHARS = /^[\p{L}\p{M}\p{N}_\s\-:;,.()[\]{}/"'>=<!+*&|]+$/u;
 
 /**
  * Control characters that should be removed from queries
@@ -120,7 +120,7 @@ export function sanitizeCardIdentifier(identifier: string): string {
   sanitized = sanitized.replace(CONTROL_CHARS_REGEX, '');
 
   // For card names, be more restrictive about allowed characters
-  const cardNameChars = /^[\w\s\-,.'"/!?&()]+$/;
+  const cardNameChars = /^[\p{L}\p{M}\p{N}_\s\-,.'"/!?&()]+$/u;
   
   // Check if it's a UUID (more permissive)
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

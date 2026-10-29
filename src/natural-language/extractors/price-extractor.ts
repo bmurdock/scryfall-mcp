@@ -14,45 +14,46 @@ import { PriceConcept } from '../types.js';
 export class PricePatternEngine {
   private readonly patterns = [
     // Under patterns
-    { regex: /under\s*\$?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.95 },
-    { regex: /less\s+than\s*\$?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.93 },
-    { regex: /below\s*\$?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.90 },
-    { regex: /\$?(\d+(?:\.\d{2})?)\s*or\s*less/i, type: 'max', confidence: 0.92 },
-    { regex: /\$?(\d+(?:\.\d{2})?)\s*and\s*under/i, type: 'max', confidence: 0.90 },
-    { regex: /\$?(\d+(?:\.\d{2})?)\s*max/i, type: 'max', confidence: 0.88 },
-    { regex: /maximum\s*\$?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.87 },
+    { regex: /under\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.95 },
+    { regex: /less\s+than\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.93 },
+    { regex: /below\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.90 },
+    { regex: /[$€]?(\d+(?:\.\d{2})?)\s*or\s*less/i, type: 'max', confidence: 0.92 },
+    { regex: /[$€]?(\d+(?:\.\d{2})?)\s*and\s*under/i, type: 'max', confidence: 0.90 },
+    { regex: /[$€]?(\d+(?:\.\d{2})?)\s*max/i, type: 'max', confidence: 0.88 },
+    { regex: /maximum\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.87 },
     
     // Budget patterns
-    { regex: /budget.*?\$?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.85 },
-    { regex: /cheap.*?\$?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.80 },
-    { regex: /affordable.*?\$?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.82 },
-    { regex: /inexpensive.*?\$?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.78 },
+    { regex: /budget.*?[$€]?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.85 },
+    { regex: /cheap.*?[$€]?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.80 },
+    { regex: /affordable.*?[$€]?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.82 },
+    { regex: /inexpensive.*?[$€]?(\d+(?:\.\d{2})?)/i, type: 'max', confidence: 0.78 },
     
     // Over patterns
-    { regex: /over\s*\$?(\d+(?:\.\d{2})?)/i, type: 'min', confidence: 0.95 },
-    { regex: /more\s+than\s*\$?(\d+(?:\.\d{2})?)/i, type: 'min', confidence: 0.93 },
-    { regex: /above\s*\$?(\d+(?:\.\d{2})?)/i, type: 'min', confidence: 0.90 },
-    { regex: /\$?(\d+(?:\.\d{2})?)\s*or\s*more/i, type: 'min', confidence: 0.92 },
-    { regex: /\$?(\d+(?:\.\d{2})?)\s*and\s*up/i, type: 'min', confidence: 0.88 },
-    { regex: /minimum\s*\$?(\d+(?:\.\d{2})?)/i, type: 'min', confidence: 0.87 },
+    { regex: /over\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'min', confidence: 0.95 },
+    { regex: /more\s+than\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'min', confidence: 0.93 },
+    { regex: /above\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'min', confidence: 0.90 },
+    { regex: /[$€]?(\d+(?:\.\d{2})?)\s*or\s*more/i, type: 'min', confidence: 0.92 },
+    { regex: /[$€]?(\d+(?:\.\d{2})?)\s*and\s*up/i, type: 'min', confidence: 0.88 },
+    { regex: /minimum\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'min', confidence: 0.87 },
     
     // Range patterns
-    { regex: /between\s*\$?(\d+(?:\.\d{2})?)\s*(?:and|to|-)\s*\$?(\d+(?:\.\d{2})?)/i, type: 'range', confidence: 0.88 },
-    { regex: /\$?(\d+(?:\.\d{2})?)\s*(?:-|to)\s*\$?(\d+(?:\.\d{2})?)/i, type: 'range', confidence: 0.85 },
-    { regex: /from\s*\$?(\d+(?:\.\d{2})?)\s*to\s*\$?(\d+(?:\.\d{2})?)/i, type: 'range', confidence: 0.87 },
+    { regex: /between\s*[$€]?(\d+(?:\.\d{2})?)\s*(?:and|to|-)\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'range', confidence: 0.88 },
+    { regex: /[$€]?(\d+(?:\.\d{2})?)\s*(?:-|to)\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'range', confidence: 0.85 },
+    { regex: /from\s*[$€]?(\d+(?:\.\d{2})?)\s*to\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'range', confidence: 0.87 },
     
     // Exact patterns
-    { regex: /exactly\s*\$?(\d+(?:\.\d{2})?)/i, type: 'exact', confidence: 0.90 },
-    { regex: /costs\s*\$?(\d+(?:\.\d{2})?)/i, type: 'exact', confidence: 0.85 },
-    { regex: /priced\s*at\s*\$?(\d+(?:\.\d{2})?)/i, type: 'exact', confidence: 0.83 },
+    { regex: /exactly\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'exact', confidence: 0.90 },
+    { regex: /costs\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'exact', confidence: 0.85 },
+    { regex: /priced\s*at\s*[$€]?(\d+(?:\.\d{2})?)/i, type: 'exact', confidence: 0.83 },
     
     // Special budget terms
-    { regex: /budget/i, type: 'budget_general', confidence: 0.70 },
-    { regex: /cheap/i, type: 'budget_general', confidence: 0.65 },
-    { regex: /affordable/i, type: 'budget_general', confidence: 0.68 },
-    { regex: /expensive/i, type: 'expensive_general', confidence: 0.65 },
-    { regex: /premium/i, type: 'expensive_general', confidence: 0.70 },
-    { regex: /high.?end/i, type: 'expensive_general', confidence: 0.72 }
+    { regex: /\bbudget\b/i, type: 'budget_general', confidence: 0.70 },
+    { regex: /\bcheap\b/i, type: 'budget_general', confidence: 0.65 },
+    { regex: /\baffordable\b/i, type: 'budget_general', confidence: 0.68 },
+    { regex: /\binexpensive\b/i, type: 'budget_general', confidence: 0.70 },
+    { regex: /\bexpensive\b/i, type: 'expensive_general', confidence: 0.65 },
+    { regex: /\bpremium\b/i, type: 'expensive_general', confidence: 0.70 },
+    { regex: /\bhigh.?end\b/i, type: 'expensive_general', confidence: 0.72 }
   ];
   
   /**
@@ -60,10 +61,13 @@ export class PricePatternEngine {
    */
   extract(text: string): PriceConcept[] {
     const concepts: PriceConcept[] = [];
+    const defaults: PriceConcept[] = [];
     
     for (const pattern of this.patterns) {
-      const match = text.match(pattern.regex);
-      if (match) {
+      for (const match of text.matchAll(new RegExp(pattern.regex.source, 'gi'))) {
+        if (!pattern.type.endsWith('_general') && !this.hasMonetaryContext(text, match)) {
+          continue;
+        }
         const concept: PriceConcept = {
           currency: 'usd', // Default to USD
           confidence: pattern.confidence
@@ -87,24 +91,51 @@ export class PricePatternEngine {
         }
         
         // Detect currency
-        concept.currency = this.detectCurrency(text, match.index || 0);
+        const amount = match[2] ?? match[1];
+        const amountPosition = (match.index ?? 0) + (amount ? match[0].lastIndexOf(amount) : 0);
+        concept.currency = this.detectCurrency(text, amountPosition);
         
         // Detect condition context
         if (!concept.condition) {
           concept.condition = this.detectCondition(text, match.index || 0);
         }
         
-        concepts.push(concept);
+        (pattern.type.endsWith('_general') ? defaults : concepts).push(concept);
       }
     }
     
-    return this.deduplicateAndMerge(concepts);
+    return this.deduplicateAndMerge(concepts.length > 0 ? concepts : defaults);
+  }
+
+  private hasMonetaryContext(text: string, match: RegExpMatchArray): boolean {
+    if (/[$€]/.test(match[0])) return true;
+    const index = match.index ?? 0;
+    const suffix = text.slice(index + match[0].length);
+    if (/^\s*[$€]/.test(suffix)) return true;
+    if (/^\s*(?:usd|dollars?|eur|euros?|tix|tickets?)\b/i.test(suffix)) return true;
+    if (/^\s*(?:(?:-\s*)?(?:mana|power|toughness|cmc)\b|\/\s*\d)/i.test(suffix)) return false;
+
+    // The nearest named quantity owns a bare number. A budget mentioned earlier
+    // must not turn "power less than 3" into a price constraint.
+    const context = text.slice(Math.max(0, index - 50), index) + match[0];
+    const markers = [...context.matchAll(/\b(price[ds]?|budget|cheap|affordable|inexpensive|power|toughness|mana|cmc)\b/gi)];
+    const nearest = markers.at(-1)?.[1].toLowerCase();
+    return nearest !== undefined && /^(price[ds]?|budget|cheap|affordable|inexpensive)$/.test(nearest);
   }
   
   /**
    * Detect currency from context
    */
   private detectCurrency(text: string, position: number): 'usd' | 'eur' | 'tix' {
+    const symbol = text.slice(0, position).match(/([$€])\s*$/)?.[1] ??
+      text.slice(position).match(/^\d+(?:\.\d+)?\s*([$€])/)?.[1];
+    if (symbol) return symbol === '€' ? 'eur' : 'usd';
+    const suffix = text.slice(position).match(/^\d+(?:\.\d+)?\s*(usd|dollars?|eur|euros?|tix|tickets?)\b/i)?.[1].toLowerCase();
+    if (suffix) {
+      if (/^(eur|euros?)$/.test(suffix)) return 'eur';
+      if (/^(tix|tickets?)$/.test(suffix)) return 'tix';
+      return 'usd';
+    }
     const context = text.substring(Math.max(0, position - 20), position + 20).toLowerCase();
     
     if (context.includes('euro') || context.includes('eur') || context.includes('€')) {
@@ -120,13 +151,17 @@ export class PricePatternEngine {
    * Detect price condition from context
    */
   private detectCondition(text: string, position: number): 'budget' | 'value' | 'premium' | undefined {
-    const context = text.substring(Math.max(0, position - 20), position + 20).toLowerCase();
+    // Match whole tokens before applying the context window. Slicing first can
+    // turn the tail of "inexpensive" into a false "expensive" token.
+    const context = [...text.toLowerCase().matchAll(/\b(?:budget|cheap|affordable|inexpensive|value|efficient|reasonable|premium|expensive|high[ -]end)\b/g)]
+      .filter(match => match.index + match[0].length >= position - 20 && match.index <= position + 20)
+      .map(match => match[0]).join(' ');
     
-    if (context.includes('budget') || context.includes('cheap') || context.includes('affordable')) {
+    if (/\b(budget|cheap|affordable|inexpensive)\b/.test(context)) {
       return 'budget';
     } else if (context.includes('value') || context.includes('efficient') || context.includes('reasonable')) {
       return 'value';
-    } else if (context.includes('premium') || context.includes('expensive') || context.includes('high end')) {
+    } else if (/\b(premium|expensive|high end)\b/.test(context)) {
       return 'premium';
     }
     

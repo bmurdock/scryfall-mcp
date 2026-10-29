@@ -98,7 +98,7 @@ export class SetDatabaseResource {
     }
 
     if (!this.loadInFlight) {
-      this.loadInFlight = this.downloadSetData()
+      this.loadInFlight = this.downloadSetData(forceRefresh)
         .then((sets) => {
           this.cache.setWithType(SET_DATA_KEY, { data: sets }, 'set_data');
           return sets;
@@ -177,8 +177,8 @@ export class SetDatabaseResource {
   /**
    * Downloads fresh set data
    */
-  private async downloadSetData(): Promise<ScryfallSet[]> {
-    return this.scryfallClient.getSets();
+  private async downloadSetData(forceRefresh: boolean): Promise<ScryfallSet[]> {
+    return this.scryfallClient.getSets(undefined, { forceRefresh });
   }
 
   /**

@@ -1,9 +1,13 @@
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'node:url';
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { ValidationError } from '../types/mcp-types.js';
 import { mcpLogger } from '../services/logger.js';
+import { currentRequestSignal } from '../services/request-context.js';
 
 const RULES_PATH = fileURLToPath(new URL('../../mtgrules.txt', import.meta.url));
+const MAX_QUERY_LENGTH = 2000;
+const MAX_QUERY_TERMS = 32;
 
 /**
  * MCP Tool for searching Magic: The Gathering comprehensive rules
@@ -17,6 +21,7 @@ export class QueryRulesTool {
     properties: {
       query: {
         type: 'string',
+        maxLength: MAX_QUERY_LENGTH,
         description: 'Search term or rules question'
       },
       section: {
@@ -95,6 +100,13 @@ export class QueryRulesTool {
       throw new ValidationError('Query is required and must be a non-empty string');
     }
 
+    if (params.query.length > MAX_QUERY_LENGTH) {
+      throw new ValidationError(`Query cannot exceed ${MAX_QUERY_LENGTH} characters`);
+    }
+    if (new Set(params.query.toLowerCase().trim().split(/\s+/)).size > MAX_QUERY_TERMS) {
+      throw new ValidationError(`Query cannot exceed ${MAX_QUERY_TERMS} distinct words`);
+    }
+
     if (params.section && (typeof params.section !== 'string' || !/^[1-9]\d*$/.test(params.section))) {
       throw new ValidationError('Section must be a positive number as string');
     }
@@ -120,12 +132,12 @@ export class QueryRulesTool {
   /**
    * Search for rules matching the query
    */
-  private searchRules(params: {
+  private async searchRules(params: {
     query: string;
     section?: string;
     context_lines: number;
     exact_match: boolean;
-  }): {
+  }): Promise<{
     results: Array<{
       lineNumber: number;
       line: string;
@@ -133,7 +145,7 @@ export class QueryRulesTool {
       section: string;
     }>;
     totalMatches: number;
-  } {
+  }> {
     if (!this.rulesContent || this.rulesLines.length === 0) {
       return { results: [], totalMatches: 0 };
     }
@@ -147,15 +159,17 @@ export class QueryRulesTool {
     let totalMatches = 0;
 
     // Create search pattern
-    let searchPattern: RegExp;
+    let matches: (line: string) => boolean;
     if (params.exact_match) {
       // Exact phrase match, case insensitive
-      searchPattern = new RegExp(params.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const phrase = params.query.toLowerCase();
+      matches = line => line.toLowerCase().includes(phrase);
     } else {
-      // Flexible search - split query into words and match all
-      const words = params.query.toLowerCase().split(/\s+/).filter(word => word.length > 0);
-      const pattern = words.map(word => `(?=.*\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`).join('');
-      searchPattern = new RegExp(pattern, 'i');
+      // Each literal term scans the line once; avoid repeated suffix scans from
+      // unanchored lookaheads when a later term is absent.
+      const words = [...new Set(params.query.toLowerCase().split(/\s+/).filter(Boolean))];
+      const patterns = words.map(word => new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'));
+      matches = line => patterns.every(pattern => pattern.test(line));
     }
 
     // Track current section for context
@@ -163,6 +177,10 @@ export class QueryRulesTool {
     let currentRuleSection = '';
 
     for (let i = 0; i < this.rulesLines.length; i++) {
+      if (i % 256 === 0) {
+        await yieldToEventLoop();
+        currentRequestSignal()?.throwIfAborted();
+      }
       const line = this.rulesLines[i];
       
       // Update current section if we hit a section header
@@ -185,7 +203,7 @@ export class QueryRulesTool {
       }
 
       // Check if line matches search pattern
-      if (searchPattern.test(line)) {
+      if (matches(line)) {
         totalMatches++;
         if (results.length >= 10) {
           continue;
@@ -237,7 +255,7 @@ export class QueryRulesTool {
       const params = this.validateParams(args);
 
       // Search for matching rules
-      const { results, totalMatches } = this.searchRules(params);
+      const { results, totalMatches } = await this.searchRules(params);
 
       // Handle no results
       if (results.length === 0) {

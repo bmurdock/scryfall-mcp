@@ -192,14 +192,22 @@ See [.env.example](./.env.example) for the canonical values. The main variables 
 
 Operational notes:
 
+- `query_rules` accepts up to 2,000 characters and 32 distinct words. Flexible matching requires every term; scans yield periodically so request cancellation can interrupt them.
+- Search price bounds apply to the complete query, including all `OR` branches. Search inputs support mana-symbol braces, split-card separators, and Unicode names.
+- Natural-language numeric price constraints require monetary context, such as `$`, `tix`, or `price`; power and mana comparisons are not treated as prices. Query testing treats Scryfall's no-match HTTP 404 as an empty result eligible for broadening while retaining an explicit `price_budget` cap.
+- Natural-language queries preserve `€` price constraints and distinguish whole color words, negated colors, exact colors, and multicolor requests. Price explanations retain USD, EUR, or TIX units.
+- Deck composition reports a nonland average mana value for curve advice. Displayed curves include lands, and batch analysis groups all mana values of seven or more into one `7+` bucket.
 - Scryfall API calls are globally serialized by the shared rate limiter. Batch tools may schedule multiple local lookups, but upstream Scryfall request completion remains one-at-a-time by design.
 - The default pacing is 100 ms for general API endpoints and at least 500 ms for Scryfall's 2/sec card endpoints: `/cards/search`, `/cards/named`, `/cards/random`, and `/cards/collection`.
 - HTTP 429 responses are not retried automatically. The server records Scryfall's throttle window and delays the next request start so callers can decide whether to retry.
+- Throttle windows accept both seconds and HTTP-date `Retry-After` values, including when a 429 response has a non-JSON body.
 - `CACHE_MAX_MEMORY_MB` controls whether large in-memory snapshots, including `card-database://bulk`, can be retained. Bulk resource rebuilds stream to a temp file first; oversized snapshots remain on disk for warm reads instead of being retained in the cache. Each MCP resource response still materializes the complete serialized bulk payload required by the resource protocol, so callers should allow memory proportional to that response size.
 - Set snapshots are refreshed weekly. A stale snapshot may be retained for up to four weeks, subject to cache capacity, and served when a scheduled refresh fails; failed scheduled refreshes are retried after five minutes.
+- Concurrent set-cache misses share one upstream fetch while applying each caller's filters separately. Set searches reject impossible calendar dates.
 - Card detail output includes Scryfall source links and artist attribution when available. Consumers that render Scryfall image URLs should preserve copyright, artist, and source context and should not crop, distort, recolor, watermark, or imply ownership of card images.
 - Non-English `get_card` lookups use Scryfall's localized set/collector endpoint. Name and UUID lookups first resolve a printing, then request that printing in the selected language; unavailable translations return a lookup error.
 - `get_card_prices` uses a separate six-hour cache, independent of the 24-hour card-detail cache.
+- When requested price comparisons fail, `get_card_prices` retains the base price and identifies unavailable comparison categories. A throttled comparison stops further comparison requests and includes available retry guidance.
 - Deck-list analysis resolves card names exactly first, then falls back to fuzzy lookup for exact misses and reports any fuzzy resolutions in the response. Input is bounded to 64 KiB, 100 unique names, 10,000 total cards, and 1,000 copies per entry.
 - Cancelling an MCP tool, prompt, or resource read stops its queued Scryfall work. A lookup or resource read shared with another active caller continues until that caller completes or cancels. Bulk resource cancellation stops the stream and cleans up the incomplete snapshot; shutdown waits for active bulk rebuild cleanup.
 - The stdio server shuts down when its client closes input. Malformed HTTP URLs or Host headers return HTTP 400 without terminating the server.

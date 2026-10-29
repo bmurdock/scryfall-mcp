@@ -211,16 +211,15 @@ export function analyzeComposition(cards: ScryfallCard[]): string {
 
   const manaCurve = new Map<number, number>();
   cards.forEach(card => {
-    const cmc = card.cmc || 0;
+    const cmc = Math.min(card.cmc || 0, 7);
     manaCurve.set(cmc, (manaCurve.get(cmc) || 0) + 1);
   });
 
   result += `**Mana Curve:**\n`;
-  for (let i = 0; i <= 10; i++) {
+  const buckets = [...new Set([0, 1, 2, 3, 4, 5, 6, 7, ...manaCurve.keys()])].sort((a, b) => a - b);
+  for (const i of buckets) {
     const count = manaCurve.get(i) || 0;
-    if (count > 0 || i <= 7) {
-      result += `- ${i}${i >= 7 ? '+' : ''}: ${count} cards\n`;
-    }
+    result += `- ${i}${i === 7 ? '+' : ''}: ${count} cards\n`;
   }
 
   const colors = new Map<string, number>();

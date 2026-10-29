@@ -222,7 +222,8 @@ export function validateLanguageCode(langCode: string): void {
  */
 export function validateDateString(dateStr: string): void {
   const date = new Date(dateStr);
-  if (isNaN(date.getTime())) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || isNaN(date.getTime()) ||
+      date.toISOString().slice(0, 10) !== dateStr) {
     throw new ValidationError("Invalid date format. Use ISO 8601 format (YYYY-MM-DD)");
   }
 

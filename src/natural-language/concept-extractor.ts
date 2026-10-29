@@ -73,11 +73,13 @@ export class ConceptExtractor {
     for (const colorConcept of colors) {
       if (colorConcept.anyOf) {
         mappings.push({ operator: 'c', value: colorConcept.colors.join(''),
-          alternatives: colorConcept.colors, confidence: colorConcept.confidence, priority: 10 });
+          alternatives: colorConcept.colors, negation: colorConcept.negation,
+          confidence: colorConcept.confidence, priority: 10 });
       } else if (colorConcept.colorless) {
         mappings.push({
           operator: 'c',
           value: 'c',
+          negation: colorConcept.negation,
           confidence: colorConcept.confidence,
           priority: 10
         });
@@ -85,19 +87,21 @@ export class ConceptExtractor {
         mappings.push({
           operator: 'c',
           value: 'm',
+          negation: colorConcept.negation,
           confidence: colorConcept.confidence,
           priority: 9
         });
       } else if (colorConcept.colors.length > 0) {
         const value = colorConcept.colors.join('');
         const operator = 'c';
-        const comparison = colorConcept.exact ? '=' : 
-                          colorConcept.inclusive ? '>=' : '=';
+        const comparison = colorConcept.exact || colorConcept.exclusive ? '=' :
+                          colorConcept.inclusive ? '>=' : undefined;
         
         mappings.push({
           operator,
           value,
-          comparison: colorConcept.exact ? '=' : comparison,
+          comparison,
+          negation: colorConcept.negation,
           confidence: colorConcept.confidence,
           priority: 10
         });
@@ -444,6 +448,11 @@ export class ConceptExtractor {
    * Resolve color conflicts
    */
   private resolveColorConflicts(mappings: ConceptMapping[]): ConceptMapping[] {
+    const constraints = mappings.filter(mapping => mapping.negation || ['m', 'c'].includes(mapping.value));
+    if (constraints.length > 0) {
+      const remaining = mappings.filter(mapping => !constraints.includes(mapping));
+      return [...constraints, ...(remaining.length ? this.resolveColorConflicts(remaining) : [])];
+    }
     const alternatives = mappings.filter(mapping => mapping.alternatives);
     if (alternatives.length > 0) {
       const remaining = mappings.filter(mapping => !mapping.alternatives);

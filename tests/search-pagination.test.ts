@@ -278,10 +278,10 @@ describe("ScryfallClient search pagination", () => {
       limit: 1,
       price_range: { max: 5, currency: "usd" },
     });
-    await client.searchCards({ query: "type:creature usd<=5", limit: 1 });
+    await client.searchCards({ query: "(type:creature) usd<=5", limit: 1 });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0].toString()).toContain("type%3Acreature+usd%3C%3D5");
+    expect(new URL(fetchMock.mock.calls[0][0]).searchParams.get("q")).toBe("(type:creature) usd<=5");
   });
 
   it("coalesces concurrent identical searches into one upstream request", async () => {

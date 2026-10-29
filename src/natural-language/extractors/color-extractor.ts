@@ -73,11 +73,16 @@ export class ColorPatternEngine {
   extract(text: string): ColorConcept[] {
     const concepts: ColorConcept[] = [];
     const alternatives: ColorConcept[] = [];
+    const colorWord = '(?:red|blue|white|black|green|multicolor(?:ed)?|colorless)';
     const lowerText = text.toLowerCase().replace(
-      /\b(?:red|blue|white|black|green)(?:\s+or\s+(?:red|blue|white|black|green))+\b/g,
-      phrase => {
+      new RegExp(`\\b${colorWord}(?:\\s+or\\s+${colorWord})+\\b`, 'g'),
+      (phrase, index: number) => {
         alternatives.push({
-          colors: [...new Set(phrase.split(/\s+or\s+/).map(color => this.patterns.get(color)!.colors[0]))],
+          colors: [...new Set<string>(phrase.split(/\s+or\s+/).map((color: string) => {
+            const concept = this.patterns.get(color)!;
+            return concept.multicolor ? 'm' : concept.colorless ? 'c' : concept.colors[0];
+          }))],
+          negation: /\b(?:non[- ]|not\s+|without\s+)$/i.test(text.slice(0, index)),
           anyOf: true, exact: false, inclusive: false, exclusive: false,
           multicolor: false, colorless: false, confidence: 0.95,
         });
@@ -87,12 +92,19 @@ export class ColorPatternEngine {
     
     // Check for exact phrases first (higher confidence)
     for (const [pattern, concept] of this.patterns) {
-      if (lowerText.includes(pattern)) {
+      const escapedPattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      for (const match of lowerText.matchAll(new RegExp(`\\b${escapedPattern}\\b`, 'g'))) {
+        const prefix = lowerText.slice(0, match.index);
+        // The mono-color alias owns the full phrase, including its negation.
+        if (/^(?:red|blue|white|black|green)$/.test(pattern) && /\bmono[- ]$/.test(prefix)) {
+          continue;
+        }
         concepts.push({
           colors: concept.colors || [],
+          negation: /\b(?:non[- ]|not\s+|without\s+)$/.test(prefix),
           exact: concept.exact || false,
-          inclusive: this.detectInclusive(text, pattern),
-          exclusive: this.detectExclusive(text, pattern),
+          inclusive: this.detectInclusive(prefix),
+          exclusive: this.detectExclusive(prefix),
           multicolor: concept.multicolor || false,
           colorless: concept.colorless || false,
           confidence: concept.confidence
@@ -106,40 +118,15 @@ export class ColorPatternEngine {
   /**
    * Detect inclusive color indicators (or, any, either, include)
    */
-  private detectInclusive(text: string, pattern: string): boolean {
-    const inclusiveIndicators = ['or', 'any', 'either', 'include', 'containing'];
-    const context = this.getContextWindow(text, pattern, 5);
-    return inclusiveIndicators.some(indicator => context.includes(indicator));
+  private detectInclusive(prefix: string): boolean {
+    return /\b(?:any|either|include|including|containing)\s+(?:(?:red|blue|white|black|green)\s+(?:and\s+)?)*$/.test(prefix);
   }
   
   /**
    * Detect exclusive color indicators (only, just, exactly, purely, solely)
    */
-  private detectExclusive(text: string, pattern: string): boolean {
-    const exclusiveIndicators = ['only', 'just', 'exactly', 'purely', 'solely', 'mono'];
-    const context = this.getContextWindow(text, pattern, 5);
-    return exclusiveIndicators.some(indicator => context.includes(indicator));
-  }
-  
-  /**
-   * Get context window around a pattern match
-   */
-  private getContextWindow(text: string, pattern: string, wordCount: number): string {
-    const index = text.toLowerCase().indexOf(pattern.toLowerCase());
-    if (index === -1) return '';
-    
-    const words = text.split(/\s+/);
-    const patternWords = pattern.split(/\s+/);
-    const patternStart = words.findIndex(word => 
-      word.toLowerCase().includes(patternWords[0].toLowerCase())
-    );
-    
-    if (patternStart === -1) return '';
-    
-    const start = Math.max(0, patternStart - wordCount);
-    const end = Math.min(words.length, patternStart + patternWords.length + wordCount);
-    
-    return words.slice(start, end).join(' ').toLowerCase();
+  private detectExclusive(prefix: string): boolean {
+    return /\b(?:only|just|exactly|purely|solely|mono)[ -]+(?:(?:red|blue|white|black|green)\s+(?:and\s+)?)*$/.test(prefix);
   }
   
   /**
@@ -178,6 +165,10 @@ export class ColorPatternEngine {
    * Check if two color concepts can be merged
    */
   private canMergeConcepts(a: ColorConcept, b: ColorConcept): boolean {
+    if (a.negation || b.negation) {
+      return a.negation === b.negation && a.colors.join('') === b.colors.join('') &&
+        a.multicolor === b.multicolor && a.colorless === b.colorless;
+    }
     // Can merge if they have overlapping colors or compatible flags
     const hasOverlap = a.colors.some(color => b.colors.includes(color));
     const compatibleFlags = (a.multicolor === b.multicolor) && (a.colorless === b.colorless);
@@ -193,7 +184,8 @@ export class ColorPatternEngine {
     
     return {
       colors: mergedColors,
-      exact: a.exact && b.exact,
+      negation: a.negation,
+      exact: a.exact || b.exact,
       inclusive: a.inclusive || b.inclusive,
       exclusive: a.exclusive || b.exclusive,
       multicolor: a.multicolor || b.multicolor,

@@ -87,7 +87,7 @@ export class NaturalLanguageParser {
   private preprocessText(text: string): string {
     return text
       .toLowerCase()
-      .replace(/[^\w\s$./-]/g, ' ') // Preserve power/toughness shorthand.
+      .replace(/[^\w\s$€./-]/g, ' ') // Preserve currency symbols and power/toughness shorthand.
       .replace(/\s+/g, ' ')        // Normalize whitespace
       .trim();
   }
@@ -263,7 +263,7 @@ export class NaturalLanguageParser {
     const hasInclusive = colors.some(c => c.inclusive);
     
     if (hasExact && hasInclusive) {
-      return colors.filter(c => c.exact || c.anyOf);
+      return colors.filter(c => c.exact || c.anyOf || c.negation || c.multicolor || c.colorless);
     }
     
     return colors;

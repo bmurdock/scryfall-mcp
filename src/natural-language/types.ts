@@ -50,6 +50,7 @@ export interface ParsedQuery {
 
 // Color concept with detailed matching information
 export interface ColorConcept {
+  negation?: boolean;
   anyOf?: boolean;           // explicit alternatives, such as "red or blue"
   colors: string[];           // ['r', 'u'] for red/blue
   exact: boolean;            // true for "exactly red and blue"

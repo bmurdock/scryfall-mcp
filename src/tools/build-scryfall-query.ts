@@ -245,8 +245,9 @@ export class BuildScryfallQueryTool {
     
     if (parsed.colors.length > 0) {
       const colorDescs = parsed.colors.map(c => {
-        const colorNames = c.colors.map(color => this.getColorName(color)).join(', ');
-        const type = c.exact ? 'exactly' : c.inclusive ? 'including' : 'any';
+        const colorNames = c.multicolor ? 'multicolor' : c.colorless ? 'colorless' :
+          c.colors.map(color => this.getColorName(color)).join(c.anyOf ? ' or ' : ', ');
+        const type = c.negation ? 'not' : c.exact || c.exclusive ? 'exactly' : c.inclusive ? 'including' : 'any';
         return `${type} ${colorNames}`;
       });
       mappings.push(`• Colors: ${colorDescs.join('; ')}`);
