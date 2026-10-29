@@ -21,14 +21,11 @@ const lockfile: Lockfile = JSON.parse(
 const fixes = [
   { name: "qs", minimum: [6, 16, 1] },
   { name: "fast-uri", minimum: [3, 1, 9] },
+  { name: "body-parser", minimum: [2, 4, 0] },
   { name: "ip-address", minimum: [10, 7, 4] },
 ];
 
 describe("October 28 runtime dependency remediation", () => {
-  // Published 2026-10-22T11:39:38.614Z. The seven-day publication policy blocks
-  // 2.4.0 until 2026-10-29T11:39:38.614Z; this remains an unresolved finding.
-  it.todo("upgrades body-parser to 2.4.0 after publication-cutoff eligibility or explicit approval");
-
   it.each(fixes)("keeps every locked and installed $name copy patched", ({ name, minimum }) => {
     const copies = Object.entries(lockfile.packages).filter(([path]) =>
       path.endsWith(`node_modules/${name}`)
